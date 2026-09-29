@@ -1,0 +1,7 @@
+{
+  "name": "bruh",
+  "version": "0.1.0-dev",
+  "description": "Coordinate Claude Code sessions across projects and machines: bigm, clankers, clerks, and workflows.",
+  "license": "Apache-2.0",
+  "repository": "https://github.com/oter/bruh"
+}

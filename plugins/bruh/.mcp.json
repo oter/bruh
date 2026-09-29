@@ -1,0 +1,14 @@
+{
+  "mcpServers": {
+    "bruh": {
+      "command": "go",
+      "args": ["run", "-C", "${CLAUDE_PLUGIN_ROOT}/mcp", "."],
+      "env": {
+        "BRUH_DATA": "${CLAUDE_PLUGIN_DATA}",
+        "BRUH_PLUGIN_ROOT": "${CLAUDE_PLUGIN_ROOT}",
+        "GOTOOLCHAIN": "local"
+      },
+      "timeout": 86400000
+    }
+  }
+}
