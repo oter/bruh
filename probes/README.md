@@ -1,6 +1,8 @@
 # Probes
 
-`sh probes/run.sh` runs P1 to P3 and prints PASS or FAIL.
+`sh probes/run.sh` runs P1 to P3 and prints PASS or FAIL. Set `PROBE_WORKDIR` to use that folder instead of a fresh `mktemp -d`.
+
+Background probes must run in a folder inside a folder that the user trusted in an interactive session, because `claude --bg` refuses untrusted folders.
 
 - P4 status line in a background session: in a scratch folder, set a status line command that appends `date -u` to `/tmp/bruh-probes/statusline.log`, start a `claude --bg` session with a 3-minute task, and do not attach. PASS if the log grows while no terminal is attached.
 - P5 hook in a subagent of a background session: start `claude --bg --plugin-dir probes/probe-plugin` with the prompt "Use a subagent to run: echo sub". PASS if `/tmp/bruh-probes/hooks.tsv` has a `PreToolUse` line with a non-empty `agent_id`.

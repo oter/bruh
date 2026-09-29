@@ -4,7 +4,8 @@ set -eu
 here=$(cd "$(dirname "$0")" && pwd)
 export PROBE_OUT="${PROBE_OUT:-/tmp/bruh-probes}"
 rm -rf "$PROBE_OUT"; mkdir -p "$PROBE_OUT"
-work=$(mktemp -d); cd "$work"; git init -q .
+work="${PROBE_WORKDIR:-$(mktemp -d)}"; mkdir -p "$work"; cd "$work"
+[ -n "${PROBE_WORKDIR:-}" ] || git init -q .
 settings="$PROBE_OUT/role.json"
 printf '{"env":{"BRUH_ROLE_KEY":"clerk-probe-p3"}}' > "$settings"
 
