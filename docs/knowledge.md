@@ -140,3 +140,27 @@ Lessons from a retrospective of a 4-day multi-agent Claude Code run (a coordinat
 - A Bash permission rule matches the command text after Claude Code splits compound commands and strips wrappers. It does not match the same program invoked in a different form. Source: https://code.claude.com/docs/en/permissions.md.
 - No channel runs until a user opts it in for the session with `--channels`. Source: channels.md.
 
+## Probe results (plan 1, 2026-09-29, Claude Code 2.1.284)
+
+`probes/run.sh` runs P1 to P3. P4 to P7 were run by hand as `probes/README.md` describes, each with `claude --bg` in its own scratch folder under `/tmp`, none attached to after it started. P8 needs the MCP server from Task 5.
+
+| ID | Result | Evidence |
+|---|---|---|
+| P1 | PASS | `claude -p --plugin-dir probes/probe-plugin --agent probe:probe-role "who are you"` printed `PROBE-ROLE-LOADED`. |
+| P2 | FAIL | Method: `sh probes/run.sh`. `claude --bg ... --settings <file> "Run the shell command: echo hello"` exited 1: `Workspace not trusted. Run \`claude\` in <work dir> once and accept the trust prompt, then retry.` No session named `probe-p2` appeared in `claude agents --json --all`. |
+| P3 | FAIL | Method: `sh probes/run.sh`. Same run as P2; the session that would carry `BRUH_ROLE_KEY` to the hook never started, so `/tmp/bruh-probes/hooks.tsv` has no `clerk-probe-p3` line. |
+| P4 | FAIL | Method: `claude --bg` in a fresh `/tmp` scratch folder, with `--settings` pointing `statusLine.command` at a log append, and a 3-minute task, not attached. Exited 1 with the same `Workspace not trusted` message for that folder. The status line never ran. |
+| P5 | FAIL | Method: `claude --bg --plugin-dir probes/probe-plugin` in a fresh `/tmp` scratch folder with the prompt "Use a subagent to run: echo sub", not attached. Exited 1 with the same `Workspace not trusted` message. `hooks.tsv` gained no new line. |
+| P6 | FAIL | Method: `claude --bg --plugin-dir probes/probe-plugin` in a fresh `/tmp` scratch folder, `--settings` holding the allow rule `Workflow(probe:hello)`, prompt `/probe:hello`, not attached. Exited 1 with the same `Workspace not trusted` message. `probes/probe-plugin/workflows/hello.js` (one `agent()` call) was never invoked. |
+| P7 | FAIL | Method: `claude --bg` in a fresh `/tmp` scratch folder with a prompt asking it to make a recurring `CronCreate` task, not attached. Exited 1 with the same `Workspace not trusted` message. Never reached the 5-minute idle wait. |
+| P8 | pending (runs after Task 5) | — |
+
+P2 through P7 all failed the same way, before the session did anything: `claude --bg` refuses to start in a folder whose trust dialog nobody has accepted interactively, even a folder just created with `git init`. This holds for a fresh `mktemp` folder (P2, P3) and for a purpose-made `/tmp` scratch folder (P4 to P7) alike. There is no flag for this: `claude --help` documents that `-p` (and any run whose stdout is not a TTY) skips the dialog for that one run only, and does not persist trust — confirmed by hand: running `claude -p` in a scratch folder, then `claude --bg` in the same folder, still gets the same refusal. The one documented persistent switch is `projects["<path>"].hasTrustDialogAccepted` in the user's own `~/.claude.json`, which this task does not write: it is global state on a machine running many other live sessions, outside `--settings`, and out of scope for a probe. So P2 to P7 did not reach the behavior each one is meant to test; they only reprove the known fact already in this file ("In a directory that is not trusted, a script gets the error `Workspace not trusted` and no session starts.") and in spec.md 4.1.
+
+- P2 (spec 4.1): the Verify line "a session started this way from the Bash tool of another session appears in `claude agents --json`" stays open. No wording change; Plan 2 must not treat background-session registration as proven, and must re-run this probe from a folder a human has already trusted once (matches 4.1's own plan for the init skill to list folders that need trust).
+- P3 (spec 3.1, 10.1): same open Verify for `BRUH_ROLE_KEY` reaching a hook process through `--settings`. Plan 2 and the Task 5 MCP server must re-check this once a trusted folder is available, before role keys are load-bearing.
+- P4 (spec 7): the status-line-in-background-session Verify stays open. Until it is confirmed, Plan 2/3 should build the documented fallback first (the `PostToolUse` handoff hook reading token usage from `transcript_path`) rather than depend on the status-line tap for background sessions.
+- P5 (spec 8.4): the Verify that a `PreToolUse` hook fires for a workflow/subagent's tool calls inside a background session, with `agent_id` set, stays open. The lease-guard hook plan must not assume subagent coverage until this is re-run.
+- P6 (spec 6.1): the Verify that a script-started session can launch a plugin workflow by slash command under `Workflow(<plugin>:<name>)` stays open. The workflow-launch design (6.1, the `deliver` workflow) must not assume this is proven for a background session.
+- P7 (spec 9.1): the Verify that a `CronCreate` task fires in an interactive session nobody is typing into stays open. The sweep loop (9.1) must not assume unattended cron firing works until this is re-run in a trusted folder.
+
