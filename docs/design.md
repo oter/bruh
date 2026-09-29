@@ -1,42 +1,121 @@
-# Coordinator design (draft)
+# bruh design (draft)
 
-Status: brainstorming. Nothing in this file is approved.
+Status: brainstorming. A decision tagged "Owner decision" is approved. All other content is a draft.
 
 ## What the owner said (2026-09-27)
 
-- The coordinator tracks work: what is done and what is in progress.
-- The coordinator answers questions from the owner.
-- The coordinator collects questions from other sessions and gives them to the owner.
-- The coordinator does not hold the full context. It spreads the context across clankers.
+- bigm tracks work: what is done and what is in progress.
+- bigm answers questions from the owner.
+- bigm collects questions from other sessions and gives them to the owner.
+- bigm does not hold the full context. It spreads the context across clankers.
 - A clanker works in one project folder. A clanker knows the full picture of its project. A clanker does no hands-on work. A clanker gives work to a clerk.
 - A clerk owns one task. A clerk starts workflows. The workflows do the work.
-- Spawn chain: the coordinator starts clankers, a clanker starts clerks, a clerk starts workflows.
+- Spawn chain: bigm starts clankers, a clanker starts clerks, a clerk starts workflows.
 - Answer quality degrades at 50 to 60 percent of the context window. No session may go above that level.
 - A clanker rotates its clerks. When a clerk reaches the limit before its work is done, the clerk writes a handoff, compacts, reads the handoff, and continues.
-- The coordinator starts as many clankers as necessary. It does not rotate clankers. A clanker that reaches the limit writes a handoff, compacts, reads the handoff, and continues.
-- The coordinator must also coordinate work on remote machines.
-- The finished tool can be a public GitHub repository named `bruh`. The role inside it keeps the name coordinator.
+- bigm starts as many clankers as necessary. It does not rotate clankers. A clanker that reaches the limit writes a handoff, compacts, reads the handoff, and continues.
+- bigm must also coordinate work on remote machines.
+- The finished tool can be a public GitHub repository named `bruh`.
 - The `bruh` skill must be installable into Claude Code.
 - The `bruh` repository holds the skillset and the workflows.
+- The top role is named bigm. It was the coordinator.
+- Questions reach the owner in the bigm terminal.
+- A clanker answers the questions that it can answer. Only P0 and P1 questions go to bigm.
+- Local sessions talk through Claude Code itself. Remote sessions talk through Orca.
+- Keep compaction in mind for the long-lived sessions.
+- The README gives clear install instructions for each part.
+- The skillset has its own init skill that asks the user questions. One question is how the skillset addresses the user.
+- The owner wants pipelines, badges, artwork, topics, tags, and a repository that shows it is mature.
 
 ## Decisions
 
-- Role names: coordinator, clanker (was lead), clerk (was minion), workflow. Owner decision 2026-09-27.
-- Session lifetime: the coordinator and the clankers are long-lived. A clerk lives for one task. Owner decision 2026-09-27, inferred from the compaction requirement and not yet confirmed.
+- Role names: bigm (was coordinator), clanker (was lead), clerk (was minion), workflow. Owner decision 2026-09-27.
+- Question channel: questions reach the owner in the bigm terminal. Owner decision 2026-09-27.
+- Workflow means the Claude Code `Workflow` tool. Owner decision 2026-09-27.
+- Local transport: Claude Code itself, not Orca. Owner decision 2026-09-27. The mechanism is also an owner decision 2026-09-27 (the owner accepted it in chat): bigm or a clanker starts a session with `claude --bg --name <name>` in the project folder, reads state with `claude agents --json --all`, and sends and receives questions with `SendMessage`. A message is plain text, so it starts with its priority, for example `P1:`. A first draft used Orca for local sessions too; the owner rejected it the same day.
+- Question routing: a clanker answers a question itself when it can. Only P0 and P1 questions go to bigm. Owner decision 2026-09-27.
+- Question priorities: P0, P1, and P2 as defined in open question 5. Owner decision 2026-09-27. The owner expects to change them, so they are data, not skill text: one file that bigm reads and passes to each clanker in its task. Owner decision 2026-09-27 (the owner accepted it in chat): the file holds only the generic definitions, with no project data. The plugin ships the default definitions (public). The owner copy lives in the private ledger repository. The questions and their answers are project data and stay in the private ledger.
+- Session lifetime: bigm and the clankers are long-lived and compact with the compaction mechanism below. A clerk lives for one task. Owner decision 2026-09-27.
 - Context budget: every role stays below about 55 percent of its context window. Owner decision 2026-09-27.
-- Compaction mechanism: option 2 of open question 1. Auto-compact at 55 percent, a live handoff file per session, a `SessionStart` hook with matcher `compact` that injects the handoff file, and a status line tap with a `PostToolUse` hook that tells the agent to write its handoff at 50 percent. Owner decision 2026-09-27.
+- Compaction mechanism: option 2 of open question 1. Owner decision 2026-09-27. The parts: auto-compact at 55 percent; a live handoff file for each session; a `SessionStart` hook with matcher `compact` that injects the handoff file; a status line tap; a `PostToolUse` hook that tells the agent to write its handoff at 50 percent.
 - Configuration scope: user settings (`~/.claude/settings.json`) on each machine. The auto-compact window, the status line tap, and both hooks apply to every Claude Code session of the user, manual sessions included. Owner decision 2026-09-27.
-- Packaging: `oter/bruh` is a Claude Code plugin marketplace with one plugin, `bruh`. Install with `claude plugin marketplace add oter/bruh` and `claude plugin install bruh@bruh`, at user scope. The plugin ships the skill and both hooks. A plugin cannot set `autoCompactWindow` or `statusLine`, so a setup step writes those two into user settings. Agent-derived, needs owner decision. This replaces hooks written by hand into user settings: a plugin can be turned off or removed in one step.
+- Packaging: `oter/bruh` is a Claude Code plugin marketplace with one plugin, `bruh`, installed at user scope. The plugin ships the skills and both hooks. The README gives install instructions for each part. Owner decision 2026-09-27.
+- Init skill: the plugin has an init skill that asks the user questions and writes the answers. It writes `autoCompactWindow` and the status line tap into user settings, because a plugin cannot set them. The first question is how the skillset addresses the user. Owner decision 2026-09-27. Owner decision 2026-09-27 (the owner accepted it in chat): the init skill stores the address as the plugin option `user_name` under `pluginConfigs`, and skill text uses `${user_config.user_name}`.
 - Repositories: two. `oter/bruh` is public on GitHub and holds the tool. A separate private repository holds the ledger, because the ledger describes all other repositories. Owner decision 2026-09-27.
-- `oter/bruh` on GitHub has no `.github/` directory, so no pipelines run. Agent-derived, needs owner decision.
+- Pipelines: `oter/bruh` gets GitHub Actions, because its home is GitHub. Owner decision 2026-09-27. Agent-derived, needs owner decision: the checks are Markdown lint, a link check, `claude plugin validate`, shellcheck for hook scripts, and tests for the status line tap and the hooks.
+- Maturity: the goal is a repository that is mature on day 0, proven by what it contains, not by claims. Badges, artwork, topics, and semantic version tags with releases. A badge shows only a fact that CI or GitHub proves. Owner decision 2026-09-27.
+- Ledger: Markdown in a separate private repository. Owner decision 2026-09-27.
 - Remote transport: Orca remote runtime. `orca serve` on the remote machine on a private network, paired with `orca environment add`, workers started with `worker-start --on <environment>`. Owner decision 2026-09-27.
 
 ## Assumptions
 
-- "Workflow" is the Claude Code Workflow tool. Agent-derived, needs owner decision.
-- The transport between sessions is Orca orchestration (`orca skills get orchestration`). Orca orchestration has runs, tasks, dispatches, blocking ask and reply, and nested workers. Agent-derived, needs owner decision.
-- The ledger of done and in-progress work is Markdown in a separate private repository. The repository is an owner decision 2026-09-27. The Markdown format is agent-derived, needs owner decision.
 - `autonomous-agents` solves a different problem: "runs LLM CLI agents on a schedule or a webhook, one Docker container per execution". It is not the transport for this design. It can be a later executor for unattended work. Agent-derived, needs owner decision.
+
+## Owner decisions of 2026-09-29
+
+- No pollution of the system: bruh keeps all its files in the plugin data folder `${CLAUDE_PLUGIN_DATA}` (`~/.claude/plugins/data/<plugin id>/`), which Claude Code deletes when the plugin is uninstalled. Owner decision 2026-09-29.
+- Plugin code writes the files, not Claude: the plugin ships a small stdio MCP server, and Claude calls its tools. Claude Code guards `~/.claude` against writes by Claude, but not against writes by plugin code. Owner decision 2026-09-29 (option A).
+- Dependents re-decided because of this premise. Each is agent-derived, needs owner decision:
+  - Handoff files: were `$CLAUDE_JOB_DIR/tmp/handoff.md` and `handoffs/bigm.md` in the ledger. Now `${CLAUDE_PLUGIN_DATA}/handoffs/<role key>.md`, written by the MCP tool `handoff_write` (spec 0.3 moved the key from the session to the role key).
+  - Answer files: were in `~/.local/state/bruh/answers/`. Now `${CLAUDE_PLUGIN_DATA}/answers/<clerk role key>/<question ID>.answer`, written by the MCP tool `answer_write`. A workflow agent waits with the MCP tool `answer_wait` instead of a Bash loop.
+  - Context files of the status line tap: `${CLAUDE_PLUGIN_DATA}/context/<session_id>`, written by the tap script (plugin code). No change.
+  - The only files outside the plugin data folder: the keys that the init skill writes into `~/.claude/settings.json` after the owner approves the diff, and the private ledger repository of the owner.
+
+## Operating modes (owner, 2026-09-29)
+
+- bruh runs in two modes: with a human, and fully autonomous. In autonomous mode, bigm is the main brain and acts on its own. Owner decision 2026-09-29.
+- The mode switch is recorded in the repository that describes the behavior of the instance, which is the private ledger repository. Owner decision 2026-09-29.
+- Agent-derived, needs owner decision: the switch is the file `mode.md` in the ledger repository, with one line `mode: human` or `mode: autonomous`, and the date and the reason of the last change. bigm reads it at the start of each turn. A clanker gets the mode in each message from bigm.
+- Agent-derived, needs owner decision: in human mode, P0 and P1 go to the owner (the current design). In autonomous mode, bigm decides P1 questions itself, records each decision in the ledger with the tag "bigm decision <date>" and its reasons, and the owner can review and reverse it later.
+- Decided later (spec open questions 8 and 14): in autonomous mode, what bigm does with a P0 question (security, data loss, money, an irreversible or outward-facing action). Options: bigm decides and acts; bigm parks the question and continues other work; bigm stops all work until the owner answers.
+- Conflict to resolve: the global instructions of the owner say "In an autonomous run, write the options ranked, set the ticket needs-info and stop." That rule parks open questions. "bigm acts on its own" decides them. The owner must say which rule applies to bigm in autonomous mode.
+
+## Answers to the spec open questions (owner, 2026-09-29)
+
+- Q2: a clanker may answer P1 questions of delegated classes that the owner lists in `priorities.md`. It logs each answer, and the owner can reverse it. Owner decision 2026-09-29.
+- Q3: the review-round cap is a runtime knob with default 2, set by the init skill. Owner decision 2026-09-29.
+- Q5: read-only token reads inside a process are allowed. Moving or copying a credential is a P0. Owner decision 2026-09-29.
+- Q6: per-agent identities come later. In version 0.1, a write under the personal identity of the owner is a P0. Owner decision 2026-09-29.
+- Q8: the never-without-the-owner list is a hard stop in both modes. Owner decision 2026-09-29.
+- Q9: on a usage limit, the session pauses and bigm sends a P1 so that the owner chooses the account. The model never changes. Support for several accounts comes later. Owner decision 2026-09-29.
+- Q11: the license must allow modification, reuse, and commercial use. The owner delegated the choice to the agent on 2026-09-29. The agent chose Apache-2.0, because it adds an explicit patent grant to the permissions of MIT.
+- Q4: every merge is a P1 to the owner, plus optional merge grants for each repository. A grant names one merger session and its conditions (for example: CI green and two review rounds passed). The owner gives it explicitly, bigm records it in the ledger, and the merger reports each merge after it confirms the merge through the code host API. A grant is an answer that the owner gives in advance, so the never-without-the-owner hard stop still holds. Owner decision 2026-09-29.
+- Q7: leases are hierarchical. bigm keeps track of the leases of the clankers, and each clanker keeps track of the leases of its clerks. Owner decision 2026-09-29. The lease guard is in version 0.1 (Q16).
+- Q10: local messages use the durable mailbox of the MCP server plus a `SendMessage` nudge. Remote messages use Orca `send` and `ask`. Owner decision 2026-09-30.
+- Q12: clerks do all pushes. The ledger clerk `clerk-ledger` pushes the ledger after each commit of bigm. Owner decision 2026-09-30.
+- MCP server language: Go, standard library only, started with `go run -C ${CLAUDE_PLUGIN_ROOT}/mcp .` and `GOTOOLCHAIN=local`, so no binaries are committed. The owner rejected Node (not on every machine) and `/tmp` for bruh files (a reboot wipes it, as in the setup of the owner). Owner decision 2026-09-30.
+- Spec 0.4 approval: the owner accepted every item of spec 0.4 tagged agent-derived as a set, to test them in practice. Owner decision 2026-09-30.
+- Q13: every role runs with `--permission-mode auto`. Owner decision 2026-09-30.
+- Q14: in autonomous mode, bigm decides P1 questions itself and records each one as a reversible "bigm decision". The global rule "write the options ranked, set needs-info and stop" does not apply to bigm in autonomous mode. The never-without-the-owner list still stops it. Owner decision 2026-09-30.
+- Q15: for autonomous work, the container image is `ghcr.io/oter/autonomous-agents/agent`. The image is infrastructure. The skillset must run both locally and in a container. Owner decision 2026-09-30.
+- Q16: version 0.1 contains all parts. No scope cut. Owner decision 2026-09-30.
+- Premise changed by Q16: the lease guard was proposed for version 0.2 (Q7 note). Now it is in version 0.1, as a speed bump, with a Verify item (spec 8.4).
+
+## Channels and the container image (owner, 2026-09-29)
+
+- P0 and P1 questions can go through a chat channel. bruh supports several channels. Slack and Telegram come first. Owner decision 2026-09-29.
+- bruh is installed in the agentic Docker image. Owner decision 2026-09-29.
+- Facts (https://code.claude.com/docs/en/channels.md): channels are a research preview. The official channel plugins are Telegram, Discord, and iMessage. A channel pushes chat messages into a running session that started with `--channels`. A channel can relay permission prompts, so a person can approve a prompt from the chat. Slack has no channel plugin: a Slack channel is a custom channel, and during the preview a custom channel loads only with `--dangerously-load-development-channels`. "Claude in Slack" starts cloud sessions from mentions and is a different product.
+- Dependents re-decided because of the container premise. Each is agent-derived, needs owner decision:
+  - Out of scope for version 0.1 was "`autonomous-agents` as an executor". Now the agentic image must contain bruh, so the install is in scope. Which image: spec open question 15, decided 2026-09-30.
+  - The init skill asks questions in a chat. In an image build nobody answers, so init also needs a non-interactive form: the same answers from a file or environment variables.
+  - A container filesystem can be ephemeral. The handoffs and answers in `${CLAUDE_PLUGIN_DATA}` die with the container, unless the plugin data folder is on a volume. The ledger survives because it is a git repository that bigm pushes.
+  - bigm runs in an Orca terminal on the machine of the owner. In a container there is no Orca terminal, so remote clankers in containers need Orca `serve` in the container or another transport.
+  - The Slack channel is custom code in bruh, and it needs the development flag while channels are a preview.
+
+## Changes from the spec review (2026-09-27)
+
+An adversarial review and an invariant check of the first spec draft found these problems. Each change below is agent-derived, needs owner decision.
+
+- Roles as plugin agents: bigm, clanker, and clerk start with `--agent bruh:<role>`, because the system prompt reloads after compaction. The init skill stays a skill.
+- Handoff location: the first draft used `${CLAUDE_PLUGIN_DATA}`, which is under the protected `.claude` directory, so every handoff write of an unattended role stalls or fails. A background role writes `$CLAUDE_JOB_DIR/tmp/handoff.md`. bigm writes `handoffs/bigm.md` in the ledger repository.
+- Consent: a message from another session cannot approve a permission prompt. For a P0 that waits on a permission prompt, bigm gives the owner the command to attach to that session.
+- Idle sessions: the supervisor stops an idle background session after about an hour, and it cannot receive messages then. Before a send, the sender checks `pid` in `claude agents --json` and resumes a stopped session with `claude --resume <session-id> --bg "<message>"`.
+- Registration: a `claude` started from the Bash tool of another session can miss the `claude agents` registration. Every launch sets `CLAUDE_CODE_FORCE_SESSION_PERSISTENCE=1`.
+- One ledger writer: clankers write no files. A clanker sends P2 answers to bigm in its reports, and bigm records them.
+- Merge ownership: a clerk delivers a branch or a pull request. A merge is P1 by default, set in `priorities.md`.
+- Workflow input (corrected by the owner the same day): the review said that a workflow run takes no input, and the first fix split `plan` from `deliver`. The owner said that workflows can get input while they run. The docs confirm that each workflow agent keeps `SendMessage`. So `deliver` again contains the plan stage, and a workflow agent sends its questions to the clerk. The review round limit is two, an owner decision 2026-09-27.
+- Handoff message in subagents: the `PostToolUse` hook exits when the input has `agent_id`, so subagent tool calls do not use up the message.
 
 ## Knowledge
 
@@ -50,15 +129,20 @@ The verified facts that these decisions depend on are in [knowledge.md](knowledg
    3. Custom supervisor. The status line tap from option 2. The supervisor reads the files and types `/compact` into the worker terminal with `orca terminal send`.
 2. Configuration scope (decided 2026-09-27: user settings). Options were user settings, or `.claude/settings.local.json` in each project folder. The local file is ignored by git, so a new worktree does not have it.
 3. Remote transport (decided 2026-09-27, option 1). Options, ranked:
-   1. Orca remote runtime: `orca serve` on the remote machine, reachable over a private network, and `worker-start --on <environment>`. Traffic stays on that network. Questions and results use the same orchestration verbs as local workers.
+   1. Orca remote runtime: `orca serve` on the remote machine, reachable over a private network, and `worker-start --on <environment>`. Traffic stays on that network. Questions and results use the Orca orchestration verbs `ask`, `reply`, and `worker_done`.
    2. Claude Code Remote Control: `SendMessage` to a Remote Control session on the other machine. Traffic goes through Anthropic servers. Plain text only, with no task or dispatch tracking.
    3. Custom socket bridge over a private network (SSH or socat forwards a remote inbox socket). Not recommended:
       - `SendMessage` refuses the forwarded socket with `connected endpoint is not the expected process`. Source: `errors.md`, "Refusing to send a cross-session message".
       - Only the auth line of the socket protocol is documented. The message line format is not documented, so the bridge depends on an internal format.
       - A reply address is a local socket path on the sender machine, so replies need a second bridge.
       - A message from a process that is not a child of the session goes through inbound controls. A session that bypasses permission prompts holds it for approval unless `crossSessionInbound` is `accept`.
-      - Security: the socket is protected by operating-system user permissions. A TCP forward on the network lets any peer that reaches the port send prompts to the session.
+      - Security: operating-system user permissions protect the socket. A TCP forward on the network lets any peer that reaches the port send prompts to the session.
 4. Public `bruh` repository and the ledger (decided 2026-09-27, option 1). The ledger records work in all projects. If the ledger lives in a public repository, that record is public. Options, ranked:
    1. Two repositories. `oter/bruh` is public and holds the tool: docs, hooks, status line tap, skills. A separate private repository holds the ledger.
    2. One public repository `bruh`. The ledger stays outside git, on the local disk only. No history and no backup for the ledger.
    3. One public repository `bruh` with the ledger inside. All project status is public.
+5. Question priorities (decided 2026-09-27: the definitions below, owner decision 2026-09-27; the owner expects to change them later):
+   - P0: work is blocked and only the owner can unblock it. Examples: security, data loss, money, an irreversible or outward-facing action (publish, deploy, delete, send), a permission block. bigm shows a P0 question at once, at the top of its next reply.
+   - P1: an owner decision. Examples: an open question, an "X versus Y" choice in a spec, a premise that changed under an owner decision, a scope change. bigm queues P1 questions and shows them as a batch.
+   - P2: the clanker answers from the project context (code, docs, ADRs, the ledger) and records the answer. The owner sees it in the status, not as a question.
+6. Inbound messages. Without a `crossSessionInbound` value, a session that bypasses permission prompts holds a message from a session that does not. If bigm, clankers, and clerks run in different permission modes, questions stall. Options: run all roles in one permission mode, or the init skill sets `crossSessionInbound: accept` in user settings. `accept` delivers every message from any session of the same operating-system user. Agent-derived, needs owner decision.
