@@ -147,7 +147,7 @@ Lessons from a retrospective of a 4-day multi-agent Claude Code run (a coordinat
 | ID | Result | Evidence |
 |---|---|---|
 | P1 | PASS | `claude -p --plugin-dir probes/probe-plugin --agent probe:probe-role "who are you"` printed `PROBE-ROLE-LOADED`. |
-| P2 | FAIL | Method: `sh probes/run.sh`. `claude --bg ... --settings <file> "Run the shell command: echo hello"` exited 1: `Workspace not trusted. Run \`claude\` in <work dir> once and accept the trust prompt, then retry.` No session named `probe-p2` appeared in `claude agents --json --all`. |
+| P2 | FAIL | Method: `sh probes/run.sh`. `claude --bg ... --settings <file> "Run the shell command: echo hello"` exited 1 with the same `Workspace not trusted` message as below. No session named `probe-p2` appeared in `claude agents --json --all`. |
 | P3 | FAIL | Method: `sh probes/run.sh`. Same run as P2; the session that would carry `BRUH_ROLE_KEY` to the hook never started, so `/tmp/bruh-probes/hooks.tsv` has no `clerk-probe-p3` line. |
 | P4 | FAIL | Method: `claude --bg` in a fresh `/tmp` scratch folder, with `--settings` pointing `statusLine.command` at a log append, and a 3-minute task, not attached. Exited 1 with the same `Workspace not trusted` message for that folder. The status line never ran. |
 | P5 | FAIL | Method: `claude --bg --plugin-dir probes/probe-plugin` in a fresh `/tmp` scratch folder with the prompt "Use a subagent to run: echo sub", not attached. Exited 1 with the same `Workspace not trusted` message. `hooks.tsv` gained no new line. |
