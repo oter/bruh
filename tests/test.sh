@@ -95,5 +95,33 @@ check "smoke dry run skips the remote step" contains "$out" "SKIP remote"
 check "smoke dry run stops own sessions in cleanup" contains "$out" "cleanup"
 check "smoke refuses an unknown flag" not sh "$here/smoke/run.sh" --bogus
 
+# remove_scratch deletes only the branches that the run created
+git init -q "$tmp/rs" && git -C "$tmp/rs" -c user.name=t -c user.email=t@example.com commit -q --allow-empty -m init
+mkdir -p "$tmp/rs-ev" "$tmp/rs/.bruh-test/x"
+git -C "$tmp/rs" branch keep
+git -C "$tmp/rs" for-each-ref --format='%(refname:short)' refs/heads >"$tmp/rs-ev/branches-before.txt"
+git -C "$tmp/rs" branch new-of-run
+check "remove_scratch succeeds" remove_scratch "$tmp/rs" "$tmp/rs/.bruh-test/x" "$tmp/rs-ev"
+check "remove_scratch deletes the new branch" not git -C "$tmp/rs" rev-parse --verify -q refs/heads/new-of-run
+check "remove_scratch keeps the old branches" git -C "$tmp/rs" rev-parse --verify -q refs/heads/keep
+check "remove_scratch removes the scratch folder" not test -e "$tmp/rs/.bruh-test/x"
+: >"$tmp/rs-ev/branches-before.txt"
+check "remove_scratch refuses an empty list of branches" not remove_scratch "$tmp/rs" "$tmp/rs/.bruh-test/x" "$tmp/rs-ev"
+check "remove_scratch with an empty list deletes no branch" git -C "$tmp/rs" rev-parse --verify -q refs/heads/keep
+
+# Load driver dry run
+out=$(BRUH_TRUSTED_REPO="$tmp/repo" LOAD_RUN=dry2 sh "$here/load/run.sh" --dry-run --sessions 2 --minutes 1 2>&1)
+check "load dry run exits 0" eq "$(BRUH_TRUSTED_REPO="$tmp/repo" LOAD_RUN=dry2 sh "$here/load/run.sh" --dry-run --sessions 2 --minutes 1 >/dev/null 2>&1; echo $?)" 0
+check "load dry run launches session 1" contains "$out" "claude --bg --name clerk-load-dry2-s1 --permission-mode auto --settings"
+check "load dry run launches session 2" contains "$out" "claude --bg --name clerk-load-dry2-s2 --permission-mode auto --settings"
+check "load dry run launches no third session" not contains "$out" "clerk-load-dry2-s3 --permission-mode"
+check "load dry run uses the model flag" contains "$out" "--model haiku"
+check "load dry run posts start messages" contains "$out" '"name":"mail_post","arguments":{"to":"clerk-load-dry2-s1"'
+check "load dry run tells sessions to nudge" contains "$out" "SendMessage"
+check "load dry run closes the ring" contains "$out" "The next session in the ring is clerk-load-dry2-s1."
+check "load dry run defaults to 8 sessions" contains "$(BRUH_TRUSTED_REPO="$tmp/repo" LOAD_RUN=dry3 sh "$here/load/run.sh" --dry-run 2>&1)" "clerk-load-dry3-s8 --permission-mode"
+check "load refuses --sessions 1" not sh "$here/load/run.sh" --dry-run --sessions 1
+check "load refuses a word for --minutes" not sh "$here/load/run.sh" --dry-run --minutes ten
+
 echo "$n tests, $fails failed"
 [ "$fails" -eq 0 ]

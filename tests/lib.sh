@@ -230,3 +230,27 @@ preflight_common() {
 	fi
 	check_trusted_repo "${BRUH_TRUSTED_REPO:-}"
 }
+
+# remove_scratch removes the scratch folder $2 of the trusted repository $1 and
+# the branches that the run created. $3 is the evidence folder with the list
+# branches-before.txt. It returns 1 when that list is missing or empty, because
+# an empty list would select every branch; then it deletes no branch.
+remove_scratch() {
+	rm -rf "$2"
+	git -C "$1" worktree prune
+	git -C "$1" for-each-ref --format='%(refname:short)' refs/heads >"$3/branches-after.txt"
+	[ -s "$3/branches-before.txt" ] || return 1
+	grep -vxF -f "$3/branches-before.txt" "$3/branches-after.txt" | while read -r b; do
+		git -C "$1" branch -D -q "$b" || true
+	done
+}
+
+# remove_role_data removes the bruh data files of each role key after the data folder $1.
+remove_role_data() {
+	d=$1
+	shift
+	for key in "$@"; do
+		rm -rf "$d/mail/$key" "$d/answers/$key" "$d/roles/$key.json" \
+			"$d/handoffs/$key.md" "$d/handoffs/$key.history.md" "$d/reports/$key.jsonl"
+	done
+}

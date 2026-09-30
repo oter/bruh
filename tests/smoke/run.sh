@@ -237,22 +237,10 @@ cleanup() {
 	if [ -n "${SMOKE_ORCA_DISPATCH:-}" ]; then
 		orca orchestration worker-stop --dispatch "$SMOKE_ORCA_DISPATCH" >/dev/null 2>&1 || true
 	fi
-	rm -rf "$base"
-	git -C "$trusted" worktree prune
-	git -C "$trusted" for-each-ref --format='%(refname:short)' refs/heads >"$evidence/branches-after.txt"
-	# Delete only the branches that this run created. An empty list of the
-	# branches before the run would select every branch, so it stops here.
-	if [ -s "$evidence/branches-before.txt" ]; then
-		grep -vxF -f "$evidence/branches-before.txt" "$evidence/branches-after.txt" | while read -r b; do
-			git -C "$trusted" branch -D -q "$b" || true
-		done
-	else
+	if ! remove_scratch "$trusted" "$base" "$evidence"; then
 		fail cleanup "no list of the branches before the run; no branch deleted"
 	fi
-	for key in bigm "$clanker" "$greet" "$gate"; do
-		rm -rf "$data/mail/$key" "$data/answers/$key" "$data/roles/$key.json" \
-			"$data/handoffs/$key.md" "$data/handoffs/$key.history.md" "$data/reports/$key.jsonl"
-	done
+	remove_role_data "$data" bigm "$clanker" "$greet" "$gate"
 	grep -lF "$project" "$data"/questions/Q-*.json 2>/dev/null | while read -r f; do rm -f "$f"; done
 	echo "evidence: $evidence"
 	if [ "$fails" -gt 0 ]; then exit 1; fi
