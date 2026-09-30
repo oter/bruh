@@ -1,0 +1,127 @@
+package main
+
+import (
+	"errors"
+	"fmt"
+	"io/fs"
+	"os"
+	"path/filepath"
+	"regexp"
+	"strconv"
+	"time"
+)
+
+const stampLayout = "2006-01-02T15:04:05.000Z"
+
+var keyRE = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{0,63}$`)
+
+// Env is everything a tool handler needs from its process.
+type Env struct {
+	DataDir          string
+	RoleKey          string
+	PluginRoot       string
+	PollInterval     time.Duration
+	ProgressInterval time.Duration
+	Now              func() time.Time
+}
+
+func EnvFromOS() Env {
+	return Env{
+		DataDir:          os.Getenv("BRUH_DATA"),
+		RoleKey:          os.Getenv("BRUH_ROLE_KEY"),
+		PluginRoot:       os.Getenv("BRUH_PLUGIN_ROOT"),
+		PollInterval:     durationEnv("BRUH_POLL_MS", 2*time.Second),
+		ProgressInterval: durationEnv("BRUH_PROGRESS_MS", time.Minute),
+		Now:              time.Now,
+	}
+}
+
+func durationEnv(name string, def time.Duration) time.Duration {
+	ms, err := strconv.Atoi(os.Getenv(name))
+	if err != nil || ms <= 0 {
+		return def
+	}
+	return time.Duration(ms) * time.Millisecond
+}
+
+// Caller returns the role key of the calling session.
+func (e Env) Caller() (string, error) {
+	if e.RoleKey == "" {
+		return "", errors.New("BRUH_ROLE_KEY is not set")
+	}
+	return checkKey(e.RoleKey, "role key")
+}
+
+func checkKey(s, what string) (string, error) {
+	return checkID(s, keyRE, what)
+}
+
+func checkID(s string, re *regexp.Regexp, what string) (string, error) {
+	if !re.MatchString(s) {
+		return "", fmt.Errorf("invalid %s: %q", what, s)
+	}
+	return s, nil
+}
+
+// Dir returns a folder under the data folder and creates it with mode 0700.
+func (e Env) Dir(parts ...string) (string, error) {
+	if e.DataDir == "" {
+		return "", errors.New("BRUH_DATA is not set")
+	}
+	p := filepath.Join(append([]string{e.DataDir}, parts...)...)
+	return p, os.MkdirAll(p, 0o700)
+}
+
+// Stamp is the current UTC time in the fixed layout.
+func (e Env) Stamp() string {
+	return e.Now().UTC().Format(stampLayout)
+}
+
+// atomicWrite writes a temporary file in the same folder and renames it.
+func atomicWrite(file string, data []byte) error {
+	f, err := os.CreateTemp(filepath.Dir(file), filepath.Base(file)+".*.tmp")
+	if err != nil {
+		return err
+	}
+	tmp := f.Name()
+	if _, err := f.Write(data); err != nil {
+		f.Close()
+		os.Remove(tmp)
+		return err
+	}
+	if err := f.Close(); err != nil {
+		os.Remove(tmp)
+		return err
+	}
+	return os.Rename(tmp, file)
+}
+
+// WithLock runs fn while it holds a lock folder. Creating a folder is atomic.
+func (e Env) WithLock(name string, fn func() error) error {
+	locks, err := e.Dir("locks")
+	if err != nil {
+		return err
+	}
+	lock := filepath.Join(locks, name+".lock")
+	deadline := time.Now().Add(10 * time.Second)
+	for {
+		err := os.Mkdir(lock, 0o700)
+		if err == nil {
+			break
+		}
+		if !errors.Is(err, fs.ErrExist) {
+			return err
+		}
+		// ponytail: a lock older than 30s counts as stale; this assumes fn is a short read-modify-write. Add fencing if fn ever runs longer.
+		if fi, serr := os.Stat(lock); serr == nil && time.Since(fi.ModTime()) > 30*time.Second {
+			os.RemoveAll(lock)
+			continue
+		}
+		if time.Now().After(deadline) {
+			return fmt.Errorf("lock busy: %s", name)
+		}
+		time.Sleep(25 * time.Millisecond)
+	}
+	defer os.RemoveAll(lock)
+	return fn()
+}
