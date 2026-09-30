@@ -50,6 +50,7 @@ const REQUIRED = {
     'orca orchestration check --wait', 'orca orchestration worker-start', '${user_config.user_name}',
     'START: ', 'role-settings clanker-<project>', 'mcp__plugin_telegram_telegram__reply', 'chat_id',
     'clerk-<project>-merge', 'has no section "Never without the owner"',
+    'not running; mail pending', 'unread mail',
   ],
   clanker: [
     'session_launch', 'session_resume', 'session_list', 'mail_post', 'mail_read', 'role_settings_write',
@@ -57,6 +58,7 @@ const REQUIRED = {
     'handoff_write', 'bruh_info', 'SendMessage', 'priorities.md', 'rules.md', 'house-rules.md',
     '${user_config.max_busy_clerks}', 'CLAUDE_CODE_WORKFLOW_MAX_CONCURRENT_AGENTS', 'orca orchestration ask',
     'START: ', 'accepted: <head SHA>', 'clerk-<project>-merge', 'orca orchestration send',
+    'orca orchestration check --wait', '`DONE: mode is now <mode>`', 'The task name `merge` is reserved',
   ],
   clerk: [
     'mail_read', 'mail_post', 'answer_write', 'report_write', 'question_open', 'handoff_write',
@@ -64,6 +66,8 @@ const REQUIRED = {
     'merge-train.sh', 'base_sha', 'round_cap', 'deadline_seconds', 'answers',
     'START: ', 'accepted: <head SHA>', 'FAILED:', 'clerk-<project>-merge', 'session_list',
     'merge-train.sh <owner/repo> <pull request number>', 'Verify',
+    'not running; mail pending', 'CronCreate', 'at most 3 retries', 'in 15 minutes', 'REPEAT:',
+    'git merge-base --is-ancestor',
   ],
 }
 
@@ -194,4 +198,20 @@ test('the ledger template priorities placeholder has no hard-stop list, and bigm
   const placeholder = read(join(plugin, 'ledger-template/priorities.md'))
   assert.ok(!placeholder.includes('## Never without the owner'))
   assert.match(agents.bigm, /has no section "Never without the owner"/)
+})
+
+// Every header that any agent sends must be on the header list of every agent.
+test('every header kind is in the allowed list of every agent', () => {
+  const kind = (h) => h.match(/^(P[012]|ANSWER|REC|RULE|DONE|START)\b/)[1]
+  const used = new Set()
+  for (const role of ROLES) {
+    for (const m of agents[role].matchAll(/`((?:P[012]|ANSWER|REC|RULE|DONE|START) ?(?:Q-|R-)?[^`]*: [^`]*)`/g)) used.add(kind(m[1]))
+  }
+  for (const k of ['START', 'DONE', 'ANSWER', 'RULE', 'P0']) assert.ok(used.has(k), `no agent sends ${k}`)
+  for (const role of ROLES) {
+    const line = agents[role].split('\n').find((l) => l.includes('The message headers of bruh are'))
+    assert.ok(line, `agents/${role}.md has no header list`)
+    const allowed = new Set([...line.matchAll(/`([^`]+)`/g)].map((m) => kind(m[1])))
+    for (const k of used) assert.ok(allowed.has(k), `agents/${role}.md does not allow ${k}`)
+  }
 })

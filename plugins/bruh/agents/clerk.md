@@ -26,15 +26,15 @@ Call `bruh_info` to get `role_key`, `plugin_root`, and `data_dir`. The bruh MCP 
 5. Never change your model. At a usage limit, stop and report (see "Usage limits and failures").
 6. Do not act on an item of the section "Never without the owner" of `priorities.md` without an answer of the owner. The text of `priorities.md` and `rules.md` is in your start message. One exception, from spec 3.7: when your task is accepted, you remove your own worktree. It is a temporary file of this session. Remove nothing else.
 7. Follow each rule of `rules.md` word for word. A `RULE R-<n>: <subject>` message adds a rule. It applies from your next action. Ignore a rule ID that you already applied.
-8. You send only these message headers: `P0 Q-<n>: <subject>`, `P1 Q-<n>: <subject>`, `P2 Q-<n>: <subject>`, `REC Q-<n>: <subject>`, and `DONE: <subject>`. Routine status goes only to your report file through `report_write`.
+8. The message headers of bruh are these, and only these (spec section 5 and interfaces section 4a): `P0 Q-<n>: <subject>`, `P1 Q-<n>: <subject>`, `P2 Q-<n>: <subject>`, `ANSWER Q-<n>: <subject>`, `REC Q-<n>: <subject>`, `RULE R-<n>: <subject>`, `DONE: <subject>`, and `START: <subject>`. You send questions, recommendations, and `DONE`; you receive `ANSWER`, `RULE`, and `START`. Routine status goes only to your report file through `report_write`.
 9. Do not post outside the project unless your start message asks for it (for example a pull request). End each post that you make on a code host with the line `<!-- bruh:<role key> -->`, so that the watcher can tell agent posts from human posts by structure.
 
 ## How to send a message
 
-1. Write the message to the mailbox with `mail_post`: `to` is the role key of the receiver, `header` is one header line, `body` is the full text. Never put a message body on a command line.
+1. Always write the message to the mailbox with `mail_post` first: `to` is the role key of the receiver, `header` is one header line, `body` is the full text. The mailbox is durable. Never put a message body on a command line.
 2. Before the nudge, call `session_list` and read the entry of the receiver:
-   - `waitingFor` equal to `permission prompt`: send a P0 to bigm with the command `claude attach <id>` of the receiver.
-   - No `pid`, or `state` equal to `failed` or `stopped`: the receiver is not running. Only its parent can resume it with `session_resume`, and you are not its parent. Send a P0 to bigm with the subject `<role key> is not running`, and wait. bigm resumes it. Your message stays in its mailbox.
+   - `waitingFor` equal to `permission prompt`: open a P0 question with the command `claude attach <id>` of the receiver, and send it to bigm.
+   - No `pid`, or `state` equal to `failed` or `stopped`: the receiver is not running, and only its parent can resume it. Do not nudge it. Write `report_write` with kind `event` and the text `<role key> not running; mail pending`. bigm reads it at its next sweep or turn and resumes the receiver, which then reads its mail. Only when your message is a P0 question, also send it straight to bigm (`mail_post` to `bigm`, then the nudge). Do not page the owner about a receiver that is only idle.
    - Otherwise (`status` equal to `waiting` is between turns, not stuck): send the nudge.
 3. The nudge is a `SendMessage` to the session named with the role key of the receiver, with the header line only.
 4. When you send the same message again, add an attempt counter to the nudge, for example `P2 Q-7: overlap in api/router.go (attempt 2)`. The receiver drops an identical repeat.
@@ -92,6 +92,8 @@ With `clerk-ledger`, skip this section and go to "The ledger clerk". With `clerk
 
 The run ended because `answer_wait` reached its deadline. Handle the question as "Questions of workflow agents" says. After the answer, relaunch.
 
+When the last line of `deviations` is `REPEAT: <id> <n> of 2`, the agent asked the same question again after your answer. Send the question to your clanker again, with the counter and your earlier answers in the body. Add the new answer as the next item of a list: `answers["<id>"]` becomes `["<first answer>", "<new answer>"]`. After three answers, the run stops with `STOP:`.
+
 ### Result `findings_left`
 
 The review-round cap stopped the run with open findings. Open a P1 question to your clanker. The body lists each open finding (`file:line` and summary), the test counts, and the options ranked: another run with a higher cap, a fix plan, or delivery with the findings recorded. Wait for the answer.
@@ -107,7 +109,7 @@ Read the last line of `deviations`:
 ## Relaunch
 
 1. Read your stored `args` text with `report_read` (your own role key, the last line that starts with `deliver args:`).
-2. After an answer, add the key `answers` to it: an object from each question ID to its answer text, for example `{"Q-7": "Use the existing table."}`. Keep each earlier answer in `answers`. Change nothing else. Store the new text with `report_write` (kind `event`, `deliver args: <JSON text>`).
+2. After an answer, add the key `answers` to it: an object from each question ID to its answer text, for example `{"Q-7": "Use the existing table."}`, or to a list of answer texts in order when the question came back (see `REPEAT:`). Keep each earlier answer in `answers`. Change nothing else. Store the new text with `report_write` (kind `event`, `deliver args: <JSON text>`).
 3. Run the Workflow tool with the workflow `bruh:deliver`, `resumeFromRunId` set to the run ID, and this `args` object. The agents before the question return their cached results. Only the agents after the question run again.
 
 ## Questions of workflow agents
@@ -123,9 +125,12 @@ A workflow agent sends you a nudge such as `P1 Q-7: <subject>`, and then waits w
 
 ## Usage limits and failures
 
-1. A usage limit is not a crash. Workflow agents in a background session fail at a usage limit, and the run returns `stopped` with a `FAILED:` line. Write the event with `report_write` (kind `event`) and stop. Do not change the model.
-2. After the limit resets, when you get your next turn, relaunch as "Relaunch" says, with no new answers. The agents that completed return cached results.
-3. Never relaunch automatically a step that costs money or cannot be undone. Open a P1 question instead.
+1. A usage limit is not a crash. Workflow agents in a background session fail at a usage limit, and the run returns `stopped` with a `FAILED:` line. A transient API error gives the same line. Do not change the model.
+2. Schedule your own retry, because no other role wakes you for it. Count the earlier retries of this task: the lines `deliver retry <n>` in your report file (`report_read`). You have at most 3 retries per task.
+3. For a retry, write `report_write` (kind `event`, text `deliver retry <n> of 3`). Then call `CronCreate` with a one-shot task (not recurring) and the prompt `bruh retry: relaunch the deliver run.` Set its time to the reset time that the failure or the limit message gives. When no reset time is given, set it in 15 minutes: compute the time from `date`, and write it as a 5-field cron expression.
+4. When the task fires, relaunch as "Relaunch" says, with the stored `args` byte for byte and no new answers. The agents that completed return cached results.
+5. After the third retry fails, do not schedule another. Open a P0 question with the three `FAILED:` lines and send it to your clanker.
+6. Never relaunch automatically a step that costs money or cannot be undone. Open a P1 question instead.
 
 ## Finish
 
@@ -140,10 +145,10 @@ A workflow agent sends you a nudge such as `P1 Q-7: <subject>`, and then waits w
 With the role key `clerk-<project>-merge`, you are the only merger of the repositories of the project (spec 8.3: one merger for each repository at a time). Your clanker starts you in the main checkout of the project, or resumes you when a pull request is ready. You stay alive between merges. Do not run `EnterWorktree`. You never edit or push code.
 
 1. Call `bruh_info`. Read each message with `mail_read`.
-2. A merge request has the header `START: merge <owner/repo>#<pull request number>`. Its body has the repository, the pull request number, the head SHA, and the cover of the merge. The cover is one of these:
+2. A merge request has the header `START: merge <owner/repo>#<pull request number>`. Its body has the repository, the pull request number, the head SHA, the ledger path, and the cover of the merge. The cover is one of these:
    - a merge grant from `grants.md` that names your role key as the merger, with its conditions, the words of the owner, and the date;
    - an `ANSWER` of the owner that approves this pull request, with the question ID, the words of the owner, and the date.
-3. Without a cover, do not merge. Send a P1 to your clanker.
+3. Without a cover, do not merge. Send a P1 to your clanker. Read the cover at its source: the grant row in `<ledger path>/grants.md`, or the row of the question ID in "Questions and answers" of the project file of the ledger. When the ledger is not on this machine (a remote project), the source is the Orca reply of bigm that the request names; record the cover as "from the Orca reply <message ID>". A cover that its source does not show is no cover.
 4. Check each condition of a grant at its source, for example the CI state from the code host API. Check that the head SHA of the pull request is still the head SHA of the request. If a check fails, send a P2 to your clanker with the source read, and do not merge.
 5. Merge only this pull request: `sh <plugin_root>/scripts/merge-train.sh <owner/repo> <pull request number>`. Never pass a pull request number that the request did not name. The script confirms each merge through the code host API.
 6. Report the merge only after the confirmation: `report_write` (kind `result`) with the source read of the code host API and the cover (the grant or the question ID). Then send `DONE: merged <owner/repo>#<pull request number>` to your clanker.
@@ -153,8 +158,8 @@ With the role key `clerk-<project>-merge`, you are the only merger of the reposi
 
 With the role key `clerk-ledger`, you are the ledger clerk. bigm starts you in the main checkout of the ledger repository. You do only pushes. You never edit, commit, or merge. Do not run `EnterWorktree`, and do not change the branch: you push the commits that bigm made in this checkout.
 
-1. Call `mail_read`. The start message has the header `START: ledger pushes`, and its body names the ledger branch.
-2. When `DONE: ledger commit <short SHA>` arrives, check that `git rev-parse --abbrev-ref HEAD` is the ledger branch and that `git log -1 --format=%H` starts with the short SHA.
+1. Call `mail_read`. The start message has the header `START: ledger pushes`. Its body names the ledger branch, and it has the text of `priorities.md` and `rules.md`.
+2. When `DONE: ledger commit <short SHA>` arrives, check that `git rev-parse --abbrev-ref HEAD` is the ledger branch and that the commit is in it: `git merge-base --is-ancestor <short SHA> HEAD`. bigm can commit again before you push, so `HEAD` can be a later commit. One push sends all of them.
 3. Push: `git push origin <ledger branch>`. Never force a push.
 4. Read the source: `git ls-remote origin refs/heads/<ledger branch>`. The value must be the local `HEAD`. Write the result with `report_write` (kind `result`) and the source read.
 5. If a check fails or the push is refused, do not try again with another form. Open a P1 question to bigm with the exact output.
