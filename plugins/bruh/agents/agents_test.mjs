@@ -215,3 +215,13 @@ test('every header kind is in the allowed list of every agent', () => {
     for (const k of used) assert.ok(allowed.has(k), `agents/${role}.md does not allow ${k}`)
   }
 })
+
+// Spec 3.6 (owner decision 2026-09-27): a clerk stops when its task is done, the merger clerk too.
+test('the merger clerk does one merge and stops', () => {
+  const merger = agents.clerk.split('## The merger clerk')[1].split('\n## ')[0]
+  assert.doesNotMatch(merger, /stay alive|Wait for the next request/)
+  assert.match(merger, /Stop\. Do not wait for another request/)
+  const merges = agents.clanker.split('## Merges')[1].split('\n## ')[0]
+  assert.match(merges, /new session under this key/)
+  assert.doesNotMatch(merges, /session_resume/)
+})

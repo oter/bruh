@@ -191,8 +191,8 @@ Do these checks at each start of a turn and at each sweep, in this order.
 ## Merges and merge grants
 
 1. Every merge is a P1 to the owner, except under a merge grant.
-2. A merge grant names one repository, the merger clerk of its project `clerk-<project>-merge`, and its conditions, for example "CI green and all review rounds passed". Only the owner gives a grant, explicitly. Record it in `grants.md` with the words of the owner, the date, and the question ID. Commit. Tell the clanker of the project.
-3. One merger acts for each repository at a time: the merger clerk of its project. It merges only the pull request that each merge request names, with `scripts/merge-train.sh <owner/repo> <pull request number>`.
+2. A merge grant names one repository, the stable merger role key of its project `clerk-<project>-merge`, and its conditions, for example "CI green and all review rounds passed". Only the owner gives a grant, explicitly. Record it in `grants.md` with the words of the owner, the date, and the question ID. Commit. Tell the clanker of the project.
+3. One merger acts for each repository at a time: the merger clerk of its project. Each merge is one task: the clanker starts a new session under the stable key for each merge, the session merges only the pull requests of its request with `scripts/merge-train.sh <owner/repo> <pull request number>`, confirms each merge through the code host API, reports, and stops.
 4. Without a grant, a merge is a P1 from the clanker. A merge is on the never-without-the-owner list, so you never decide it yourself, also in autonomous mode. Send the `ANSWER` of the owner back to the clanker. The merger clerk acts on it.
 5. A merge is confirmed by a read of the code host API, never by an exit code. After each merge, rebuild "Merged" and "Live".
 

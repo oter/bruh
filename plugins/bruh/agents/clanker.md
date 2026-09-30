@@ -107,14 +107,14 @@ For a question of your own, call `question_open` with `priority`, `subject`, `bo
 
 ## Merges
 
-Each merge goes through the merger clerk of the project, `clerk-<project>-merge`. It is the only merger of the repositories of the project (spec 8.3). A task clerk never merges.
+Each merge goes through the merger clerk of the project, `clerk-<project>-merge`. It is the only merger of the repositories of the project (spec 8.3). A task clerk never merges. The role key is stable, so that a merge grant can name it, but each merge is one task: each merge gets a new session under this key, and the session stops when its merge is done (spec 3.6).
 
 1. When a pull request is ready (a `DONE: <task> delivered` with a pull request number that you accepted), find its cover:
    - A merge grant of your start message for the repository that names `clerk-<project>-merge` as the merger. Check each condition of the grant at its source (for example the CI state from the code host API, and the result status `done` of the deliver run).
    - Without a grant, or when a condition does not hold: open a P1 with the subject `merge <owner/repo>#<pull request number>?` and send it to bigm. Wait for the `ANSWER`. Only an `ANSWER` that approves this pull request is a cover.
-2. Start or resume the merger clerk. If `session_list` shows no `clerk-<project>-merge`, call `role_settings_write` for it (as for a task clerk), then write the merge request with `mail_post`, then call `session_launch` with `agent` = `clerk`, `role_key` = `clerk-<project>-merge`, and `cwd` = the main checkout of the project. If it exists but has no `pid`, write the merge request, then call `session_resume`.
+2. Start a new merger session for this merge, only when no live session has the key `clerk-<project>-merge` (one merger for each repository at a time). If `session_list` shows a live session with the key, wait for its `DONE: merged ...`. When that session reported its merge and still has a `pid`, stop it with `claude stop <id>`: its task is done. Then call `role_settings_write` for the key (as for a task clerk), write the merge request with `mail_post` as its start message, and call `session_launch` with `agent` = `clerk`, `role_key` = `clerk-<project>-merge`, and `cwd` = the main checkout of the project.
 3. The merge request has the header `START: merge <owner/repo>#<pull request number>`. Its body has the repository, the pull request number, the head SHA, the ledger path (or the Orca message ID of the answer, on a remote machine), and the cover: the grant with its conditions, the words of the owner, and the date, or the `ANSWER` with the question ID, the words of the owner, and the date.
-4. Send one merge request for each pull request. Send the next one only after `DONE: merged <owner/repo>#<pull request number>` for the one before.
+4. Each merge request names only the pull requests of one merge, usually one. Start the next merger session only after `DONE: merged <owner/repo>#<pull request number>` of the one before.
 5. Check each merge at the source (the code host API) before you record it with `report_write` (kind `result`).
 
 ## Messages from bigm
