@@ -60,7 +60,7 @@ flowchart TB
 
 ## 2. Task lifecycle
 
-Each start writes a start message to the mailbox and a role settings file, then runs `claude --bg`. Routine status goes to report files, not to messages. A merge is a P1 `P1 Q-n: merge?` to the owner, unless a merge grant covers it.
+Each start writes a start message to the mailbox and a role settings file, then runs `claude --bg`. Routine status goes to report files, not to messages. A merge is a P1 `P1 Q-n: merge?` to the owner, unless a merge grant covers it. A merger clerk `clerk-<project>-merge` does each merge in a new session and stops. For a remote project, bigm starts the merger on its own machine. `mail_post` accepts messages only between a parent and its child, from bigm, and a P0 from a clerk to bigm.
 
 ```mermaid
 sequenceDiagram
@@ -70,6 +70,7 @@ sequenceDiagram
     participant Clanker
     participant Clerk
     participant WF as deliver workflow
+    participant Merger as clerk-project-merge
     participant CL as clerk-ledger
     Owner->>bigm: Work request for a project
     bigm->>bigm: Record the request in the ledger, commit
@@ -86,17 +87,20 @@ sequenceDiagram
         Clerk->>Clerk: Push the branch
         Clerk->>Clanker: DONE with evidence
         Clanker->>MCP: report_write status, no STATUS message
+        Clanker->>Clanker: Accept the result
         alt Merge grant for the repository
-            Clerk->>Clerk: Merge under the grant, confirm with the code host API
+            Clanker->>Merger: START merge owner/repo#n with the grant as the cover
         else No merge grant
-            Clanker->>bigm: P1 Q-n: merge?
+            Clanker->>bigm: P1 Q-n: merge owner/repo#n?
             bigm->>Owner: P1 in the next batch
             Owner->>bigm: Answer
             bigm->>Clanker: ANSWER Q-n
-            Clanker->>Clerk: ANSWER Q-n
-            Clerk->>Clerk: Merge, confirm with the code host API
+            bigm->>MCP: mail_post ANSWER Q-n: merge owner/repo#n approved, to clerk-project-merge
+            Clanker->>Merger: START merge owner/repo#n with the ANSWER as the cover
         end
-        Clerk->>MCP: report_write merge result
+        Merger->>Merger: merge-train.sh merges only #n, confirms with the code host API
+        Merger->>MCP: report_write merge result
+        Merger->>Clanker: DONE merged, then stop
         Clerk->>Clerk: Remove the worktree and stop
     end
     bigm->>MCP: Sweep reads the report files

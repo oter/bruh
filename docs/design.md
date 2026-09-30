@@ -117,6 +117,10 @@ An adversarial review and an invariant check of the first spec draft found these
 - Workflow input (corrected by the owner the same day): the review said that a workflow run takes no input, and the first fix split `plan` from `deliver`. The owner said that workflows can get input while they run. The docs confirm that each workflow agent keeps `SendMessage`. So `deliver` again contains the plan stage, and a workflow agent sends its questions to the clerk. The review round limit is two, an owner decision 2026-09-27.
 - Handoff message in subagents: the `PostToolUse` hook exits when the input has `agent_id`, so subagent tool calls do not use up the message.
 
+## Build of v0.1 (2026-09-30)
+
+- Owner decision 2026-09-30: the owner accepted, as a set, the recommended option of each decision that plans 2 to 6 tagged "agent-derived, needs owner decision" (see the [plan index](superpowers/plans/2026-09-30-bruh-v0.1-index.md)). The owner said "go go go" to the push and the pull request of the build.
+
 ## Knowledge
 
 The verified facts that these decisions depend on are in [knowledge.md](knowledge.md).

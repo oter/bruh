@@ -1,0 +1,28 @@
+{
+  "description": "bruh hooks: the handoff message, the handoff pickup, and the lease guard. Each does nothing when BRUH_ROLE_KEY is not set.",
+  "hooks": {
+    "PostToolUse": [
+      {
+        "hooks": [
+          { "type": "command", "command": "sh", "args": ["${CLAUDE_PLUGIN_ROOT}/scripts/handoff-nudge.sh"] }
+        ]
+      }
+    ],
+    "SessionStart": [
+      {
+        "matcher": "compact|clear|resume",
+        "hooks": [
+          { "type": "command", "command": "sh", "args": ["${CLAUDE_PLUGIN_ROOT}/scripts/handoff-inject.sh"] }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          { "type": "command", "command": "sh", "args": ["${CLAUDE_PLUGIN_ROOT}/scripts/lease-guard.sh"] }
+        ]
+      }
+    ]
+  }
+}

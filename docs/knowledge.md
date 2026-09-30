@@ -159,3 +159,18 @@ Fact, confirmed both ways: `claude --bg` refuses to start in a folder whose trus
 | E2E | PASS (2026-09-30) | In a scratch folder inside a trusted folder (no `git init`), with a settings file `{"env":{"BRUH_ROLE_KEY":"clanker-e2e"}}`: `claude -p --plugin-dir <repo>/plugins/bruh --settings <that file> --permission-mode auto "Call the bruh MCP tool report_write with kind status and text e2e-ok. Then call report_read with role_key clanker-e2e and print the text of the first line."` compiled the server with `go run` on first use, then printed "The first line's text is `e2e-ok`. Both calls worked", confirming `report_write` and `report_read` round-tripped through the MCP server with `BRUH_ROLE_KEY` reaching it from `--settings`. |
 
 Every background session above (`probe-p2`, `probe-p4`, `probe-p5`, `probe-p6`, `probe-p7`) was stopped with `claude stop <id>` and confirmed absent a `pid` in `claude agents --json --all` afterward.
+
+## Workspace trust for test repositories (verified 2026-09-30, Claude Code 2.1.284)
+
+- `claude --bg` in a new repository made with `git init` inside a trusted folder fails with `Workspace not trusted`, also when a parent folder of it is trusted.
+- `claude --bg` in a linked worktree of a trusted repository (`git worktree add`) starts and finishes normally. So a test that needs a temporary git repository makes it a linked worktree of a trusted repository.
+- `claude --bg --plugin-dir <plugin> --agent <plugin>:<agent>` prints `warning: no agent named '<plugin>:<agent>' — spawning with default template`, because the launcher checks the name before it loads the plugin. The session loads the plugin agent all the same: its header shows `@<plugin>:<agent>`, and it follows the agent text. Verified 2026-09-30 with `bruh:bigm`. The warning is harmless.
+- `auto` permission mode is not available for Haiku 4.5. A session on that model falls back to manual mode.
+
+## Live test results of v0.1 (2026-09-30, Claude Code 2.1.284)
+
+- Smoke test (`tests/smoke/run.sh`, run 3 on the final tree): 10 steps PASS, the remote step SKIP (no Orca environment paired). bigm started the clanker with `session_launch`, the clanker started two clerks, a clerk started `/bruh:deliver` from a start message, a workflow agent asked a P1, the answer reached the agent in the same run, bigm raised a P0 with `claude attach <id>` for a clerk that waited on a permission prompt, and bigm restarted a stopped clanker under the same session ID.
+- The earlier runs found four defects, each fixed before run 3: the scratch ledger had no default `priorities.md` (bigm stopped at its hard stop, as the procedure says), the watcher looked in the data folder of an installed plugin, the driver lost clerks that `EnterWorktree` moved under `.claude/worktrees/` of the trusted repository, and the cleanup left their branches.
+- `EnterWorktree` of a session in a linked worktree makes its worktree under `.claude/worktrees/` of the main repository, on a new branch `worktree-<name>` from the HEAD of the main repository.
+- bigm raised a P0 when the deny rule `Bash(git push:*)` refused the push of the ledger clerk, so a refusal is escalated, not retried (principle 6).
+- Load test (`tests/load/run.sh`, 8 background sessions on Haiku 4.5, 60 minutes, one message every 2 minutes): 244 messages, 0 missed, each session got a message in each 5-minute window, 0 resumes needed. This passes the Verify item of spec section 4.1 for the transport. The sessions ran in manual mode, because Haiku 4.5 has no auto mode.

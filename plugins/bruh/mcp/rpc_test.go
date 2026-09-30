@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"io"
 	"os"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -90,8 +91,12 @@ func TestToolErrorAndProgress(t *testing.T) {
 
 func TestMissingRoleKeyWritesNothing(t *testing.T) {
 	env := testEnv(t, "")
+	anySession := []string{"bruh_info", "init_plan", "init_apply"}
 	for _, tool := range AllTools() {
 		_, err := tool.Handler(&Call{Env: env}, json.RawMessage(`{}`))
+		if slices.Contains(anySession, tool.Name) {
+			continue
+		}
 		if err == nil || !strings.Contains(err.Error(), "BRUH_ROLE_KEY is not set") {
 			t.Errorf("%s: err = %v", tool.Name, err)
 		}
