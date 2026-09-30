@@ -159,3 +159,8 @@ Fact, confirmed both ways: `claude --bg` refuses to start in a folder whose trus
 | E2E | PASS (2026-09-30) | In a scratch folder inside a trusted folder (no `git init`), with a settings file `{"env":{"BRUH_ROLE_KEY":"clanker-e2e"}}`: `claude -p --plugin-dir <repo>/plugins/bruh --settings <that file> --permission-mode auto "Call the bruh MCP tool report_write with kind status and text e2e-ok. Then call report_read with role_key clanker-e2e and print the text of the first line."` compiled the server with `go run` on first use, then printed "The first line's text is `e2e-ok`. Both calls worked", confirming `report_write` and `report_read` round-tripped through the MCP server with `BRUH_ROLE_KEY` reaching it from `--settings`. |
 
 Every background session above (`probe-p2`, `probe-p4`, `probe-p5`, `probe-p6`, `probe-p7`) was stopped with `claude stop <id>` and confirmed absent a `pid` in `claude agents --json --all` afterward.
+
+## Workspace trust for test repositories (verified 2026-09-30, Claude Code 2.1.284)
+
+- `claude --bg` in a new repository made with `git init` inside a trusted folder fails with `Workspace not trusted`, also when a parent folder of it is trusted.
+- `claude --bg` in a linked worktree of a trusted repository (`git worktree add`) starts and finishes normally. So a test that needs a temporary git repository makes it a linked worktree of a trusted repository.
