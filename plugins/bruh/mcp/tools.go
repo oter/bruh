@@ -11,5 +11,6 @@ func AllTools() []Tool {
 	tools = append(tools, leaseTools()...)
 	tools = append(tools, questionTools()...)
 	tools = append(tools, sessionTools()...)
+	tools = append(tools, initTools()...)
 	return tools
 }
