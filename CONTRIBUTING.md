@@ -4,7 +4,7 @@ Thank you for your help. Read the [specification](docs/spec.md) before you chang
 
 ## Checks to run locally
 
-Run all checks before you open a pull request. CI runs the same checks on macOS and Linux.
+Run all checks before you open a pull request. CI runs the Go checks and `sh tests/test.sh` on macOS and Linux. CI runs shellcheck, Markdown lint, the link check, and `claude plugin validate` on Linux only. CI does not run the smoke test or the load test.
 
 ```bash
 # Go: the MCP server

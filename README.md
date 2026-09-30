@@ -13,7 +13,7 @@
 
 bruh is a Claude Code plugin. It lets one person run work in many projects on many machines through a hierarchy of Claude Code sessions.
 
-You talk to one session, bigm. bigm keeps the status of all work in a private ledger repository and answers your questions about it. It shows you only the questions that need you. bruh runs with a human, or fully autonomous. It runs the same way on a local machine and in a container.
+You talk to one session, bigm. bigm keeps the status of all work in a private ledger repository and answers your questions about it. It shows you only the questions that need you. The file `mode.md` of the ledger sets the mode: `human` (bigm asks you) or `autonomous` (bigm decides P1 questions itself and records each decision).
 
 ## Roles
 
@@ -39,8 +39,8 @@ flowchart LR
 ```
 
 - A local message goes to the durable mailbox of the bruh MCP server. A `SendMessage` nudge carries only its header line.
-- Each question has a priority. A clanker answers P2 questions from the project context. P1 questions (your decisions) and P0 questions (blocks that only you can remove) go to bigm, and bigm shows them to you.
-- Each role stays below about 55 percent of its context window. A hook tells the role to write its handoff before compaction, and another hook gives the handoff back after compaction.
+- Each question has a priority. A clanker answers P2 questions from the project context. It also answers the P1 classes that you delegate to it in `priorities.md`. The other P1 questions (your decisions) and all P0 questions (blocks that only you can remove) go to bigm, and bigm shows them to you.
+- On a model with a 1M context window, each role stays below about 55 percent of its context window. A hook tells the role to write its handoff before compaction, and another hook gives the handoff back after compaction.
 - A remote clanker talks to bigm through the Orca remote runtime.
 
 The full process is in [docs/flow.md](docs/flow.md) as diagrams.
@@ -92,8 +92,10 @@ Non-interactive form, for a container or a script: write the answers to a JSON f
 ```
 
 ```bash
-GOTOOLCHAIN=local go run -C <plugin root>/mcp . init --answers answers.json
+GOTOOLCHAIN=local go run -C <plugin root>/mcp . init --answers "$PWD/answers.json"
 ```
+
+Give the answers file as an absolute path. `go run -C` runs the program in `<plugin root>/mcp`, so a relative path does not point to your file.
 
 Only `user_name` and `ledger_path` are required. The other keys have the default values that the example shows. Instead of a file, you can set each key as an environment variable `BRUH_INIT_<KEY>`, for example `BRUH_INIT_USER_NAME`. The non-interactive form prints the diff instead of asking.
 
@@ -125,20 +127,20 @@ Start bigm with `--channels plugin:telegram@claude-plugins-official` (step 7). S
 /telegram:access policy allowlist
 ```
 
-Slack is a custom channel in bruh. During the channels research preview, a custom channel loads only with a development flag. Start bigm with `--dangerously-load-development-channels plugin:bruh@bruh` instead of the Telegram `--channels` value.
-
 ### 5. Add a remote machine (optional)
 
 On the remote machine:
 
-1. Install Claude Code, then do steps 1 and 2.
-2. Start the Orca runtime on an address of a private network, for example a VPN address:
+1. Install Claude Code, then do steps 1 and 2. The init skill asks for a ledger path. Give it an empty local folder that is not your ledger, for example `~/bruh-remote-ledger`. bigm writes only the ledger on its own machine.
+2. Start the Orca runtime:
 
    ```bash
-   orca serve --pairing-address <private network address>
+   orca serve --port <port> --pairing-address <private network address>
    ```
 
-   The command prints the pairing status and a pairing code, a link that starts with `orca://pair`.
+   `--pairing-address` sets only the address that Orca advertises to clients. It does not set the address that the runtime listens on, and `orca serve` has no option for that. The command prints the bound endpoint and the advertised endpoint. Make the port reachable only on a private network: allow it only on the VPN interface with the host firewall, or keep it closed and reach it through a tunnel, for example an SSH port forward, and give the tunnel address as `--pairing-address`.
+
+   The command also prints the pairing status and a pairing code, a link that starts with `orca://pair`.
 
 On the machine of bigm, pair the runtime once:
 
@@ -150,14 +152,14 @@ Give the environment name to the init skill (question 13). For remote work, run 
 
 ### 6. Run in a container (optional)
 
-For autonomous work, the container image is `ghcr.io/oter/autonomous-agents/agent`. The image is outside this repository.
+For autonomous work, the container image is `ghcr.io/oter/autonomous-agents/agent`. The image is outside this repository. It has no `latest` tag: pick a published tag of the image, and check that the image has the requirements of step 8.
 
-Put the plugin data folder on a volume. Without a volume, the handoffs, the mailboxes, and the leases are lost when the container stops.
+Put the whole `~/.claude` folder of the container user on a volume. It holds the plugin install (step 1), the user settings that the init skill writes (the allow rules, `autoCompactWindow`, and the status line), the Claude login, and the plugin data folder with the handoffs, the mailboxes, and the leases. With a volume for only a part of it, a new container loses the rest, and bigm starts without the plugin or without its allow rules.
 
 ```bash
-docker volume create bruh-data
-docker run -it -v bruh-data:<home folder of the container user>/.claude/plugins/data \
-  ghcr.io/oter/autonomous-agents/agent
+docker volume create bruh-claude
+docker run -it -v bruh-claude:<home folder of the container user>/.claude \
+  ghcr.io/oter/autonomous-agents/agent:<tag>
 ```
 
 In the container, do step 1, then the non-interactive form of step 2. In a container, bigm has no Orca terminal. To reach a remote clanker in a container, run `orca serve` in that container (step 5).
@@ -181,6 +183,7 @@ bigm starts a clanker for each project that has work. Tell bigm what to do.
 | Requirement | Why |
 |---|---|
 | Claude Code 2.1.284 or later | The version that the probes of this release ran on |
+| A model with a 1M context window for each role | The auto-compact window of 550000 tokens is 55 percent only of a 1M window |
 | Go 1.26 or later | Claude Code starts the bruh MCP server with `go run` |
 | `jq` | The hook scripts |
 | `git` | Worktrees, branches, and the ledger |
