@@ -74,7 +74,7 @@ Control flow:
 5. Deduplicate by `file:line`, first occurrence wins, and drop each key of the refuted set.
 6. `parallel` of one refuter for each new finding. Only `confirmed: true` confirms. Each other finding goes into the refuted set and stays there.
 7. No confirmed finding: return `done`. Round count equal to `round_cap` (default 2): return `findings_left`.
-8. **Fix** (phase `Fix`): group the confirmed findings by area (the folder of the file; gate findings without a file are the area `gates`), and run one fixer at a time. Then go to step 4.
+8. **Fix** (phase `Fix`): group the confirmed findings by area (the top-level folder of the file; gate findings without a file are the area `gates`), and run one fixer at a time. Then go to step 4.
 
 Questions (plan, implement, fix): the prompt tells the agent to call `question_open`, send the returned `header` to `main` with `SendMessage`, and call `answer_wait` with `args.deadline_seconds`. When the agent returns a `question`, the script looks for `args.answers[<id>]`. With no answer, the script returns `status: question`. With an answer, the script runs the same step again, with the same prompt plus a section with the earlier questions and their answers. The prompt of the first attempt never changes, so a relaunch with `resumeFromRunId` returns its cached result, and only the new attempt runs live.
 
@@ -95,6 +95,9 @@ Questions (plan, implement, fix): the prompt tells the agent to call `question_o
 1. **A review round** is one review and, when confirmed findings are left and the cap is not reached, one fix pass. With the default cap of 2, the run is: review, fix, review. Options, ranked: (a) this reading (chosen: the last action of a run is always a review, so the result reports what is in the tree); (b) review and fix in each round, then one extra review.
 2. **A gate finding goes to a refuter too** (spec 6.3, "One refuter checks each finding"). The refuter of a gate finding runs the gate command again, and it refutes only when the new run shows no failure and no skip.
 3. **A failed review agent stops the run** with `stopped`, and the clerk relaunches with `resumeFromRunId` (spec 15).
+4. **`question` is `null`** in each result that is not `status: question`, so that every result has all keys of interfaces section 4.
+5. **Finding states.** A finding is `open` when the last review confirmed it, `refuted` when a refuter did not confirm it, and `fixed` when a fixer fixed it or a later review did not confirm it again.
+6. **An area** is the top-level folder of the file, so that one fixer gets all findings of one part of the tree.
 
 ## Verified facts
 
@@ -109,7 +112,7 @@ Questions (plan, implement, fix): the prompt tells the agent to call `question_o
 | Workflow agents reach the MCP tools of the session through `ToolSearch` | Loaded the bundled skill | `/workflow-authoring` |
 | `SendMessage` to `main` from a workflow agent reaches the main session in the same run; the answer comes back through a file | Probes of 2026-09-27 | knowledge.md, "Probe results" |
 
-No live probe was necessary for this plan. The smoke test of plan 6 runs the question path end to end (spec 20).
+Probe D1 (2026-09-30, Claude Code 2.1.284): in a scratch folder inside a trusted folder (no `git init`), with a settings file that allows `Workflow(bruh:deliver)`, `claude -p --plugin-dir <repo>/plugins/bruh --model haiku --settings <that file> --permission-mode auto 'Run the workflow /bruh:deliver with args {"task":"probe"} ...'` printed `{"status":"stopped","branch":"","base_sha":"","head_sha":"","tests":{"ran":0,"passed":0,"failed":0,"skipped":0},"findings":[],"question":null,"deviations":["STOP: args.base_sha is not a 40-character hex SHA; args.branch is empty; args.gates is not a list"]}`. This proves that the Workflow runtime parses `deliver.js`, that the plugin workflow runs as `/bruh:deliver`, that `args` arrives as an object, and that invalid `args` stop the run before any agent. The smoke test of plan 6 runs the question path end to end (spec 20).
 
 ## Self-review
 
