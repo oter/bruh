@@ -187,14 +187,58 @@ test('a refuted gate failure that passes in the next round gives done', async ()
   assert.equal(byWord('fix').length, 0)
 })
 
-test('a new failure of the same gate command is a new finding', async () => {
+test('a gate that stays red keeps one open finding, never a fixed one', async () => {
   const gate = (tail) => ({ command: 'make test', exit_code: 1, ran: 1, passed: 0, failed: 1, skipped: 0, output_tail: tail, problems: [] })
   const { result } = await run({
-    gates: (p, o, n) => ({ head_sha: HEAD, tests: { ran: 1, passed: 0, failed: 1, skipped: 0 }, gates: [gate(n === 1 ? 'error one' : 'error two')] }),
+    gates: (p, o, n) => ({ head_sha: HEAD, tests: {}, gates: [gate(`FAIL pkg 0.${n}s`)] }),
+    refute: () => ({ confirmed: true }),
+  }, baseArgs({ gates: ['make test'], round_cap: 3 }))
+  assert.equal(result.status, 'findings_left')
+  assert.deepEqual(result.findings.map((f) => f.state), ['open'])
+})
+
+test('a red gate that is clean in the next round is fixed', async () => {
+  const { result } = await run({
+    gates: (p, o, n) => (n === 1
+      ? { head_sha: HEAD, tests: {}, gates: [{ command: 'go test ./...', exit_code: 1, ran: 5, passed: 4, failed: 1, skipped: 0, output_tail: 'FAIL', problems: [] }] }
+      : cleanGates()),
     refute: () => ({ confirmed: true }),
   })
-  assert.equal(result.status, 'findings_left')
-  assert.deepEqual(result.findings.map((f) => f.state), ['fixed', 'open'])
+  assert.equal(result.status, 'done')
+  assert.deepEqual(result.findings.map((f) => f.state), ['fixed'])
+})
+
+test('gate results must cover exactly args.gates', async () => {
+  const empty = await run({ gates: () => ({ head_sha: HEAD, tests: {}, gates: [] }) })
+  assert.notEqual(empty.result.status, 'done')
+  assert.equal(empty.result.status, 'findings_left')
+  assert.match(empty.result.findings[0].summary, /has no result/)
+
+  const two = baseArgs({ gates: ['go test ./...', 'make lint'] })
+  const oneMissing = await run({}, two)
+  assert.equal(oneMissing.result.status, 'findings_left')
+  assert.deepEqual(oneMissing.result.findings.map((f) => f.file), ['gate: make lint'])
+
+  const extra = await run({ gates: () => ({ ...cleanGates(), gates: [...cleanGates().gates, { command: 'rm -rf x', exit_code: 0, ran: 1, passed: 1, failed: 0, skipped: 0, problems: [] }] }) })
+  assert.equal(extra.result.status, 'findings_left')
+  assert.match(extra.result.findings[0].summary, /not a gate of the task/)
+
+  const none = await run({ gates: () => ({ head_sha: HEAD, tests: {}, gates: [{ command: 'go test ./...', exit_code: 0, ran: 0, passed: 0, failed: 0, skipped: 0, problems: [] }] }) })
+  assert.equal(none.result.status, 'findings_left')
+  assert.match(none.result.findings[0].summary, /ran no tests/)
+})
+
+test('a dead fixer, adversarial, or invariant agent stops the run, never done', async () => {
+  const confirmedFinding = { adversarial: () => ({ findings: [finding('src/a.go', 1)] }), refute: () => ({ confirmed: true }) }
+  const fixer = await run({ ...confirmedFinding, fix: () => null })
+  assert.equal(fixer.result.status, 'stopped')
+  assert.match(fixer.result.deviations.at(-1), /^FAILED: /)
+  assert.equal(fixer.result.findings[0].state, 'open')
+  for (const w of ['adversarial', 'invariants']) {
+    const r = await run({ [w]: () => null })
+    assert.equal(r.result.status, 'stopped', `dead ${w}`)
+    assert.match(r.result.deviations.at(-1), /^FAILED: /)
+  }
 })
 
 test('a finding that the fixer did not fix stays open', async () => {
@@ -280,7 +324,7 @@ test('a skip count without a named test is still a finding', async () => {
     tests: { ran: 3, passed: 2, failed: 0, skipped: 1 },
     gates: [{ command: 'make test', exit_code: 0, ran: 3, passed: 2, failed: 0, skipped: 1, problems: [] }],
   })
-  const { result } = await run({ gates, refute: () => ({ confirmed: true }) }, baseArgs({ round_cap: 1 }))
+  const { result } = await run({ gates, refute: () => ({ confirmed: true }) }, baseArgs({ round_cap: 1, gates: ['make test'] }))
   assert.equal(result.findings.length, 1)
   assert.equal(result.findings[0].file, 'gate: make test')
 })
@@ -291,7 +335,7 @@ test('a failed gate without named failures is a finding', async () => {
     tests: { ran: 0, passed: 0, failed: 0, skipped: 0 },
     gates: [{ command: 'make lint', exit_code: 2, ran: 0, passed: 0, failed: 0, skipped: 0, problems: [] }],
   })
-  const { result } = await run({ gates, refute: () => ({ confirmed: true }) }, baseArgs({ round_cap: 1 }))
+  const { result } = await run({ gates, refute: () => ({ confirmed: true }) }, baseArgs({ round_cap: 1, gates: ['make lint'] }))
   assert.equal(result.findings[0].file, 'gate: make lint')
 })
 
@@ -344,14 +388,21 @@ test('answer reaches only prompts after the question', async () => {
   assert.equal(withAnswer[0], second.calls[1])
 })
 
-test('the same question pending again after its answer stops the run', async () => {
-  const { result, byWord } = await run(
-    { plan: () => ({ plan: '', stop: false, reason: '', question: Q }) },
-    baseArgs({ answers: { 'Q-5': 'B' } }),
-  )
-  assert.equal(result.status, 'stopped')
-  assert.match(result.deviations.at(-1), /^FAILED: /)
-  assert.equal(byWord('plan').length, 2)
+test('a question pending again after its answer goes back to the clerk with a counter, then stops', async () => {
+  const always = { plan: () => ({ plan: '', stop: false, reason: '', question: Q }) }
+  const one = await run(always, baseArgs({ answers: { 'Q-5': 'B' } }))
+  assert.equal(one.result.status, 'question')
+  assert.deepEqual(one.result.question, Q)
+  assert.equal(one.result.deviations.at(-1), 'REPEAT: Q-5 1 of 2')
+  const two = await run(always, baseArgs({ answers: { 'Q-5': ['B', 'C'] } }))
+  assert.equal(two.result.status, 'question')
+  assert.equal(two.result.deviations.at(-1), 'REPEAT: Q-5 2 of 2')
+  // The earlier attempts keep their prompts, so a relaunch returns them from the cache.
+  assert.equal(two.calls[0].prompt, one.calls[0].prompt)
+  assert.equal(two.calls[1].prompt, one.calls[1].prompt)
+  const three = await run(always, baseArgs({ answers: { 'Q-5': ['B', 'C', 'D'] } }))
+  assert.equal(three.result.status, 'stopped')
+  assert.match(three.result.deviations.at(-1), /^STOP: Q-5 is pending again after 3 answers/)
 })
 
 test('a fixer question returns status question with the findings so far', async () => {

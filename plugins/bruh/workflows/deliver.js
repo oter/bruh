@@ -191,27 +191,49 @@ const VERDICT = {
   required: ['confirmed', 'reason'],
 }
 
+// The answers of the clerk for one question ID: a string, or a list of
+// strings when the clerk answered the same question more than one time.
+function answerList(id) {
+  const a = answers[id]
+  if (typeof a === 'string') return [a]
+  return Array.isArray(a) ? a.filter((x) => typeof x === 'string') : []
+}
+
 // Runs a step that can ask a question. The first attempt has the plain prompt.
 // Each later attempt adds the earlier questions of this step and their answers
-// from args.answers. Returns {value}, {question}, or {failed}.
+// from args.answers, in order, so the prompts of the earlier attempts never
+// change. Returns {value}, {question, repeat}, {stop}, or {failed}.
 async function askable(label, prompt, schema) {
-  const asked = []
+  const given = [] // {q, text}, in the order of the attempts
   for (;;) {
-    const earlier = asked.length
-      ? `\n\nEarlier questions of this step and their answers. Check the working tree first: work of an earlier attempt can be in it already.\n${asked.map((q) => `- ${q.id} (${q.header}): ${answers[q.id]}`).join('\n')}`
+    const earlier = given.length
+      ? `\n\nEarlier questions of this step and their answers. Check the working tree first: work of an earlier attempt can be in it already.\n${given.map((g) => `- ${g.q.id} (${g.q.header}): ${g.text}`).join('\n')}`
       : ''
     const r = await agent(`${CONTEXT}\n\n${prompt}${earlier}\n\n${ASK}`, {
-      label: asked.length ? `${label} after ${asked.at(-1).id}` : label,
+      label: given.length ? `${label} attempt ${given.length + 1}` : label,
       effort: 'high',
       schema,
     })
     if (!r) return { failed: `the ${label} agent did not return a result` }
     if (!r.question) return { value: r }
     const q = { id: r.question.id, header: r.question.header, body: r.question.body }
-    if (asked.some((x) => x.id === q.id)) return { failed: `${q.id} is pending again after its answer` }
-    if (typeof answers[q.id] !== 'string') return { question: q }
-    asked.push(q)
+    const used = given.filter((g) => g.q.id === q.id).length
+    const list = answerList(q.id)
+    if (used >= MAX_ANSWERS) return { stop: `${q.id} is pending again after ${used} answers` }
+    if (used < list.length) {
+      given.push({ q, text: list[used] })
+      continue
+    }
+    return { question: q, repeat: used }
   }
+}
+
+// A question that is pending again after its answer goes back to the clerk
+// with a counter; after MAX_ANSWERS answers the run stops.
+const MAX_ANSWERS = 3
+function asked(r) {
+  if (r.repeat) deviations.push(`REPEAT: ${r.question.id} ${r.repeat} of ${MAX_ANSWERS - 1}`)
+  return result('question', r.question)
 }
 
 // Each gate is a required suite: each failed or skipped test is a finding.
@@ -247,11 +269,32 @@ function gateFindings(g) {
       })
     }
   }
+  // The gate results must cover exactly args.gates, and each gate must run tests.
+  const reported = new Set((g.gates || []).map((x) => x.command))
+  for (const cmd of gateCommands) {
+    if (!reported.has(cmd)) {
+      out.push({ file: `gate: ${cmd}`, line: 0, summary: `The required suite \`${cmd}\` has no result: the gate check did not run it.`, gate: cmd, key: `gate ${cmd} missing` })
+    }
+  }
+  for (const x of g.gates || []) {
+    if (!gateCommands.includes(x.command)) {
+      out.push({ file: `gate: ${x.command}`, line: 0, summary: `The gate check returned \`${x.command}\`, which is not a gate of the task.`, gate: x.command, key: `gate ${x.command} extra` })
+    } else if (!(x.ran > 0)) {
+      out.push({ file: `gate: ${x.command}`, line: 0, summary: `The required suite \`${x.command}\` ran no tests.`, gate: x.command, key: `gate ${x.command} ran 0` })
+    }
+  }
   return out
 }
 
-// A gate is clean when it exits 0 with no failed and no skipped test.
-const clean = (g) => (g.gates || []).every((x) => x.exit_code === 0 && x.failed === 0 && x.skipped === 0)
+// A gate command is clean when its result exits 0, runs tests, and has no
+// failed and no skipped test. A command that is not in args.gates is clean
+// only when the gate check did not return it.
+function gateClean(g, cmd) {
+  const x = (g.gates || []).find((y) => y.command === cmd)
+  if (!gateCommands.includes(cmd)) return !x
+  return Boolean(x) && x.exit_code === 0 && x.failed === 0 && x.skipped === 0 && x.ran > 0
+}
+const clean = (g) => gateCommands.every((cmd) => gateClean(g, cmd)) && (g.gates || []).every((x) => gateCommands.includes(x.command))
 const sum = (g, k) => (g.gates || []).reduce((n, x) => n + (Number.isInteger(x[k]) ? x[k] : 0), 0)
 
 const area = (f) => (f.file.startsWith('gate: ') ? 'gates' : f.file.includes('/') ? f.file.slice(0, f.file.indexOf('/')) : '.')
@@ -268,7 +311,8 @@ const plan = await askable(
   PLAN,
 )
 if (plan.failed) return fail(plan.failed)
-if (plan.question) return result('question', plan.question)
+if (plan.stop) return stop(plan.stop)
+if (plan.question) return asked(plan)
 if (plan.value.stop) return stop(plan.value.reason || 'the plan agent stopped')
 
 // 2. Implement
@@ -288,7 +332,8 @@ ${plan.value.plan}
   IMPLEMENT,
 )
 if (impl.failed) return fail(impl.failed)
-if (impl.question) return result('question', impl.question)
+if (impl.stop) return stop(impl.stop)
+if (impl.question) return asked(impl)
 deviations.push(...list(impl.value.deviations))
 if (impl.value.head_sha) head = impl.value.head_sha
 if (impl.value.conflict) {
@@ -303,7 +348,7 @@ for (let round = 1; ; round++) {
   const [adv, inv, gates] = await parallel([
     () => agent(`${CONTEXT}\n\nStep: adversarial review, round ${round}. Do not edit files.\n${DIFF}\nTry to refute the change: find where it is wrong, where it is incomplete, and where it does not meet the acceptance criteria. Report each finding with the file, the line of the problem, and a summary. Report nothing that you cannot show in the code.`, { label: `adversarial ${round}`, effort: 'low', schema: FINDINGS }),
     () => agent(`${CONTEXT}\n\nStep: invariant check, round ${round}. Do not edit files.\n${DIFF}\nDo not trust the claims of the author. List the invariants that the code must keep, from the code, the tests, and the docs. Verify each invariant against the changed code. Report each broken invariant as a finding with the file, the line, and a summary.`, { label: `invariants ${round}`, effort: 'low', schema: FINDINGS }),
-    () => agent(`${CONTEXT}\n\nStep: gates, round ${round}. Do not edit files.\n${DIFF}\nRun each gate command, in this order:\n${bullets(gateCommands)}\nEach gate is a required suite. For each gate, return its exit code and how many tests ran, passed, failed, and were skipped. Read the counts from the output; do not estimate. For each failed or skipped test, give the file and the line of the test, a summary, and the kind (failed or skipped). When a gate fails or skips a test, return the last 40 lines of its output in output_tail; otherwise return an empty output_tail. Return tests with the totals of all gates, and head_sha from \`git rev-parse HEAD\`.`, { label: `gates ${round}`, effort: 'low', schema: GATES }),
+    () => agent(`${CONTEXT}\n\nStep: gates, round ${round}. Do not edit files.\n${DIFF}\nRun each gate command, in this order:\n${bullets(gateCommands)}\nEach gate is a required suite. Return exactly one result for each gate command above, with the command text unchanged, and run no other gate. For each gate, return its exit code and how many tests ran, passed, failed, and were skipped. Read the counts from the output; do not estimate. For each failed or skipped test, give the file and the line of the test, a summary, and the kind (failed or skipped). When a gate fails or skips a test, return the last 40 lines of its output in output_tail; otherwise return an empty output_tail. Return tests with the totals of all gates, and head_sha from \`git rev-parse HEAD\`.`, { label: `gates ${round}`, effort: 'low', schema: GATES }),
   ])
   if (!adv || !inv || !gates) return fail(`a review check of round ${round} did not return a result`)
   // The totals come from the per-gate counts, added in code.
@@ -318,9 +363,14 @@ for (let round = 1; ; round++) {
     if (!fresh.has(k) && !refuted.has(k)) fresh.set(k, { ...f, file: norm(f.file) })
   }
   const gateNow = gateFindings(gates)
-  // A gate failure of an earlier round that the gates of this round do not show is gone.
+  // An open gate finding of an earlier round is fixed only when its gate is
+  // clean now. When the gate is still red, a finding of this round replaces it.
   const gateKeys = new Set(gateNow.map(key))
-  for (const [k, f] of found) if (f.gate && f.state === 'open' && !gateKeys.has(k)) f.state = 'fixed'
+  for (const [k, f] of found) {
+    if (!f.gate || f.state !== 'open' || gateKeys.has(k)) continue
+    if (gateClean(gates, f.gate)) f.state = 'fixed'
+    else found.delete(k)
+  }
   for (const f of gateNow) if (!fresh.has(key(f))) fresh.set(key(f), f)
   const candidates = [...fresh.values()]
   log(`Round ${round}: ${candidates.length} findings, one refuter each`)
@@ -373,7 +423,8 @@ ${batch.map((f) => `- ${f.file}:${f.line}: ${f.summary}`).join('\n')}
       FIX,
     )
     if (fix.failed) return fail(fix.failed)
-    if (fix.question) return result('question', fix.question)
+    if (fix.stop) return stop(fix.stop)
+    if (fix.question) return asked(fix)
     deviations.push(...list(fix.value.deviations))
     if (fix.value.head_sha) head = fix.value.head_sha
     // Only a fix that the fixer reports makes a finding fixed.
