@@ -50,8 +50,8 @@ done
 for v in "$sessions" "$minutes" "$interval"; do
 	case $v in '' | *[!0-9]*) die "--sessions, --minutes, and --interval take whole numbers" ;; esac
 done
-[ "$sessions" -ge 2 ] && [ $((sessions % 2)) -eq 0 ] || die "--sessions must be an even number, 2 or more"
-[ "$interval" -ge 1 ] && [ "$interval" -le 59 ] || die "--interval must be 1 to 59 minutes"
+if [ "$sessions" -lt 2 ] || [ $((sessions % 2)) -ne 0 ]; then die "--sessions must be an even number, 2 or more"; fi
+if [ "$interval" -lt 1 ] || [ "$interval" -gt 59 ]; then die "--interval must be 1 to 59 minutes"; fi
 [ "$minutes" -ge 1 ] || die "--minutes must be 1 or more"
 case $model in '' | *[!A-Za-z0-9._-]*) die "--model takes a model name such as haiku" ;; esac
 
