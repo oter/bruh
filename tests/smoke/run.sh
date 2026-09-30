@@ -37,11 +37,15 @@ idle_min=${SMOKE_IDLE_MINUTES:-0}
 
 plugin=$root/plugins/bruh
 run_id=${SMOKE_RUN:-$(random_id)}
+valid_run_id "$run_id" || die "SMOKE_RUN must be 1 to 12 lowercase letters and digits"
 project=smoke-$run_id
 clanker=clanker-$project
 greet=clerk-$project-greet
 gate=clerk-$project-gate
 trusted=${BRUH_TRUSTED_REPO:-}
+# A relative path would resolve against the repository in `git -C`, and
+# session_launch refuses a relative folder.
+if [ -n "$trusted" ] && t=$(abs_dir "$trusted"); then trusted=$t; fi
 if [ "$DRY" = 1 ] && [ -z "$trusted" ]; then trusted='<trusted repo>'; fi
 base=$trusted/.bruh-test/$project
 proj=$base/project
@@ -60,6 +64,10 @@ data=$BRUH_DATA
 fails=0
 started=0
 detail=
+remote_run=
+remote_dispatch=
+remote_worktree=
+remote_reply_id=
 
 mark() {
 	v=$(printf '%s' "$1" | tr - _)
@@ -159,7 +167,28 @@ answer_same_run() {
 		detail="the answer came through a relaunch with resumeFromRunId, not in the same run"
 		return 1
 	fi
-	detail="answer file and DONE present"
+	# The greeting word of the task branch or a clerk worktree must be in the answer.
+	answer=$(jq -r '.text // empty' "$data/answers/$greet/$q_id.answer" | tr '[:upper:]' '[:lower:]')
+	word=
+	for b in $(git -C "$trusted" for-each-ref --format='%(refname:short)' refs/heads | grep -vxF -f "$evidence/branches-before.txt"); do
+		word=$(git -C "$trusted" show "refs/heads/$b:GREETING.txt" 2>/dev/null | head -1 | tr -d '[:space:]' | tr '[:upper:]' '[:lower:]')
+		[ -z "$word" ] || break
+	done
+	if [ -z "$word" ]; then
+		f=$(find "$proj" -name GREETING.txt -type f 2>/dev/null | head -1)
+		[ -z "$f" ] || word=$(head -1 "$f" | tr -d '[:space:]' | tr '[:upper:]' '[:lower:]')
+	fi
+	if [ -z "$word" ]; then
+		detail="no GREETING.txt on a new branch or in the project"
+		return 1
+	fi
+	case $answer in
+	*"$word"*) detail="answer file, DONE, and GREETING.txt with the answered word '$word'" ;;
+	*)
+		detail="GREETING.txt has '$word', which is not in the answer"
+		return 1
+		;;
+	esac
 }
 prompt_waiting() {
 	refresh
@@ -195,6 +224,8 @@ both_clerks() {
 	detail="$greet and $gate"
 }
 clanker_gone() { ! has_live "$clanker"; }
+# clanker_resumed passes when the real smoke bigm, not the driver, sent the
+# idle check message and brought the stopped clanker back.
 clanker_resumed() {
 	refresh
 	[ -n "$(sess "$clanker" .pid)" ] || return 1
@@ -203,29 +234,67 @@ clanker_resumed() {
 		detail="new session ID $now_sid, expected $clanker_sid"
 		return 1
 	fi
-	[ -f "$data/mail/$clanker/read/$resume_msg.json" ] || return 1
-	detail="same session ID, message read"
+	cat "$data/mail/$clanker"/read/*.json 2>/dev/null |
+		jq -se --arg h "DONE: smoke idle check $idle_nonce" 'any(.[]; .from == "bigm" and .header == $h)' >/dev/null || return 1
+	bigm_log=$(claude logs "$(sess bigm .id)" 2>/dev/null)
+	how=
+	case $bigm_log in *session_resume*) how=session_resume ;; esac
+	if [ -z "$how" ] && [ "$idle_min" -eq 0 ]; then
+		case $bigm_log in *respawn*) how=respawn ;; esac
+	fi
+	if [ -z "$how" ]; then
+		detail="the clanker is back, but the output of bigm shows no session_resume"
+		return 1
+	fi
+	detail="bigm brought the clanker back with $how; same session ID; message read"
 }
+# remote_messages prints the Orca inbox messages of the remote run as JSON lines.
+remote_messages() {
+	orca orchestration inbox --limit 200 --json 2>/dev/null |
+		jq -c --arg r "$remote_run" '.result.messages[]? | select($r == "" or .run_id == $r)'
+}
+# remote_asked answers the P1 of the remote clanker with a fresh nonce once, and
+# passes when a message carries the rot13 form of that nonce. Only a session
+# that got the reply and ran the command of its start message can make it.
 remote_asked() {
-	orca orchestration inbox --json 2>/dev/null | grep -qF "$remote_q"
+	if [ -z "$remote_reply_id" ]; then
+		remote_reply_id=$(remote_messages | jq -r --arg q "$remote_q" \
+			'select(((.subject // "") + " " + (.body // "")) | contains($q)) | select((.body // "") | contains("In this worktree") | not) | .id' | head -1)
+		[ -n "$remote_reply_id" ] || return 1
+		orca orchestration reply --id "$remote_reply_id" --body "$remote_nonce" >/dev/null 2>&1 || {
+			remote_reply_id=
+			return 1
+		}
+	fi
+	remote_messages | jq -e --arg n "$remote_ack" 'select((.body // "") | contains($n))' >/dev/null || return 1
+	detail="round trip through Orca; the rot13 nonce came back"
 }
 
 # --- cleanup ----------------------------------------------------------------
 
 cleanup() {
-	trap - EXIT INT TERM
+	trap - EXIT HUP INT TERM
 	echo "cleanup"
 	if [ "$DRY" = 1 ]; then
-		show claude stop '<each session of this run>'
+		show claude stop '<each session in the run folder>'
 		show rm -rf "$base"
 		show git -C "$trusted" worktree prune
 		show git -C "$trusted" branch -D '<each branch that this run created>'
 		show rm -rf "$data/mail/bigm" "$data/roles/bigm.json" '<the other data files of this run>'
+		if [ -n "$remote_worktree" ]; then
+			show orca worktree rm --environment "$SMOKE_ORCA_ENV" --worktree "name:$remote_worktree" --force
+		fi
 		return 0
 	fi
 	[ "$started" = 1 ] || return 0
-	refresh
-	ids=$(own_sessions "$ag" "$base_real" bigm "$clanker" "clerk-$project-")
+	# Every session in the run folder belongs to the run: bigm, clerk-ledger, the
+	# clanker, the task clerks, a merger clerk, and the -p sessions of the driver.
+	if ! refresh; then
+		fail cleanup "claude agents --json --all failed; stop the sessions of this run by hand"
+	fi
+	ids=$(own_sessions "$ag" "$base_real" "")
+	# shellcheck disable=SC2086 # ids is a list of short session IDs
+	keys=$(jq -r --args '.[] | select(.id as $i | $ARGS.positional | index($i)) | .name // empty' $ids <"$ag" 2>/dev/null)
 	for id in $ids; do
 		name=$(jq -r --arg i "$id" '.[] | select(.id == $i) | .name' "$ag")
 		claude logs "$id" >"$evidence/logs-$name.txt" 2>&1 || true
@@ -234,13 +303,18 @@ cleanup() {
 	if ! stop_sessions $ids; then
 		fail cleanup "a session of this run still has a process: $ids"
 	fi
-	if [ -n "${SMOKE_ORCA_DISPATCH:-}" ]; then
-		orca orchestration worker-stop --dispatch "$SMOKE_ORCA_DISPATCH" >/dev/null 2>&1 || true
+	if [ -n "$remote_dispatch" ]; then
+		orca orchestration worker-stop --dispatch "$remote_dispatch" >/dev/null 2>&1 || true
+	fi
+	if [ -n "$remote_worktree" ]; then
+		orca worktree rm --environment "$SMOKE_ORCA_ENV" --worktree "name:$remote_worktree" --force >/dev/null 2>&1 ||
+			fail cleanup "remove the remote Orca worktree $remote_worktree by hand"
 	fi
 	if ! remove_scratch "$trusted" "$base" "$evidence"; then
 		fail cleanup "no list of the branches before the run; no branch deleted"
 	fi
-	remove_role_data "$data" bigm "$clanker" "$greet" "$gate"
+	# shellcheck disable=SC2086 # keys is a list of role keys
+	remove_role_data "$data" bigm clerk-ledger "$clanker" "$greet" "$gate" $keys
 	grep -lF "$project" "$data"/questions/Q-*.json 2>/dev/null | while read -r f; do rm -f "$f"; done
 	echo "evidence: $evidence"
 	if [ "$fails" -gt 0 ]; then exit 1; fi
@@ -260,20 +334,26 @@ else
 	RESULTS=$evidence/results.txt
 	: >"$RESULTS"
 	refresh
-	live=$(live_named "$ag" bigm)
-	[ -z "$live" ] || die "preflight: a live session named bigm runs ($live). Stop it first, because the nudges of this test go to the name bigm."
-	for p in mail/bigm roles/bigm.json handoffs/bigm.md reports/bigm.jsonl answers/bigm; do
-		[ ! -e "$data/$p" ] || die "preflight: $data/$p exists. It is bigm state of another run. Move it away first."
+	refresh || die "preflight: claude agents --json --all failed"
+	# bigm and clerk-ledger have fixed role keys. A nudge goes to a session name,
+	# so a live session with a name of this run would get the messages of the test.
+	live=$(live_conflicts "$ag" bigm clerk-ledger "$clanker" "clerk-$project-" | words)
+	[ -z "$live" ] || die "preflight: live sessions have names that this run uses: $live. Stop them first."
+	for p in mail/bigm roles/bigm.json handoffs/bigm.md reports/bigm.jsonl answers/bigm \
+		mail/clerk-ledger roles/clerk-ledger.json handoffs/clerk-ledger.md reports/clerk-ledger.jsonl; do
+		[ ! -e "$data/$p" ] || die "preflight: $data/$p exists. It is the state of another run. Move it away first."
 	done
 	result PASS preflight "Claude Code $(claude --version | awk '{print $1}')"
 fi
 trap cleanup EXIT
-trap 'exit 130' INT TERM
+trap 'exit 129' HUP
+trap 'exit 130' INT
+trap 'exit 143' TERM
 
 # --- setup ------------------------------------------------------------------
 
 run mkdir -p "$base"
-[ "$DRY" = 1 ] || git -C "$trusted" for-each-ref --format='%(refname:short)' refs/heads >"$evidence/branches-before.txt"
+[ "$DRY" = 1 ] || record_branches "$trusted" "$evidence" || die "setup: cannot read the branches of $trusted"
 started=1
 build_mcp "$plugin" "$BRUH_TEST_MCP"
 add_scratch_worktree "$trusted" "$proj" "bruh-$project"
@@ -331,7 +411,7 @@ fi
 write_file "$ledger/.claude/settings.json" <<'EOF'
 {
   "permissions": {
-    "allow": ["mcp__plugin_bruh_bruh"],
+    "allow": ["mcp__plugin_bruh_bruh", "SendMessage"],
     "deny": ["Bash(git push:*)"]
   }
 }
@@ -341,8 +421,13 @@ commit_all "$ledger" "Create the smoke test ledger"
 # --- steps ------------------------------------------------------------------
 
 bigm_settings=$(mcp_call role_settings_write '{"role_key":"bigm"}' | jq -r '.path // empty')
-[ -n "$bigm_settings" ] || bigm_settings='<data>/roles/bigm.json'
-prompt="bruh smoke test, run $run_id. The ledger in this folder is in autonomous mode. Start one clanker with the role key $clanker for the project $project in the folder $proj. The work of the project is in TASK.md in that folder."
+if [ "$DRY" = 1 ]; then
+	bigm_settings='<data>/roles/bigm.json'
+elif [ -z "$bigm_settings" ]; then
+	die "setup: role_settings_write for bigm failed"
+fi
+idle_nonce=idle$(random_id)
+prompt="bruh smoke test, run $run_id. The ledger in this folder is in autonomous mode. Start one clanker with the role key $clanker for the project $project in the folder $proj. The work of the project is in TASK.md in that folder. Later in this test, a session sends you a message that starts with SMOKE-IDLE. When it arrives, send the clanker a message with the header 'DONE: smoke idle check <the word after SMOKE-IDLE>' and the body 'No answer is necessary.'. Follow your procedure for messages to a local session."
 run_in "$ledger" env CLAUDE_CODE_FORCE_SESSION_PERSISTENCE=1 claude --bg --agent bruh:bigm --name bigm \
 	--permission-mode auto --settings "$bigm_settings" --plugin-dir "$plugin" "$prompt" >/dev/null
 verify bigm 2 has_live bigm
@@ -374,22 +459,22 @@ idle_resume() {
 			fail idle-resume "the clanker still had a process after $idle_min minutes"
 			return 1
 		fi
-	elif [ -n "$clanker_id" ] || [ "$DRY" = 1 ]; then
-		stop_sessions "${clanker_id:-<clanker id>}" || true
-	fi
-	resume_msg=$(mcp_call mail_post "$(jq -cn --arg to "$clanker" --arg r "$run_id" \
-		'{to: $to, header: ("P2 Q-999999: smoke idle resume check " + $r), body: "No answer is necessary. This message checks that a stopped clanker resumes."}')" |
-		jq -r '.id // empty')
-	if ! (if [ "$DRY" != 1 ]; then cd "$ledger" || exit 1; fi
-		mcp_call session_resume "$(jq -cn --arg k "$clanker" '{role_key: $k, prompt: "Read your mailbox with mail_read."}')" >/dev/null); then
-		fail idle-resume "session_resume failed"
+	elif ! stop_sessions "${clanker_id:-<clanker id>}"; then
+		fail idle-resume "claude stop did not stop the clanker"
 		return 1
 	fi
+	# A short -p session nudges bigm. bigm, not the driver, sends the message to
+	# the clanker and must bring it back by itself.
+	run_in "$ledger" claude -p --model haiku --permission-mode auto \
+		"Use the SendMessage tool once to send this exact text to the session named bigm, then stop: SMOKE-IDLE $idle_nonce" \
+		>"$(ev idle-nudge.txt)" || true
 	verify idle-resume "$step_min" clanker_resumed
 }
 need idle-resume clanker && idle_resume
 
 remote_q="P1 Q-1: smoke remote $run_id"
+remote_nonce=x$(random_id)
+remote_ack=$(printf '%s' "$remote_nonce" | tr 'abcdefghijklmnopqrstuvwxyz' 'nopqrstuvwxyzabcdefghijklm')
 if [ -z "${SMOKE_ORCA_ENV:-}" ] || [ -z "${SMOKE_ORCA_REPO:-}" ]; then
 	result SKIP remote "SMOKE_ORCA_ENV or SMOKE_ORCA_REPO is not set, so no Orca environment is paired for this run"
 elif [ "$DRY" != 1 ] && ! orca environment show --environment "$SMOKE_ORCA_ENV" >/dev/null 2>&1; then
@@ -397,10 +482,13 @@ elif [ "$DRY" != 1 ] && ! orca environment show --environment "$SMOKE_ORCA_ENV" 
 elif ! run orca orchestration run-create --objective "bruh smoke test $run_id" --json >"$(ev orca-run.json)"; then
 	fail remote "orca orchestration run-create failed; run the driver in an Orca terminal"
 else
-	spec="bruh smoke test, run $run_id. In this worktree, run this command and wait until it ends: claude -p --agent bruh:clanker --permission-mode auto \"Run this command and print its output: orca orchestration ask --question '$remote_q' --timeout-ms 300000\""
-	run orca orchestration worker-start --on "$SMOKE_ORCA_ENV" --worktree new-top-level --repo "$SMOKE_ORCA_REPO" \
-		--agent claude --spec "$spec" --json >"$(ev orca-worker.json)" || true
-	SMOKE_ORCA_DISPATCH=$(jq -r '[.. | objects | (.dispatchId? // .dispatch_id? // empty)] | first // empty' "$(ev orca-worker.json)" 2>/dev/null)
+	remote_run=$(jq -r '[.. | strings | select(test("^run_[0-9a-f]+$"))] | first // empty' "$(ev orca-run.json)" 2>/dev/null)
+	task="1. Run: orca orchestration ask --question '$remote_q' --timeout-ms 600000. The answer is one word. 2. Run: printf '%s' '<the answer word>' | tr 'abcdefghijklmnopqrstuvwxyz' 'nopqrstuvwxyzabcdefghijklm'. 3. Run: orca orchestration send --subject 'DONE: smoke remote $run_id' --body '<the output of step 2>'. Then stop."
+	spec="bruh smoke test, run $run_id. In this worktree, start a bruh clanker with this command and wait until it ends: claude -p --agent bruh:clanker --permission-mode auto \"$task\""
+	remote_worktree=bruh-smoke-$run_id
+	run orca orchestration worker-start --on "$SMOKE_ORCA_ENV" --worktree new-top-level --name "$remote_worktree" \
+		--repo "$SMOKE_ORCA_REPO" --setup skip --agent claude --spec "$spec" --json >"$(ev orca-worker.json)" || true
+	remote_dispatch=$(jq -r '[.. | strings | select(test("^ctx_[0-9a-f]+$"))] | first // empty' "$(ev orca-worker.json)" 2>/dev/null)
 	verify remote "$step_min" remote_asked
 fi
 

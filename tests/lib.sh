@@ -41,6 +41,9 @@ result() {
 	if [ -n "${RESULTS:-}" ]; then printf '%s\n' "$line" >>"$RESULTS"; fi
 }
 
+# words joins the lines of standard input with spaces.
+words() { tr '\n' ' ' | sed 's/ $//'; }
+
 die() {
 	printf 'error: %s\n' "$*" >&2
 	exit 2
@@ -64,6 +67,31 @@ version_ge() {
 live_named() {
 	jq -r --arg n "$2" '.[] | select(.name == $n and .pid != null) | .id' "$1"
 }
+
+# live_conflicts prints "<name> (<id>)" for each session in the agents JSON file
+# $1 that has a live process and a name that starts with one of the other
+# arguments. A driver refuses to start when a name that it will use is live.
+live_conflicts() {
+	file=$1
+	shift
+	jq -r --args '
+		.[]
+		| select(.pid != null)
+		| select((.name // "") as $n | any($ARGS.positional[]; . as $x | $n | startswith($x)))
+		| "\(.name) (\(.id // "no id"))"' "$@" <"$file"
+}
+
+# valid_run_id exits 0 when $1 is a run ID: 1 to 12 lowercase letters and digits.
+# A run ID is part of role keys and of a folder that the cleanup removes.
+valid_run_id() {
+	case $1 in
+	'' | *[!abcdefghijklmnopqrstuvwxyz0123456789]*) return 1 ;;
+	esac
+	[ ${#1} -le 12 ]
+}
+
+# abs_dir prints the absolute physical path of the folder $1.
+abs_dir() { (cd "$1" 2>/dev/null && pwd -P); }
 
 # own_sessions prints the id of each session in the agents JSON file $1 whose
 # cwd is the folder $2 or is below it, and whose name starts with one of the
@@ -151,7 +179,7 @@ agents_json() {
 	if [ "$DRY" = 1 ]; then
 		echo '[]' >"$1"
 	else
-		claude agents --json --all >"$1"
+		claude agents --json --all >"$1" && jq -e 'type == "array"' "$1" >/dev/null
 	fi
 }
 
@@ -231,17 +259,30 @@ preflight_common() {
 	check_trusted_repo "${BRUH_TRUSTED_REPO:-}"
 }
 
+# record_branches writes the branches and the HEAD commit of the trusted
+# repository $1 into the evidence folder $2, before a run creates anything.
+record_branches() {
+	git -C "$1" for-each-ref --format='%(refname:short)' refs/heads >"$2/branches-before.txt" &&
+		git -C "$1" rev-parse HEAD >"$2/trusted-head.txt"
+}
+
 # remove_scratch removes the scratch folder $2 of the trusted repository $1 and
-# the branches that the run created. $3 is the evidence folder with the list
-# branches-before.txt. It returns 1 when that list is missing or empty, because
-# an empty list would select every branch; then it deletes no branch.
+# the branches that the run created. $3 is the evidence folder of
+# record_branches. A branch of the run is new and does not contain the HEAD
+# commit of the trusted repository, because each run branch starts from an
+# orphan commit. A new branch that contains that commit was made by somebody
+# else, and it stays. It returns 1 when the records are missing; then it
+# deletes no branch.
 remove_scratch() {
 	rm -rf "$2"
 	git -C "$1" worktree prune
 	git -C "$1" for-each-ref --format='%(refname:short)' refs/heads >"$3/branches-after.txt"
-	[ -s "$3/branches-before.txt" ] || return 1
+	[ -s "$3/branches-before.txt" ] && [ -s "$3/trusted-head.txt" ] || return 1
+	head=$(cat "$3/trusted-head.txt")
 	grep -vxF -f "$3/branches-before.txt" "$3/branches-after.txt" | while read -r b; do
-		git -C "$1" branch -D -q "$b" || true
+		if ! git -C "$1" merge-base --is-ancestor "$head" "refs/heads/$b" 2>/dev/null; then
+			git -C "$1" branch -D -q "$b" || true
+		fi
 	done
 }
 
@@ -253,4 +294,15 @@ remove_role_data() {
 		rm -rf "$d/mail/$key" "$d/answers/$key" "$d/roles/$key.json" \
 			"$d/handoffs/$key.md" "$d/handoffs/$key.history.md" "$d/reports/$key.jsonl"
 	done
+}
+
+# window_gaps prints the count of windows of $4 seconds, from the epoch time $2
+# to the epoch time $3, in which the mailbox folder $1 (read or not) got no
+# message whose header contains "load tick". A last window that is shorter
+# than $4 is not counted.
+window_gaps() {
+	cat "$1"/*.json "$1"/read/*.json 2>/dev/null | jq -s --argjson a "$2" --argjson b "$3" --argjson w "$4" '
+		[.[] | select(.header | contains("load tick")) | .at | sub("\\.[0-9]+Z$"; "Z") | fromdateiso8601] as $t
+		| [range($a; $b - $w + 1; $w) as $s | select([$t[] | select(. >= $s and . < $s + $w)] | length == 0)]
+		| length'
 }

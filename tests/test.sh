@@ -25,7 +25,6 @@ check() {
 not() { if "$@"; then return 1; fi; }
 eq() { [ "$1" = "$2" ]; }
 contains() { case $1 in *"$2"*) return 0 ;; esac; return 1; }
-words() { tr '\n' ' ' | sed 's/ $//'; }
 
 # version_ge
 check "version_ge equal" version_ge 2.1.284 2.1.284
@@ -50,6 +49,38 @@ check "live_named finds only live sessions" eq "$(live_named "$tmp/agents.json" 
 check "own_sessions keeps the run folder and the names" \
 	eq "$(own_sessions "$tmp/agents.json" /s/run clanker-smoke-abc clerk-smoke-abc- | words)" "a3 a5"
 check "own_sessions finds nothing for another prefix" eq "$(own_sessions "$tmp/agents.json" /nowhere bigm)" ""
+check "own_sessions with an empty name prefix takes every session of the folder" \
+	eq "$(own_sessions "$tmp/agents.json" /s/run "" | words)" "a3 a5 a7"
+cat >"$tmp/agents2.json" <<'JSON'
+[
+  {"id":"b1","name":"clerk-ledger","pid":11,"cwd":"/owner/ledger"},
+  {"id":"b2","name":"clanker-smoke-abc","cwd":"/old"},
+  {"id":"b3","name":"other","pid":12,"cwd":"/x"}
+]
+JSON
+check "live_conflicts finds the live clerk-ledger of the owner" \
+	eq "$(live_conflicts "$tmp/agents2.json" bigm clerk-ledger clanker-smoke-abc clerk-smoke-abc-)" "clerk-ledger (b1)"
+check "live_conflicts skips a stopped session with a run name" \
+	eq "$(live_conflicts "$tmp/agents2.json" clanker-smoke-abc)" ""
+
+# valid_run_id and abs_dir
+check "valid_run_id accepts letters and digits" valid_run_id abc123
+check "valid_run_id refuses a path" not valid_run_id 'a/../..'
+check "valid_run_id refuses capitals" not valid_run_id Abc
+check "valid_run_id refuses a hyphen" not valid_run_id a-b
+check "valid_run_id refuses an empty value" not valid_run_id ''
+check "valid_run_id refuses more than 12 characters" not valid_run_id abcdefghijklm
+check "smoke refuses a bad SMOKE_RUN" not env SMOKE_RUN='a/../..' sh "$here/smoke/run.sh" --dry-run
+check "load refuses a bad LOAD_RUN" not env LOAD_RUN='a/../..' sh "$here/load/run.sh" --dry-run
+mkdir -p "$tmp/rel/sub"
+check "abs_dir resolves a relative folder" eq "$(cd "$tmp/rel" && abs_dir sub)" "$(cd "$tmp/rel/sub" && pwd -P)"
+check "abs_dir fails for a missing folder" not abs_dir "$tmp/nothing-here"
+
+# utc_ago
+check "utc_ago has the layout of the MCP server" contains "$(utc_ago 60)" ".000Z"
+lt() { [ "$1" != "$2" ] && [ "$(printf '%s\n%s\n' "$1" "$2" | sort | head -1)" = "$1" ]; }
+check "utc_ago is before now" lt "$(utc_ago 3600)" "$(utc_now)"
+check "utc_ago is after two hours ago" lt "$(utc_ago 7200)" "$(utc_ago 3600)"
 
 # check_trusted_repo
 git init -q "$tmp/repo" && git -C "$tmp/repo" -c user.name=t -c user.email=t@example.com commit -q --allow-empty -m init
@@ -88,21 +119,32 @@ check "smoke dry run exits 0" eq "$(BRUH_TRUSTED_REPO="$tmp/repo" SMOKE_RUN=dry1
 check "smoke dry run starts bigm with the documented flags" contains "$out" "claude --bg --agent bruh:bigm --name bigm --permission-mode auto --settings"
 check "smoke dry run loads the plugin of the checkout" contains "$out" "--plugin-dir $(cd "$here/.." && pwd)/plugins/bruh"
 check "smoke dry run writes the bigm role settings" contains "$out" '"name":"role_settings_write","arguments":{"role_key":"bigm"}'
-check "smoke dry run posts to the clanker mailbox" contains "$out" '"name":"mail_post","arguments":{"to":"clanker-smoke-dry1"'
-check "smoke dry run resumes the clanker" contains "$out" '"name":"session_resume","arguments":{"role_key":"clanker-smoke-dry1"'
+check "smoke dry run stops the clanker to simulate the idle stop" contains "$out" "claude stop '<clanker id>'"
+check "smoke dry run lets bigm, not the driver, message the clanker" contains "$out" "session named bigm, then stop: SMOKE-IDLE idle"
+check "smoke dry run does not call session_resume itself" not contains "$out" '"name":"session_resume"'
+check "smoke dry run traps HUP" grep -q "trap 'exit 129' HUP" "$here/smoke/run.sh"
+check "load dry run traps HUP" grep -q "trap 'exit 129' HUP" "$here/load/run.sh"
 check "smoke dry run uses a linked worktree" contains "$out" "worktree add -q --detach"
 check "smoke dry run skips the remote step" contains "$out" "SKIP remote"
-check "smoke dry run stops own sessions in cleanup" contains "$out" "cleanup"
+check "smoke dry run stops own sessions in cleanup" contains "$out" "claude stop '<each session in the run folder>'"
+rout=$(BRUH_TRUSTED_REPO="$tmp/repo" SMOKE_RUN=dry1 SMOKE_ORCA_ENV=env1 SMOKE_ORCA_REPO=name:r sh "$here/smoke/run.sh" --dry-run 2>&1)
+check "smoke remote step starts a worker with no setup hooks" contains "$rout" "--setup skip --agent claude --spec"
+check "smoke remote step names the remote worktree" contains "$rout" "--name bruh-smoke-dry1"
+check "smoke remote step asks for the rot13 of the reply" contains "$rout" "tr 'abcdefghijklmnopqrstuvwxyz' 'nopqrstuvwxyzabcdefghijklm'"
+check "smoke remote step removes the remote worktree in cleanup" contains "$rout" "orca worktree rm --environment env1 --worktree name:bruh-smoke-dry1 --force"
 check "smoke refuses an unknown flag" not sh "$here/smoke/run.sh" --bogus
 
 # remove_scratch deletes only the branches that the run created
 git init -q "$tmp/rs" && git -C "$tmp/rs" -c user.name=t -c user.email=t@example.com commit -q --allow-empty -m init
 mkdir -p "$tmp/rs-ev" "$tmp/rs/.bruh-test/x"
 git -C "$tmp/rs" branch keep
-git -C "$tmp/rs" for-each-ref --format='%(refname:short)' refs/heads >"$tmp/rs-ev/branches-before.txt"
-git -C "$tmp/rs" branch new-of-run
+record_branches "$tmp/rs" "$tmp/rs-ev"
+git -C "$tmp/rs" branch owner-new
+git -C "$tmp/rs" checkout -q --orphan new-of-run && git -C "$tmp/rs" -c user.name=t -c user.email=t@example.com commit -q --allow-empty -m orphan
+git -C "$tmp/rs" checkout -q keep
 check "remove_scratch succeeds" remove_scratch "$tmp/rs" "$tmp/rs/.bruh-test/x" "$tmp/rs-ev"
-check "remove_scratch deletes the new branch" not git -C "$tmp/rs" rev-parse --verify -q refs/heads/new-of-run
+check "remove_scratch deletes the new orphan branch of the run" not git -C "$tmp/rs" rev-parse --verify -q refs/heads/new-of-run
+check "remove_scratch keeps a new branch that another person made from HEAD" git -C "$tmp/rs" rev-parse --verify -q refs/heads/owner-new
 check "remove_scratch keeps the old branches" git -C "$tmp/rs" rev-parse --verify -q refs/heads/keep
 check "remove_scratch removes the scratch folder" not test -e "$tmp/rs/.bruh-test/x"
 : >"$tmp/rs-ev/branches-before.txt"
@@ -111,7 +153,7 @@ check "remove_scratch with an empty list deletes no branch" git -C "$tmp/rs" rev
 
 # add_scratch_worktree makes a linked worktree on an orphan branch with no files
 printf 'x\n' >"$tmp/repo/file.txt" && git -C "$tmp/repo" add file.txt && git -C "$tmp/repo" -c user.name=t -c user.email=t@example.com commit -q -m file
-git -C "$tmp/repo" for-each-ref --format='%(refname:short)' refs/heads >"$tmp/rs-ev/branches-before.txt"
+record_branches "$tmp/repo" "$tmp/rs-ev"
 add_scratch_worktree "$tmp/repo" "$tmp/repo/.bruh-test/w" bruh-test-w >/dev/null 2>&1
 check "add_scratch_worktree makes a linked worktree" eq "$(git -C "$tmp/repo/.bruh-test/w" rev-parse --git-common-dir)" "$(cd "$tmp/repo/.git" && pwd -P)"
 check "add_scratch_worktree checks out the orphan branch" eq "$(git -C "$tmp/repo/.bruh-test/w" symbolic-ref --short HEAD)" bruh-test-w
@@ -122,6 +164,17 @@ check "the scratch branch has a commit" git -C "$tmp/repo" rev-parse --verify -q
 check "remove_scratch removes the worktree and its branch" remove_scratch "$tmp/repo" "$tmp/repo/.bruh-test/w" "$tmp/rs-ev"
 check "the scratch branch is gone" not git -C "$tmp/repo" rev-parse --verify -q refs/heads/bruh-test-w
 check "the main file stays" test -e "$tmp/repo/file.txt"
+
+# window_gaps
+mkdir -p "$tmp/wbox/read"
+printf '{"header":"P2 Q-1: load tick from s1","at":"2026-09-30T10:01:00.000Z"}' >"$tmp/wbox/read/a.json"
+printf '{"header":"P2 Q-1: load tick from s1","at":"2026-09-30T10:12:00.000Z"}' >"$tmp/wbox/b.json"
+printf '{"header":"P2 Q-0: load test start message","at":"2026-09-30T10:06:00.000Z"}' >"$tmp/wbox/read/c.json"
+t0=$(jq -n '"2026-09-30T10:00:00Z" | fromdateiso8601')
+check "window_gaps finds the window with only a start message" eq "$(window_gaps "$tmp/wbox" "$t0" $((t0 + 900)) 300)" 1
+check "window_gaps is 0 when each window has a tick" eq "$(window_gaps "$tmp/wbox" "$t0" $((t0 + 300)) 300)" 0
+check "window_gaps ignores a short last window" eq "$(window_gaps "$tmp/wbox" "$t0" $((t0 + 599)) 300)" 0
+check "window_gaps counts every window of an empty mailbox" eq "$(window_gaps "$tmp/none" "$t0" $((t0 + 900)) 300)" 3
 
 # Load driver dry run
 out=$(BRUH_TRUSTED_REPO="$tmp/repo" LOAD_RUN=dry2 sh "$here/load/run.sh" --dry-run --sessions 2 --minutes 1 2>&1)
