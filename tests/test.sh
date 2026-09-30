@@ -321,7 +321,6 @@ check "lane apply brings a deletion" not test -e "$tmp/ln/gone.txt"
 check "lane apply keeps the dirty work of the shared tree" eq "$(cat "$tmp/ln/keep.txt")" dirty
 check "lane apply leaves the index of the shared tree clean" eq "$(git -C "$tmp/ln" diff --cached --name-only)" ""
 # shellcheck disable=SC2016 # the inner shell expands $1, $2, and $3
-# shellcheck disable=SC2016 # the inner shell expands $1, $2, and $3
 check "after clean, lane start makes a new copy" sh -c 'ROOT="$1" LANES="$2" sh "$3" start t-05-e >/dev/null && printf x >"$2/t-05-e/edit.txt" && ROOT="$1" LANES="$2" sh "$3" clean t-05-e >/dev/null && ROOT="$1" LANES="$2" sh "$3" start t-05-e >/dev/null && ! grep -qx x "$2/t-05-e/edit.txt"; r=$?; ROOT="$1" LANES="$2" sh "$3" clean t-05-e >/dev/null; exit $r' _ "$tmp/ln" "$lanes" "$lane"
 # shellcheck disable=SC2016 # the inner shell expands $1, $2, and $3
 check "lane clean removes the lane and the patch" sh -c 'ROOT="$1" LANES="$2" sh "$3" clean t-01-a >/dev/null && ! test -e "$2/t-01-a" && ! test -e "$2/t-01-a.patch"' _ "$tmp/ln" "$lanes" "$lane"
@@ -359,6 +358,44 @@ ROOT="$tmp/lnw" LANES="$lanes" sh "$lane" patch t-02-b >/dev/null 2>&1
 check "a lane of a linked worktree leaves the index of the worktree clean" eq "$(git -C "$tmp/lnw" status --porcelain)" ""
 # shellcheck disable=SC2016 # the inner shell expands $1, $2, and $3
 check "a lane of a linked worktree applies a deletion" sh -c 'ROOT="$1" LANES="$2" sh "$3" apply t-02-b >/dev/null && ! test -e "$1/keep.txt"' _ "$tmp/lnw" "$lanes" "$lane"
+# A kept lane must belong to the same ROOT, HEAD, and run (fix round 3, R1).
+mkrepo() {
+	git init -q "$1" && printf '%s\n' "$2" >"$1/g.txt" && git -C "$1" add g.txt &&
+		git -C "$1" -c user.name=t -c user.email=t@example.com commit -q -m base
+}
+mkrepo "$tmp/ra" a && mkrepo "$tmp/rb" b
+rl="$tmp/rlanes"
+la=$(ROOT="$tmp/ra" LANES="$rl" sh "$lane" start mr1-01-schema 2>/dev/null)
+printf 'edit of A\n' >"$la/g.txt"
+lb=$(ROOT="$tmp/rb" LANES="$rl" sh "$lane" start mr1-01-schema 2>/dev/null)
+check "a lane of another repository is not kept" eq "$(cat "$lb/g.txt")" b
+ROOT="$tmp/rb" LANES="$rl" sh "$lane" patch mr1-01-schema >/dev/null 2>&1
+ROOT="$tmp/rb" LANES="$rl" sh "$lane" apply mr1-01-schema >/dev/null 2>&1
+check "the old edit of another repository does not land in ROOT" eq "$(cat "$tmp/rb/g.txt")" b
+printf 'edit of B\n' >"$lb/g.txt"
+check "a lane of the same ROOT, HEAD, and run is kept" eq "$(ROOT="$tmp/rb" LANES="$rl" sh "$lane" start mr1-01-schema >/dev/null 2>&1; cat "$lb/g.txt")" "edit of B"
+check "a lane of another run is not kept" eq "$(ROOT="$tmp/rb" LANES="$rl" LANE_RUN=other sh "$lane" start mr1-01-schema >/dev/null 2>&1; cat "$lb/g.txt")" b
+printf 'edit of run other\n' >"$lb/g.txt"
+git -C "$tmp/rb" -c user.name=t -c user.email=t@example.com commit -q --allow-empty -m next
+check "a lane of another HEAD is not kept" eq "$(ROOT="$tmp/rb" LANES="$rl" LANE_RUN=other sh "$lane" start mr1-01-schema >/dev/null 2>&1; cat "$lb/g.txt")" b
+printf 'edit again\n' >"$lb/g.txt"
+git -C "$lb" update-ref -d refs/lane/base
+check "a lane without refs/lane/base is not kept" eq "$(ROOT="$tmp/rb" LANES="$rl" LANE_RUN=other sh "$lane" start mr1-01-schema >/dev/null 2>&1; cat "$lb/g.txt")" b
+check "a remade lane has refs/lane/base again" git -C "$lb" rev-parse -q --verify refs/lane/base
+# A patch is applied once: repeated context could let git apply match it at an offset again.
+printf 'x\ny\nz\nw\nx\ny\nz\nw\nx\ny\nz\nw\nx\ny\nz\nw\n' >"$tmp/ra/g.txt" && git -C "$tmp/ra" -c user.name=t -c user.email=t@example.com commit -qam blocks
+ROOT="$tmp/ra" LANES="$rl" sh "$lane" clean mr1-02-rep >/dev/null
+lr=$(ROOT="$tmp/ra" LANES="$rl" sh "$lane" start mr1-02-rep 2>/dev/null)
+awk 'NR == 2 { print "inserted" } { print }' "$lr/g.txt" >"$lr/g.new" && mv "$lr/g.new" "$lr/g.txt"
+ROOT="$tmp/ra" LANES="$rl" sh "$lane" patch mr1-02-rep >/dev/null 2>&1
+ROOT="$tmp/ra" LANES="$rl" sh "$lane" apply mr1-02-rep >/dev/null 2>&1
+out=$(ROOT="$tmp/ra" LANES="$rl" sh "$lane" apply mr1-02-rep 2>&1)
+check "a second apply of the same patch is skipped" contains "$out" "already applied mr1-02-rep; skipped"
+check "the shared tree has the change once" eq "$(grep -c inserted "$tmp/ra/g.txt")" 1
+printf 'more\n' >>"$lr/g.txt"
+ROOT="$tmp/ra" LANES="$rl" sh "$lane" patch mr1-02-rep >/dev/null 2>&1
+check "an applied lane refuses a changed patch" not env ROOT="$tmp/ra" LANES="$rl" sh "$lane" apply mr1-02-rep
+check "the refused patch changes nothing" eq "$(grep -c more "$tmp/ra/g.txt")" 0
 
 # post-findings.sh with a fake glab and a fake gh on PATH
 post="$here/../plugins/bruh/scripts/post-findings.sh"
