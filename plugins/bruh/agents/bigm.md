@@ -146,7 +146,7 @@ At each sweep:
 
 A `Monitor` and a background command are not restored on a resume. Start them after each start and each resume. When you do not know if they still run in this session, stop the old task IDs with `TaskStop` and start them again.
 
-- The watcher: call `bruh_info` for `plugin_root`. Run the `Monitor` tool with the command `sh <plugin_root>/scripts/watcher.sh`. Each output line is an event of the code host: a new push, a reply, a red pipeline, or a merge. It also goes to the watcher report file. Update the rows of the project, and send the event to the clanker of the project when it must act.
+- The watcher: call `bruh_info` for `plugin_root` and `data_dir`. Run the `Monitor` tool with the command `sh <plugin_root>/scripts/watcher.sh --data <data_dir>`. The watcher reads `repos.json` again before each poll, so a `repos_set` call takes effect without a restart. Each output line is an event of the code host: a new push, a reply, a red pipeline, or a merge. It also goes to the watcher report file. Update the rows of the project, and send the event to the clanker of the project when it must act.
 - The Orca receive loop, when there are remote clankers: run `orca orchestration check --wait --timeout-ms 3600000 --json` as a background Bash command. When it returns, handle each message of the batch. Then start it again with `orca orchestration check --ack <delivery ID> --wait --timeout-ms 3600000 --json`, which acknowledges the batch.
 
 Record the task IDs of the watcher and the loop in the "State" section of your handoff.

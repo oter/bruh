@@ -339,3 +339,42 @@ func TestWatchDoesNotRepeatPushAfterError(t *testing.T) {
 		t.Fatalf("%d push events", pushes)
 	}
 }
+
+func TestRunWatchWithoutReposWaitsForThem(t *testing.T) {
+	env := testEnv(t, "")
+	var out, errOut bytes.Buffer
+	if code := runCLI([]string{"watch", "--once", "--data", env.DataDir}, env, &out, &errOut); code != 0 {
+		t.Fatalf("a missing repos.json must not stop the watcher: exit %d: %s", code, errOut.String())
+	}
+	if out.Len() != 0 {
+		t.Fatalf("no repositories, no events: %q", out.String())
+	}
+}
+
+func TestRunWatchReadsReposAgainEachPoll(t *testing.T) {
+	_, r := newFakeForge(t, "gitea")
+	env := testEnv(t, "")
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	var out bytes.Buffer
+	polls := 0
+	w := &watcher{env: env, out: &out}
+	err := watchLoop(ctx, env, w, func() {
+		polls++
+		if polls == 1 {
+			b, _ := json.Marshal(reposConfig{Repos: []repoConfig{r}, IntervalSeconds: 10})
+			if err := os.WriteFile(filepath.Join(env.DataDir, "repos.json"), b, 0o600); err != nil {
+				t.Fatal(err)
+			}
+		}
+		if polls == 2 {
+			cancel()
+		}
+	}, func(context.Context, time.Duration) {})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(env.DataDir, "watch", "state.json")); err != nil {
+		t.Fatalf("the second poll must read the new repos.json: %v", err)
+	}
+}

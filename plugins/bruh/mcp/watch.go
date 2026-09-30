@@ -280,10 +280,46 @@ func (w *watcher) pollAll(ctx context.Context, cfg reposConfig, hosts []codeHost
 
 // runWatch polls every interval_seconds until ctx ends, or once.
 func runWatch(ctx context.Context, env Env, out io.Writer, once bool) error {
-	cfg, err := loadRepos(env.DataDir)
+	w := &watcher{env: env, out: out}
+	if once {
+		return pollOnce(ctx, env, w)
+	}
+	return watchLoop(ctx, env, w, nil, func(ctx context.Context, d time.Duration) {
+		select {
+		case <-ctx.Done():
+		case <-time.After(d):
+		}
+	})
+}
+
+// watchLoop reads repos.json again before each poll, so that repos_set takes effect
+// without a restart, and a missing file means no repositories yet.
+func watchLoop(ctx context.Context, env Env, w *watcher, afterPoll func(), sleep func(context.Context, time.Duration)) error {
+	for ctx.Err() == nil {
+		cfg, err := loadReposOrEmpty(env.DataDir)
+		if err != nil {
+			return err
+		}
+		if err := pollWith(ctx, cfg, w); err != nil {
+			return err
+		}
+		if afterPoll != nil {
+			afterPoll()
+		}
+		sleep(ctx, time.Duration(cfg.IntervalSeconds)*time.Second)
+	}
+	return nil
+}
+
+func pollOnce(ctx context.Context, env Env, w *watcher) error {
+	cfg, err := loadReposOrEmpty(env.DataDir)
 	if err != nil {
 		return err
 	}
+	return pollWith(ctx, cfg, w)
+}
+
+func pollWith(ctx context.Context, cfg reposConfig, w *watcher) error {
 	var hosts []codeHost
 	for _, r := range cfg.Repos {
 		h, err := newHost(r)
@@ -292,18 +328,14 @@ func runWatch(ctx context.Context, env Env, out io.Writer, once bool) error {
 		}
 		hosts = append(hosts, h)
 	}
-	w := &watcher{env: env, out: out}
-	for {
-		if err := w.pollAll(ctx, cfg, hosts); err != nil {
-			return err
-		}
-		if once {
-			return nil
-		}
-		select {
-		case <-ctx.Done():
-			return nil
-		case <-time.After(time.Duration(cfg.IntervalSeconds) * time.Second):
-		}
+	return w.pollAll(ctx, cfg, hosts)
+}
+
+// loadReposOrEmpty is loadRepos, except that a missing repos.json is an empty configuration.
+func loadReposOrEmpty(dataDir string) (reposConfig, error) {
+	cfg, err := loadRepos(dataDir)
+	if errors.Is(err, fs.ErrNotExist) {
+		return reposConfig{IntervalSeconds: 60}, nil
 	}
+	return cfg, err
 }

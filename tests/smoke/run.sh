@@ -403,6 +403,8 @@ EOF
 commit_all "$proj" "Add the smoke test tasks"
 
 run cp -R "$plugin/ledger-template/." "$ledger/"
+# init replaces the placeholder priorities.md of the template with the default list.
+run cp "$plugin/defaults/priorities.md" "$ledger/priorities.md"
 if [ "$DRY" = 1 ]; then
 	show sed 's/^mode: .*/mode: autonomous/' "$ledger/mode.md"
 else
