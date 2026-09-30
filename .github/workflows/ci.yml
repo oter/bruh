@@ -57,4 +57,4 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-      - run: node --test plugins/bruh/agents/agents_test.mjs
+      - run: node --test plugins/bruh/agents/agents_test.mjs plugins/bruh/workflows/deliver.test.mjs
