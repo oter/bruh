@@ -82,20 +82,27 @@ func loadReposFile(file string) (reposConfig, error) {
 	return cfg, nil
 }
 
+// hostComment is a comment, a review comment, or a review summary.
 type hostComment struct {
-	ID        int64  `json:"id"`
-	Body      string `json:"body"`
-	URL       string `json:"html_url"`
-	UpdatedAt string `json:"updated_at"`
-	IssueURL  string `json:"issue_url"`
-	PullURL   string `json:"pull_request_url"`
-	User      struct {
+	ID          int64  `json:"id"`
+	Body        string `json:"body"`
+	URL         string `json:"html_url"`
+	UpdatedAt   string `json:"updated_at"`
+	SubmittedAt string `json:"submitted_at"` // reviews
+	State       string `json:"state"`        // reviews: APPROVED, CHANGES_REQUESTED, REQUEST_CHANGES, COMMENTED, ...
+	PR          int    `json:"-"`            // reviews: the pull request number
+	IssueURL    string `json:"issue_url"`
+	PullURL     string `json:"pull_request_url"`
+	User        struct {
 		Login string `json:"login"`
 	} `json:"user"`
 }
 
 // Number is the issue or pull request number of the comment.
 func (c hostComment) Number() int {
+	if c.PR != 0 {
+		return c.PR
+	}
 	n, _ := strconv.Atoi(path.Base(cmp.Or(c.PullURL, c.IssueURL)))
 	return n
 }
@@ -111,6 +118,7 @@ type hostPull struct {
 	MergeableState string `json:"mergeable_state"`
 	MergeSHA       string `json:"merge_commit_sha"`
 	URL            string `json:"html_url"`
+	UpdatedAt      string `json:"updated_at"`
 	Head           struct {
 		SHA string `json:"sha"`
 	} `json:"head"`
@@ -118,8 +126,10 @@ type hostPull struct {
 
 // codeHost is the part of a code host API that the watcher and the merge train use.
 type codeHost interface {
-	Branches(ctx context.Context) (map[string]string, error) // branch name -> head SHA
-	Comments(ctx context.Context, since string) ([]hostComment, error)
+	Branches(ctx context.Context) (map[string]string, error)                 // branch name -> head SHA
+	IssueComments(ctx context.Context, since string) ([]hostComment, error)  // issue and pull request comments
+	ReviewComments(ctx context.Context, since string) ([]hostComment, error) // line comments (GitHub; Gitea returns none)
+	Reviews(ctx context.Context, since string) ([]hostComment, error)        // review summaries of open pull requests
 	MergedPulls(ctx context.Context) ([]hostPull, error)
 	Pull(ctx context.Context, n int) (hostPull, error)
 	Checks(ctx context.Context, sha string) (string, error) // success, pending, failure, or none
@@ -182,6 +192,34 @@ func (c *rest) Pull(ctx context.Context, n int) (hostPull, error) {
 	return p, err
 }
 
+// reviewsSince reads the reviews of the open pull requests updated at or after since.
+// ponytail: the 30 most recently updated open pull requests only.
+func reviewsSince(ctx context.Context, c *rest, list, page, since string) ([]hostComment, error) {
+	var ps []hostPull
+	if err := c.do(ctx, "GET", list, nil, &ps); err != nil {
+		return nil, err
+	}
+	t := parseTime(since)
+	var out []hostComment
+	for _, p := range ps {
+		if parseTime(p.UpdatedAt).Before(t) {
+			continue
+		}
+		var rs []hostComment
+		if err := c.do(ctx, "GET", fmt.Sprintf("/pulls/%d/reviews%s", p.Number, page), nil, &rs); err != nil {
+			return nil, err
+		}
+		for _, r := range rs {
+			if r.SubmittedAt == "" {
+				continue // a pending review of its author
+			}
+			r.UpdatedAt, r.PR = r.SubmittedAt, p.Number
+			out = append(out, r)
+		}
+	}
+	return out, nil
+}
+
 func mergedOnly(pulls []hostPull) []hostPull {
 	var out []hostPull
 	for _, p := range pulls {
@@ -212,16 +250,20 @@ func (g *github) Branches(ctx context.Context) (map[string]string, error) {
 	return out, nil
 }
 
-func (g *github) Comments(ctx context.Context, since string) ([]hostComment, error) {
-	q := "?per_page=100&since=" + url.QueryEscape(since)
-	var issue, review []hostComment
-	if err := g.do(ctx, "GET", "/issues/comments"+q+"&sort=updated&direction=asc", nil, &issue); err != nil {
-		return nil, err
-	}
-	if err := g.do(ctx, "GET", "/pulls/comments"+q+"&sort=updated&direction=asc", nil, &review); err != nil {
-		return nil, err
-	}
-	return append(issue, review...), nil
+func (g *github) IssueComments(ctx context.Context, since string) ([]hostComment, error) {
+	var cs []hostComment
+	err := g.do(ctx, "GET", "/issues/comments?per_page=100&sort=updated&direction=asc&since="+url.QueryEscape(since), nil, &cs)
+	return cs, err
+}
+
+func (g *github) ReviewComments(ctx context.Context, since string) ([]hostComment, error) {
+	var cs []hostComment
+	err := g.do(ctx, "GET", "/pulls/comments?per_page=100&sort=updated&direction=asc&since="+url.QueryEscape(since), nil, &cs)
+	return cs, err
+}
+
+func (g *github) Reviews(ctx context.Context, since string) ([]hostComment, error) {
+	return reviewsSince(ctx, &g.rest, "/pulls?state=open&sort=updated&direction=desc&per_page=30", "?per_page=100", since)
 }
 
 func (g *github) MergedPulls(ctx context.Context) ([]hostPull, error) {
@@ -307,10 +349,16 @@ func (g *gitea) Branches(ctx context.Context) (map[string]string, error) {
 	return out, nil
 }
 
-func (g *gitea) Comments(ctx context.Context, since string) ([]hostComment, error) {
+func (g *gitea) IssueComments(ctx context.Context, since string) ([]hostComment, error) {
 	var cs []hostComment
 	err := g.do(ctx, "GET", "/issues/comments?limit=50&since="+url.QueryEscape(since), nil, &cs)
 	return cs, err
+}
+
+func (g *gitea) ReviewComments(context.Context, string) ([]hostComment, error) { return nil, nil }
+
+func (g *gitea) Reviews(ctx context.Context, since string) ([]hostComment, error) {
+	return reviewsSince(ctx, &g.rest, "/pulls?state=open&sort=recentupdate&limit=30", "?limit=50", since)
 }
 
 func (g *gitea) MergedPulls(ctx context.Context) ([]hostPull, error) {

@@ -40,17 +40,27 @@ func agentMark(body string) string {
 	return ""
 }
 
+// feedState is the read position of one list of comments or reviews.
+type feedState struct {
+	Since string  `json:"since"` // RFC 3339, UTC
+	Seen  []int64 `json:"seen"`  // IDs updated exactly at Since
+}
+
+// maxCheckPolls caps how often the watcher reads the checks of a head that is pending or has none
+// yet (external CI often registers after the push). At 60 seconds it is about half an hour.
+const maxCheckPolls = 30
+
 type repoState struct {
-	Branches    map[string]string `json:"branches"`
-	Checks      map[string]string `json:"checks"`         // head SHA -> last Checks value
-	Since       string            `json:"comments_since"` // RFC 3339, UTC
-	SeenAtSince []int64           `json:"seen_at_since"`  // comment IDs updated exactly at Since
-	Merged      []int             `json:"merged"`
-	LastError   string            `json:"last_error,omitempty"`
+	Branches   map[string]string     `json:"branches"`
+	Checks     map[string]string     `json:"checks"`      // head SHA -> last Checks value
+	CheckPolls map[string]int        `json:"check_polls"` // head SHA -> reads of its checks
+	Feeds      map[string]*feedState `json:"feeds"`       // issue_comments, review_comments, reviews
+	Merged     []int                 `json:"merged"`
+	LastError  string                `json:"last_error,omitempty"`
 }
 
 type watchEvent struct {
-	Type    string `json:"type"` // push, red, comment, merge, or error
+	Type    string `json:"type"` // push, red, comment, review, merge, or error
 	Repo    string `json:"repo"`
 	Project string `json:"project"`
 	Ref     string `json:"ref,omitempty"`
@@ -60,6 +70,7 @@ type watchEvent struct {
 	Author  string `json:"author,omitempty"`
 	By      string `json:"by,omitempty"` // agent or human, for comments
 	RoleKey string `json:"role_key,omitempty"`
+	State   string `json:"review_state,omitempty"` // reviews
 }
 
 type watcher struct {
@@ -107,7 +118,9 @@ func (w *watcher) pollRepo(ctx context.Context, r repoConfig, h codeHost, st *re
 		if err != nil {
 			return err
 		}
-		st.Branches, st.Checks, st.Since = branches, map[string]string{}, w.env.Now().UTC().Format(time.RFC3339)
+		now := w.env.Now().UTC().Format(time.RFC3339)
+		st.Branches, st.Checks, st.CheckPolls = branches, map[string]string{}, map[string]int{}
+		st.Feeds = map[string]*feedState{"issue_comments": {Since: now}, "review_comments": {Since: now}, "reviews": {Since: now}}
 		for _, p := range merged {
 			st.Merged = append(st.Merged, p.Number)
 		}
@@ -123,16 +136,21 @@ func (w *watcher) pollRepo(ctx context.Context, r repoConfig, h codeHost, st *re
 			if err := w.emit(ev, fmt.Sprintf("push %s %s %s", r.Repo, name, short(sha)), branchCall, sha); err != nil {
 				return err
 			}
+			st.Branches[name] = sha // saved at once, so a later error does not emit the push again
 		}
-		if !changed && st.Checks[sha] != "pending" {
+		prev, known := st.Checks[sha]
+		if !changed && known && (prev != "pending" && prev != "none" || st.CheckPolls[sha] >= maxCheckPolls) {
 			continue
+		}
+		if !changed && !known {
+			continue // a head of the baseline
 		}
 		state, err := h.Checks(ctx, sha)
 		if err != nil {
 			return err
 		}
-		prev := st.Checks[sha]
 		st.Checks[sha] = state
+		st.CheckPolls[sha]++
 		if state == "failure" && prev != "failure" {
 			ev := base
 			ev.Type, ev.Ref, ev.SHA = "red", name, sha
@@ -144,33 +162,20 @@ func (w *watcher) pollRepo(ctx context.Context, r repoConfig, h codeHost, st *re
 	st.Branches = branches
 	heads := slices.Collect(maps.Values(branches))
 	maps.DeleteFunc(st.Checks, func(sha, _ string) bool { return !slices.Contains(heads, sha) })
+	maps.DeleteFunc(st.CheckPolls, func(sha string, _ int) bool { return !slices.Contains(heads, sha) })
 
-	comments, err := h.Comments(ctx, st.Since)
-	if err != nil {
-		return err
-	}
-	commentCall := h.LastCall()
-	slices.SortStableFunc(comments, func(a, b hostComment) int { return parseTime(a.UpdatedAt).Compare(parseTime(b.UpdatedAt)) })
-	since := parseTime(st.Since)
-	for _, c := range comments {
-		at := parseTime(c.UpdatedAt)
-		if at.Before(since) || (at.Equal(since) && slices.Contains(st.SeenAtSince, c.ID)) {
-			continue
-		}
-		ev := base
-		ev.Type, ev.Number, ev.URL, ev.Author, ev.By = "comment", c.Number(), c.URL, c.User.Login, "human"
-		who := "human"
-		if key := agentMark(c.Body); key != "" {
-			ev.By, ev.RoleKey, who = "agent", key, "agent "+key
-		}
-		if err := w.emit(ev, fmt.Sprintf("comment by %s (%s) on %s #%d", c.User.Login, who, r.Repo, ev.Number), commentCall, fmt.Sprint(c.ID)); err != nil {
+	for _, feed := range []struct {
+		name  string
+		fetch func(context.Context, string) ([]hostComment, error)
+	}{{"issue_comments", h.IssueComments}, {"review_comments", h.ReviewComments}, {"reviews", h.Reviews}} {
+		fs := st.Feeds[feed.name]
+		items, err := feed.fetch(ctx, fs.Since)
+		if err != nil {
 			return err
 		}
-		if at.After(since) {
-			since, st.SeenAtSince = at, nil
+		if err := w.emitFeed(r, base, feed.name, items, h.LastCall(), fs); err != nil {
+			return err
 		}
-		st.SeenAtSince = append(st.SeenAtSince, c.ID)
-		st.Since = since.UTC().Format(time.RFC3339)
 	}
 
 	merged, err := h.MergedPulls(ctx)
@@ -189,6 +194,38 @@ func (w *watcher) pollRepo(ctx context.Context, r repoConfig, h codeHost, st *re
 		st.Merged = append(st.Merged, p.Number)
 	}
 	st.Merged = st.Merged[max(0, len(st.Merged)-500):]
+	return nil
+}
+
+// emitFeed emits the items of one feed that are newer than its read position, and moves it.
+// Each feed has its own position, so a full page of one feed cannot hide items of another.
+func (w *watcher) emitFeed(r repoConfig, base watchEvent, feed string, items []hostComment, call string, fs *feedState) error {
+	slices.SortStableFunc(items, func(a, b hostComment) int { return parseTime(a.UpdatedAt).Compare(parseTime(b.UpdatedAt)) })
+	since := parseTime(fs.Since)
+	for _, c := range items {
+		at := parseTime(c.UpdatedAt)
+		if at.Before(since) || (at.Equal(since) && slices.Contains(fs.Seen, c.ID)) {
+			continue
+		}
+		ev := base
+		ev.Type, ev.Number, ev.URL, ev.Author, ev.By = "comment", c.Number(), c.URL, c.User.Login, "human"
+		what := "comment"
+		if feed == "reviews" {
+			ev.Type, ev.State, what = "review", c.State, "review "+c.State
+		}
+		who := "human"
+		if key := agentMark(c.Body); key != "" {
+			ev.By, ev.RoleKey, who = "agent", key, "agent "+key
+		}
+		if err := w.emit(ev, fmt.Sprintf("%s by %s (%s) on %s #%d", what, c.User.Login, who, r.Repo, ev.Number), call, fmt.Sprint(c.ID)); err != nil {
+			return err
+		}
+		if at.After(since) {
+			since, fs.Seen = at, nil
+		}
+		fs.Seen = append(fs.Seen, c.ID)
+		fs.Since = since.UTC().Format(time.RFC3339)
+	}
 	return nil
 }
 

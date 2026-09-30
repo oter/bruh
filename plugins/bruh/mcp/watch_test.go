@@ -224,3 +224,118 @@ func TestRunWatchOnce(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func review(id int64, at time.Time, login, state, body string) hostComment {
+	c := hostComment{ID: id, Body: body, State: state, SubmittedAt: at.UTC().Format(time.RFC3339), URL: "https://example.com/r"}
+	c.User.Login = login
+	return c
+}
+
+func TestWatchSeesReviews(t *testing.T) {
+	for _, kind := range []string{"github", "gitea"} {
+		f, w, out, cfg, hosts := watchSetup(t, kind)
+		ctx := context.Background()
+		f.addPull(7, "h7")
+		if err := w.pollAll(ctx, cfg, hosts); err != nil {
+			t.Fatal(err)
+		}
+		now := time.Now()
+		f.pulls[7].UpdatedAt = now.Add(time.Minute).UTC().Format(time.RFC3339)
+		f.reviews[7] = []hostComment{
+			review(70, now.Add(time.Minute), "sam", "CHANGES_REQUESTED", "Please split this."),
+			review(71, now.Add(time.Minute), "bot", "COMMENTED", "Done.\n<!-- bruh:clerk-repo-t1 -->"),
+			{ID: 72, Body: "draft review"}, // pending: no submitted_at
+		}
+		for range 2 {
+			if err := w.pollAll(ctx, cfg, hosts); err != nil {
+				t.Fatal(err)
+			}
+		}
+		evs := events(t, out)
+		if len(evs) != 2 || evs[0].Type != "review" || evs[0].Number != 7 || evs[0].State != "CHANGES_REQUESTED" || evs[0].By != "human" || evs[1].By != "agent" {
+			t.Fatalf("%s events = %+v", kind, evs)
+		}
+	}
+}
+
+func TestWatchRechecksHeadsWithoutChecks(t *testing.T) {
+	f, w, out, cfg, hosts := watchSetup(t, "github")
+	ctx := context.Background()
+	f.branches["main"] = "a1"
+	if err := w.pollAll(ctx, cfg, hosts); err != nil {
+		t.Fatal(err)
+	}
+	f.branches["main"] = "b2" // CI has not registered yet: checks are none
+	if err := w.pollAll(ctx, cfg, hosts); err != nil {
+		t.Fatal(err)
+	}
+	f.runs["b2"] = []fakeRun{{"completed", "failure"}}
+	if err := w.pollAll(ctx, cfg, hosts); err != nil {
+		t.Fatal(err)
+	}
+	evs := events(t, out)
+	if len(evs) != 2 || evs[1].Type != "red" {
+		t.Fatalf("events = %+v", evs)
+	}
+	// The re-reads of a head without checks stop at the cap.
+	f.branches["main"] = "c3"
+	for range maxCheckPolls + 5 {
+		if err := w.pollAll(ctx, cfg, hosts); err != nil {
+			t.Fatal(err)
+		}
+	}
+	n := 0
+	for _, c := range f.calls {
+		if strings.Contains(c, "/commits/c3/status") {
+			n++
+		}
+	}
+	if n != maxCheckPolls {
+		t.Fatalf("%d reads of the checks of c3, want %d", n, maxCheckPolls)
+	}
+}
+
+func TestWatchFeedsKeepTheirOwnPosition(t *testing.T) {
+	f, w, out, cfg, hosts := watchSetup(t, "github")
+	ctx := context.Background()
+	if err := w.pollAll(ctx, cfg, hosts); err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now()
+	// A newer issue comment must not move the position of the review comments past an older one.
+	f.comments = []hostComment{comment(1, now.Add(5*time.Minute), "sam", "new", 1)}
+	f.review = []hostComment{comment(2, now.Add(time.Minute), "sam", "older line comment", 1)}
+	if err := w.pollAll(ctx, cfg, hosts); err != nil {
+		t.Fatal(err)
+	}
+	if evs := events(t, out); len(evs) != 2 {
+		t.Fatalf("events = %+v", evs)
+	}
+}
+
+func TestWatchDoesNotRepeatPushAfterError(t *testing.T) {
+	f, w, out, cfg, hosts := watchSetup(t, "github")
+	ctx := context.Background()
+	f.branches["main"] = "a1"
+	if err := w.pollAll(ctx, cfg, hosts); err != nil {
+		t.Fatal(err)
+	}
+	f.branches["main"] = "b2"
+	f.failPath = "/commits/b2/status"
+	if err := w.pollAll(ctx, cfg, hosts); err != nil {
+		t.Fatal(err)
+	}
+	f.failPath = ""
+	if err := w.pollAll(ctx, cfg, hosts); err != nil {
+		t.Fatal(err)
+	}
+	pushes := 0
+	for _, ev := range events(t, out) {
+		if ev.Type == "push" {
+			pushes++
+		}
+	}
+	if pushes != 1 {
+		t.Fatalf("%d push events", pushes)
+	}
+}

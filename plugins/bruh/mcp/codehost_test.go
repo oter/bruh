@@ -31,6 +31,7 @@ type fakeForge struct {
 	branches   map[string]string
 	comments   []hostComment
 	review     []hostComment // GitHub pull request review comments
+	reviews    map[int][]hostComment
 	pulls      map[int]*hostPull
 	statuses   map[string]fakeStatus
 	runs       map[string][]fakeRun
@@ -41,6 +42,7 @@ type fakeForge struct {
 	calls      []string
 	lastSince  string
 	mergeCount int
+	failPath   string // a path that answers 500
 }
 
 func newFakeForge(t *testing.T, kind string) (*fakeForge, repoConfig) {
@@ -49,7 +51,7 @@ func newFakeForge(t *testing.T, kind string) (*fakeForge, repoConfig) {
 	t.Setenv("BRUH_GITHUB_HOSTS", "127.0.0.1")
 	t.Setenv("GITHUB_TOKEN", "tok")
 	t.Setenv("BRUH_GITEA_TOKEN_127_0_0_1", "tok")
-	f := &fakeForge{kind: kind, branches: map[string]string{}, pulls: map[int]*hostPull{}, statuses: map[string]fakeStatus{}, runs: map[string][]fakeRun{}}
+	f := &fakeForge{kind: kind, reviews: map[int][]hostComment{}, branches: map[string]string{}, pulls: map[int]*hostPull{}, statuses: map[string]fakeStatus{}, runs: map[string][]fakeRun{}}
 	srv := httptest.NewTLSServer(f)
 	t.Cleanup(srv.Close)
 	old := hostHTTP
@@ -76,6 +78,10 @@ func (f *fakeForge) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	f.calls = append(f.calls, r.Method+" "+p)
+	if p == f.failPath {
+		http.Error(w, "boom", http.StatusInternalServerError)
+		return
+	}
 	send := func(v any) { _ = json.NewEncoder(w).Encode(v) }
 	parts := strings.Split(strings.Trim(p, "/"), "/")
 	switch {
@@ -105,11 +111,14 @@ func (f *fakeForge) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	case r.Method == "GET" && p == "/pulls":
 		out := []hostPull{}
 		for _, pr := range f.pulls {
-			if pr.State == "closed" {
+			if pr.State == r.URL.Query().Get("state") {
 				out = append(out, *pr)
 			}
 		}
 		send(out)
+	case len(parts) == 3 && parts[0] == "pulls" && parts[2] == "reviews":
+		n, _ := strconv.Atoi(parts[1])
+		send(append([]hostComment{}, f.reviews[n]...))
 	case len(parts) == 2 && parts[0] == "pulls" && r.Method == "GET":
 		n, _ := strconv.Atoi(parts[1])
 		pr, ok := f.pulls[n]
