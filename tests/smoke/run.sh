@@ -35,7 +35,8 @@ step_min=${SMOKE_STEP_MINUTES:-30}
 sweep_min=${SMOKE_SWEEP_MINUTES:-15}
 idle_min=${SMOKE_IDLE_MINUTES:-0}
 
-plugin=$root/plugins/bruh
+# BRUH_TEST_PLUGIN lets tests/test.sh point the driver at a fixture plugin.
+plugin=${BRUH_TEST_PLUGIN:-$root/plugins/bruh}
 run_id=${SMOKE_RUN:-$(random_id)}
 valid_run_id "$run_id" || die "SMOKE_RUN must be 1 to 12 lowercase letters and digits"
 project=smoke-$run_id
@@ -333,7 +334,6 @@ else
 	mkdir -p "$evidence"
 	RESULTS=$evidence/results.txt
 	: >"$RESULTS"
-	refresh
 	refresh || die "preflight: claude agents --json --all failed"
 	# bigm and clerk-ledger have fixed role keys. A nudge goes to a session name,
 	# so a live session with a name of this run would get the messages of the test.

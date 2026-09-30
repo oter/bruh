@@ -176,6 +176,63 @@ check "window_gaps is 0 when each window has a tick" eq "$(window_gaps "$tmp/wbo
 check "window_gaps ignores a short last window" eq "$(window_gaps "$tmp/wbox" "$t0" $((t0 + 599)) 300)" 0
 check "window_gaps counts every window of an empty mailbox" eq "$(window_gaps "$tmp/none" "$t0" $((t0 + 900)) 300)" 3
 
+# Smoke preflight and cleanup with a fake claude on PATH. The fake prints the
+# fixture $FAKE_AGENTS for `claude agents`, records `claude stop`, and, at the
+# first `claude --bg`, switches to the fixture $FAKE_AGENTS_AFTER and creates
+# clerk-ledger data, as bigm would.
+mkdir -p "$tmp/fake/bin" "$tmp/fake/plugin/agents" "$tmp/fake/plugin/workflows" "$tmp/fake/plugin/ledger-template"
+cat >"$tmp/fake/bin/claude" <<'SH'
+#!/bin/sh
+case $1 in
+--version) echo "2.1.284 (Claude Code)" ;;
+agents) cat "$FAKE_AGENTS" ;;
+stop)
+	echo "$2" >>"$FAKE_STOPS"
+	jq --arg i "$2" 'map(if .id == $i then del(.pid) else . end)' "$FAKE_AGENTS" >"$FAKE_AGENTS.new" && mv "$FAKE_AGENTS.new" "$FAKE_AGENTS"
+	;;
+logs) ;;
+*)
+	if [ -n "${FAKE_AGENTS_AFTER:-}" ] && [ -f "$FAKE_AGENTS_AFTER" ]; then
+		mv "$FAKE_AGENTS_AFTER" "$FAKE_AGENTS"
+		mkdir -p "$BRUH_TEST_DATA/mail/clerk-ledger" && echo '{}' >"$BRUH_TEST_DATA/roles/clerk-ledger.json"
+	fi
+	;;
+esac
+SH
+chmod +x "$tmp/fake/bin/claude"
+for f in agents/bigm.md agents/clanker.md agents/clerk.md workflows/deliver.js; do : >"$tmp/fake/plugin/$f"; done
+echo 'mode: human' >"$tmp/fake/plugin/ledger-template/mode.md"
+ln -s "$(cd "$here/.." && pwd)/plugins/bruh/mcp" "$tmp/fake/plugin/mcp"
+ln -s "$(cd "$here/.." && pwd)/plugins/bruh/defaults" "$tmp/fake/plugin/defaults"
+git init -q "$tmp/strust" && git -C "$tmp/strust" -c user.name=t -c user.email=t@example.com commit -q --allow-empty -m init
+srun=$(cd "$tmp/strust" && pwd -P)/.bruh-test/smoke-fk1
+smoke_fake() {
+	env PATH="$tmp/fake/bin:$PATH" BRUH_TEST_PLUGIN="$tmp/fake/plugin" BRUH_TEST_DATA="$tmp/sdata" \
+		BRUH_TRUSTED_REPO="$tmp/strust" SMOKE_RUN=fk1 SMOKE_STEP_MINUTES=0 SMOKE_EVIDENCE="$tmp/sev" \
+		FAKE_AGENTS="$tmp/fake/agents.json" FAKE_STOPS="$tmp/fake/stops.txt" sh "$here/smoke/run.sh"
+}
+cat >"$tmp/fake/agents.json" <<'JSON'
+[{"id":"own1","name":"clerk-ledger","pid":41,"cwd":"/owner/ledger"}]
+JSON
+mkdir -p "$tmp/sdata/roles"
+pout=$(smoke_fake 2>&1)
+check "smoke preflight refuses a live clerk-ledger of the owner" contains "$pout" "clerk-ledger (own1)"
+check "smoke preflight starts nothing when it refuses" not test -e "$tmp/fake/stops.txt"
+jq -n --arg l "$srun/ledger" --arg p "$srun/project" '[
+	{id: "bg1", name: "bigm", pid: 1, cwd: $l},
+	{id: "cl1", name: "clerk-ledger", pid: 2, cwd: $l},
+	{id: "mg1", name: "clerk-smoke-fk1-merge", pid: 3, cwd: ($p + "/.claude/worktrees/m")},
+	{id: "own1", name: "clerk-ledger", pid: 4, cwd: "/owner/ledger"}]' >"$tmp/fake/agents-after.json"
+echo '[]' >"$tmp/fake/agents.json"
+FAKE_AGENTS_AFTER="$tmp/fake/agents-after.json" smoke_fake >"$tmp/fake/run.txt" 2>&1
+stops=$(sort "$tmp/fake/stops.txt" 2>/dev/null | words)
+check "smoke run reaches cleanup with the fake claude" contains "$(cat "$tmp/fake/run.txt")" "cleanup"
+check "smoke cleanup stops bigm, clerk-ledger, and a merger clerk of the run" eq "$stops" "bg1 cl1 mg1"
+check "smoke cleanup does not stop the clerk-ledger of the owner" not contains "$stops" own1
+check "smoke cleanup removes the clerk-ledger data" not test -e "$tmp/sdata/mail/clerk-ledger"
+check "smoke cleanup removes the clerk-ledger role settings" not test -e "$tmp/sdata/roles/clerk-ledger.json"
+check "smoke cleanup removes the run folder" not test -e "$srun"
+
 # Load driver dry run
 out=$(BRUH_TRUSTED_REPO="$tmp/repo" LOAD_RUN=dry2 sh "$here/load/run.sh" --dry-run --sessions 2 --minutes 1 2>&1)
 check "load dry run exits 0" eq "$(BRUH_TRUSTED_REPO="$tmp/repo" LOAD_RUN=dry2 sh "$here/load/run.sh" --dry-run --sessions 2 --minutes 1 >/dev/null 2>&1; echo $?)" 0
