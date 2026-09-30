@@ -2,6 +2,7 @@ package main
 
 import (
 	"cmp"
+	"context"
 	"encoding/json"
 	"errors"
 	"flag"
@@ -9,9 +10,11 @@ import (
 	"io"
 	"log"
 	"os"
+	"os/signal"
 	"path/filepath"
 	"slices"
 	"strings"
+	"syscall"
 )
 
 const usage = `usage: go run -C <plugin root>/mcp . [command]
@@ -21,6 +24,11 @@ With no command, the program is the bruh MCP server (stdio).
 Commands:
   init --answers <file>    non-interactive /bruh:init; BRUH_INIT_<KEY> variables override the file
   role-settings <role key> write <data>/roles/<role key>.json with the defaults (never overwrites)
+  watch [--data <dir>] [--once]
+                           poll the code hosts of <data>/repos.json; one JSON line for each event
+  merge-train [--data <dir>] [--wait-minutes <n>] <owner/repo> <number>...
+                           merge the pull requests in order, each only with green checks,
+                           and confirm each merge by reading the code host API
 `
 
 func main() {
@@ -76,6 +84,21 @@ func runCLI(args []string, env Env, stdout, stderr io.Writer) int {
 			return fail(err)
 		}
 		fmt.Fprintln(stdout, "start bigm with:", res["launch_command"])
+		return 0
+	case "watch":
+		fs := flag.NewFlagSet("watch", flag.ContinueOnError)
+		fs.SetOutput(stderr)
+		data := fs.String("data", env.DataDir, "plugin data folder")
+		once := fs.Bool("once", false, "poll once and exit")
+		if err := fs.Parse(args[1:]); err != nil {
+			return 2
+		}
+		env.DataDir = *data
+		ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+		defer stop()
+		if err := runWatch(ctx, env, stdout, *once); err != nil {
+			return fail(err)
+		}
 		return 0
 	case "role-settings":
 		if len(args) != 2 {
