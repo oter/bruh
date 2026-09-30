@@ -65,7 +65,7 @@ const REQUIRED = {
     'bruh_info', 'lease_request', 'lease_release', 'SendMessage', '/bruh:deliver', 'resumeFromRunId',
     'merge-train.sh', 'base_sha', 'round_cap', 'deadline_seconds', 'answers',
     'START: ', 'accepted: <head SHA>', 'FAILED:', 'clerk-<project>-merge', 'session_list',
-    'merge-train.sh <owner/repo> <pull request number>', 'Verify',
+    'merge-train.sh --data <data_dir> <owner/repo> <pull request number>', 'Verify',
     'not running; mail pending', 'CronCreate', 'at most 3 retries', 'in 15 minutes', 'REPEAT:',
     'git merge-base --is-ancestor',
   ],
@@ -285,4 +285,13 @@ test('bigm calls repos_set with the project of the clanker key', () => {
 test('the clerk passes the test gates to deliver', () => {
   assert.ok(agents.clerk.includes('"test_gates": ["<gate command that runs tests>"]'))
   assert.match(agents.clanker, /the gate commands, and which of them run tests/)
+})
+
+// Final review m1, m5, m6: the channel tools, the ledger clerk resume, and the question ID in a Telegram question.
+test('bigm names the Slack tool, asks for the question ID, and resumes the ledger clerk first', () => {
+  assert.ok(agents.bigm.includes('mcp__plugin_bruh_slack__post_question'))
+  assert.ok(agents.bigm.includes('`Answer with Q-<n> first.`'))
+  const ledger = agents.bigm.split('## The ledger clerk')[1].split('\n## ')[0]
+  assert.match(ledger, /resume it with `session_resume`/)
+  assert.doesNotMatch(ledger, /If `session_list` shows no live `clerk-ledger`, call `role_settings_write`/)
 })
