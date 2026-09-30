@@ -8,12 +8,15 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"net/http"
 	"net/url"
 	"os"
 	"os/exec"
 	"path"
 	"path/filepath"
+	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -36,8 +39,11 @@ type reposConfig struct {
 
 // loadRepos reads <data>/repos.json and sets the defaults.
 func loadRepos(dataDir string) (reposConfig, error) {
+	return loadReposFile(filepath.Join(dataDir, "repos.json"))
+}
+
+func loadReposFile(file string) (reposConfig, error) {
 	var cfg reposConfig
-	file := filepath.Join(dataDir, "repos.json")
 	raw, err := os.ReadFile(file)
 	if err != nil {
 		return cfg, fmt.Errorf("read the code host configuration: %w", err)
@@ -355,4 +361,74 @@ func newHost(r repoConfig) (codeHost, error) {
 		return &gitea{c}, nil
 	}
 	return nil, errors.New("unknown host: " + r.Host)
+}
+
+var tokenEnvRE = regexp.MustCompile(`^[A-Z_][A-Z0-9_]*$`)
+
+func reposTools() []Tool {
+	str := stringSchema()
+	return []Tool{{
+		Name:        "repos_set",
+		Description: "Add, replace, or remove (remove: true) one repository in <data>/repos.json, the code host configuration of the watcher and the merge train. Only bigm. Tokens are never stored: token_env names the variable that holds the token.",
+		InputSchema: objectSchema(map[string]any{
+			"repo": str, "host": map[string]any{"type": "string", "enum": []string{"github", "gitea"}}, "api_url": str, "token_env": str,
+			"project": str, "merge_method": str, "remove": map[string]any{"type": "boolean"},
+			"interval_seconds": map[string]any{"type": "integer", "minimum": 10},
+		}, "repo"),
+		Handler: func(c *Call, raw json.RawMessage) (any, error) {
+			me, err := c.Env.Caller()
+			if err != nil {
+				return nil, err
+			}
+			if me != "bigm" {
+				return nil, errors.New("only bigm writes the code host configuration")
+			}
+			var a struct {
+				repoConfig
+				Remove          bool `json:"remove"`
+				IntervalSeconds int  `json:"interval_seconds"`
+			}
+			if err := json.Unmarshal(raw, &a); err != nil {
+				return nil, err
+			}
+			if a.TokenEnv != "" && !tokenEnvRE.MatchString(a.TokenEnv) {
+				return nil, fmt.Errorf("token_env must be a variable name: %q", a.TokenEnv)
+			}
+			var out any
+			err = c.Env.WithLock("repos", func() error {
+				dir, err := c.Env.Dir()
+				if err != nil {
+					return err
+				}
+				file := filepath.Join(dir, "repos.json")
+				var cfg reposConfig
+				if b, err := os.ReadFile(file); err == nil {
+					if err := json.Unmarshal(b, &cfg); err != nil {
+						return fmt.Errorf("%s: %w", file, err)
+					}
+				} else if !errors.Is(err, fs.ErrNotExist) {
+					return err
+				}
+				if a.IntervalSeconds != 0 {
+					cfg.IntervalSeconds = a.IntervalSeconds
+				}
+				cfg.Repos = slices.DeleteFunc(cfg.Repos, func(r repoConfig) bool { return r.Repo == a.Repo })
+				if !a.Remove {
+					cfg.Repos = append(cfg.Repos, a.repoConfig)
+				}
+				data, _ := json.MarshalIndent(cfg, "", "  ")
+				tmp := filepath.Join(dir, "repos.json.check")
+				if err := os.WriteFile(tmp, data, 0o600); err != nil {
+					return err
+				}
+				defer os.Remove(tmp)
+				if _, err := loadReposFile(tmp); err != nil {
+					return err
+				}
+				out = cfg
+				return atomicWrite(file, data)
+			})
+			return out, err
+		},
+	}}
 }

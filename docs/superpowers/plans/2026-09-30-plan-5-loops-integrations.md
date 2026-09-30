@@ -15,7 +15,7 @@
 - A status is true only when it was just read from its source (spec principle 1). A merge counts as done only when a `GET` of the pull request after the merge call says `merged: true`. The HTTP status of the merge call and the exit code are never the evidence.
 - Each event line carries its source read: the API call, the value, and the UTC time.
 - Tokens come from environment variables. For GitHub, `gh auth token` is the fallback. A token is never written to a file, a log line, or an event.
-- Agent posts carry the structural marker `<!-- bruh:agent <role key> -->`. The watcher separates agent posts from human posts only by this marker, never by the words of a post.
+- Agents end every post on a code host with the line `<!-- bruh:<role key> -->` (the form of lane roles, 2026-09-30). The watcher reads a post as an agent post only when its last non-empty line is exactly this marker with a key that passes `ParseRoleKey`. The words of a post never decide.
 - Tests use `httptest` servers. No test reaches the network.
 - The Slack channel sends and polls only when `BRUH_ROLE_KEY` is `bigm` and the token, the channel, and the allowlist are set. In every other session it is an idle MCP server.
 
@@ -65,6 +65,7 @@
   ```
 
   Each method records the call it made (`method URL`) in `lastCall`, so an event can carry its source.
+- MCP tool `repos_set(repo, host, api_url, token_env, project, merge_method, remove, interval_seconds)`: only bigm; adds, replaces, or removes one repository of `repos.json` under the lock `repos`, and checks the result with the same rules as `loadRepos` before it writes. `token_env` must be a variable name, so a token cannot be stored in the file.
 - GitHub: `GET /repos/{o}/{r}/branches`, `GET /repos/{o}/{r}/issues/comments?since=` and `GET /repos/{o}/{r}/pulls/comments?since=`, `GET /repos/{o}/{r}/pulls?state=closed&sort=updated&direction=desc`, `GET /repos/{o}/{r}/pulls/{n}`, `GET /repos/{o}/{r}/commits/{sha}/status` plus `GET /repos/{o}/{r}/commits/{sha}/check-runs`, `PUT /repos/{o}/{r}/pulls/{n}/merge` with `{"sha","merge_method"}`. Header `Authorization: Bearer <token>`.
 - Gitea: `GET /repos/{o}/{r}/branches`, `GET /repos/{o}/{r}/issues/comments?since=`, `GET /repos/{o}/{r}/pulls?state=closed&sort=recentupdate`, `GET /repos/{o}/{r}/pulls/{n}`, `GET /repos/{o}/{r}/commits/{sha}/status`, `POST /repos/{o}/{r}/pulls/{n}/merge` with `{"Do","head_commit_id"}`. Header `Authorization: token <token>`.
 - `Checks` on GitHub: `failure` when any check run is completed with a conclusion other than `success`, `neutral`, or `skipped`, or the combined status is `failure`; `pending` when any check run is not completed, or statuses exist and the combined state is `pending`; `none` when there are no check runs and no statuses; else `success`. (The combined status is `pending` when no status exists, so it counts only when `total_count` is above 0.) On Gitea: `none` for `total_count` 0, `success`, `pending`, or `failure` for `failure` and `error`.
@@ -87,7 +88,8 @@
 - An event line is a report line of plan 1 with an `event` object: `{"at","from":"watcher","kind":"event","text":"<one line>","source":{"call","value","at"},"event":{"type","repo","project","ref","sha","number","url","author","by","role_key"}}`. `type` is `push`, `comment`, `red`, or `merge`. `by` is `agent` or `human` (comments only). `role_key` is the key from the marker.
 - Events: `push` for a branch whose head SHA changed or that is new; `red` once for each branch head SHA whose `Checks` value is `failure` (checked only when the SHA is new or its last value was `pending`, to keep the API calls bounded); `comment` for each comment updated after the last poll; `merge` for each merged pull request not seen before.
 - The first poll of a repository records the baseline and emits nothing.
-- The agent marker: the regular expression `<!-- bruh:agent ([a-z0-9-]+) -->` on the comment body, and the key must pass `ParseRoleKey`.
+- The agent marker: the last non-empty line of the comment body, trimmed, matches `^<!-- bruh:([a-z0-9-]+) -->$`, and the key passes `ParseRoleKey`. A quoted marker (`> <!-- bruh:... -->`) or a marker followed by other text is a human post.
+- An error of one repository (for example an expired token) is an event of type `error`, once for each new error text. The other repositories are still polled.
 - `scripts/watcher.sh`: `exec go run -C "<folder of the script>/../mcp" . watch "$@"` with `GOTOOLCHAIN=local`.
 
 - [ ] **Step 1: Write the failing tests** with a fake GitHub server whose state the test changes between two `pollOnce` calls: `TestWatchBaselineThenEvents` (push, red, merge, comment, each once), `TestWatchSeparatesAgentPosts`, `TestWatchAppendsReport` (the line decodes as a `ReportLine` through `report_read` with key `watcher`), and `TestWatchGitea`.
@@ -104,11 +106,11 @@
 
 **Interfaces:**
 
-- `merge-train [--data <dir>] [--wait-minutes <n>] <owner/repo> <number>...`: the queue is the list of pull request numbers, in order. For each number, one at a time:
+- `merge-train [--data <dir>] [--wait-minutes <n>] <owner/repo> <number>...` (and `scripts/merge-train.sh` with the same arguments): it merges only the named pull requests, in the given order. There is no implicit queue of all open pull requests. Agent-derived, needs owner decision (roles review blocker B2, through the controller, 2026-09-30). The merger is the long-lived clerk `clerk-<project>-merge`; `ParseRoleKey` reads it as a clerk with the task `merge`. For each number, one at a time:
   1. `Pull`: skip with `not_open` when it is not open, `draft` when it is a draft, `conflict` when `mergeable` is `false`.
   2. `Checks` of the head SHA: wait while `pending` (poll every 20 seconds, up to `--wait-minutes`, default 30); skip with `checks_failure`, `checks_none`, or `checks_timeout`.
   3. `Merge` with the head SHA, so the host refuses a head that moved.
-  4. `Pull` again: `merged: true` gives `merged` with `merge_commit_sha`; anything else gives `not_confirmed`, and the train stops, because the state of the repository is not known.
+  4. `Pull` again (up to 3 reads): `merged: true` gives `merged` with `merge_commit_sha`. When the merge call failed and the read says not merged, the result is `skipped` with the error of the host. When the merge call succeeded and the read says not merged, the result is `not_confirmed`, and the train stops, because the state of the repository is not known. A pull request that is already merged gives `merged` with the reason `already merged before the train`.
 - One JSON line for each pull request: `{"at","repo","number","result","reason","merge_commit_sha","source":{"call","value","at"}}`. The exit code is 0 when every pull request merged, 1 otherwise. The merger clerk reads the lines, not the exit code.
 - `scripts/merge-train.sh`: `exec go run -C "<folder of the script>/../mcp" . merge-train "$@"`.
 
@@ -126,8 +128,9 @@
 
 **Interfaces:**
 
-- `.mcp.json` server `slack`: `go run -C ${CLAUDE_PLUGIN_ROOT}/channels/slack .` with `GOTOOLCHAIN=local`, `BRUH_DATA=${CLAUDE_PLUGIN_DATA}`, `SLACK_BOT_TOKEN=${user_config.slack_bot_token}`, `SLACK_CHANNEL_ID=${user_config.slack_channel_id}`, `SLACK_ALLOWED_USERS=${user_config.slack_owner_user_id}`.
-- `plugin.json` `channels`: `[{"server":"slack","displayName":"Slack","userConfig":{...}}]` with `slack_bot_token` (sensitive), `slack_channel_id`, and `slack_owner_user_id`.
+- `.mcp.json` server `slack`: `go run -C ${CLAUDE_PLUGIN_ROOT}/channels/slack .` with `GOTOOLCHAIN=local`, `BRUH_DATA=${CLAUDE_PLUGIN_DATA}`, `SLACK_BOT_TOKEN=${user_config.slack_bot_token}`, `SLACK_CHANNEL_ID=${user_config.slack_channel_id}`, `SLACK_ALLOWED_USERS=${user_config.slack_owner_user_id}`. A value that is still `${...}` (the option is not set) counts as unset.
+- `plugin.json`: the top-level `userConfig` gets `slack_bot_token` (sensitive), `slack_channel_id`, and `slack_owner_user_id`, and `channels` is `[{"server":"slack","displayName":"Slack"}]`. The options are top-level, not in the `channels` entry, because the documentation says only of top-level options that `/plugin configure` shows them and that they substitute into MCP server config.
+- `initialize` answers with a protocol revision that the server knows (`2025-03-26`, `2025-06-18`, `2025-11-25`; otherwise `2025-06-18`), because Claude Code does not register a channel that negotiates revision 2026-07-28.
 - Capabilities: `experimental["claude/channel"]` = `{}`, `experimental["claude/channel/permission"]` = `{}` (only when active, because the allowlist gates the verdicts), `tools` = `{}`.
 - Tools: `post_question(question_id, header, body)` posts one top-level message (`<header>`, the body, and the line `Answer in this thread.`) with `chat.postMessage` and returns `{"thread_ts"}`; `reply(thread_ts, text)` posts in a thread.
 - Threads: `<data>/channels/slack/threads.json` maps each thread `ts` to the question ID (or the permission request ID), with the time of the last reply read. A thread is dropped after 7 days.
@@ -155,10 +158,12 @@
 
 ## Agent-derived decisions (need owner decision)
 
-1. The agent marker is the HTML comment `<!-- bruh:agent <role key> -->`. GitHub and Gitea do not render HTML comments, so the marker is not visible to readers. Options, ranked: 1. the HTML comment, as built; 2. a visible footer line `-- posted by bruh <role key>`; 3. a separate bot account for agent posts (identities are out of scope for version 0.1, spec 21).
-2. The code host configuration is the file `<data>/repos.json`, written by bigm through a tool of lane roles or by hand. The interfaces file does not name it. Options: 1. a data folder file, as built; 2. the ledger `projects/<project>.md` files.
+1. The agent marker is the HTML comment `<!-- bruh:<role key> -->` on the last line of a post (the form of lane roles). GitHub and Gitea do not render HTML comments, so readers do not see it. A person can type the marker, so it separates agents from people only when people do not copy it. Options, ranked: 1. the HTML comment, as built; 2. a visible footer line; 3. a separate bot account for agent posts (identities are out of scope for version 0.1, spec 21).
+2. The code host configuration is the file `<data>/repos.json`. bigm writes it with the new MCP tool `repos_set` (only bigm), because plugin code writes every file of the data folder (spec principle 3). The interfaces file names neither. Options: 1. a data folder file and `repos_set`, as built; 2. the ledger `projects/<project>.md` files.
 3. The Slack channel is one of the MCP servers of the bruh plugin, so it starts (idle) in every session that loads the plugin. It posts and polls only in bigm. Options: 1. one plugin, as built; 2. a second plugin `bruh-slack` in the same marketplace.
 4. The Slack app must be an internal app of the workspace of the owner. Slack limits `conversations.history` and `conversations.replies` to 1 request each minute for new apps that are distributed outside the Slack Marketplace, and gives internal apps Tier 3 (50 or more each minute).
+5. The merge train treats a Gitea commit status `warning` as `failure`, so it never merges on a warning. The watcher then reports a `warning` as a red check.
+6. The watcher reads only the first page of branches (100 on GitHub, 50 on Gitea) and comments (100 and 50) of each poll. A repository with more branches, or more new comments in one interval, loses events past the first page.
 
 ## Telegram (no code; facts for the controller and lane roles)
 
@@ -184,6 +189,8 @@
 | Slack `conversations.replies` and `conversations.history`: Tier 3 for internal apps; 1 request each minute and at most 15 objects for new commercially distributed apps outside the Marketplace (since 2025-05-29). | Read the page | <https://docs.slack.dev/reference/methods/conversations.replies/> |
 | GitHub combined status is `pending` when no status exists; check runs are a separate API with `status` and `conclusion` (`success`, `failure`, `neutral`, `cancelled`, `skipped`, `timed_out`, `action_required`). | Read the pages | <https://docs.github.com/en/rest/commits/statuses>, <https://docs.github.com/en/rest/checks/runs> |
 | GitHub `PUT /repos/{owner}/{repo}/pulls/{n}/merge` takes `sha` and `merge_method` (`merge`, `squash`, `rebase`); 405 when the merge cannot run, 409 when the head does not match `sha`. | Read the page | <https://docs.github.com/en/rest/pulls/pulls> |
+| A Claude Code channel is not registered when the server negotiates MCP protocol revision 2026-07-28 (with `MCP_PROTOCOL_NEGOTIATION=auto`). | Read the page | channels.md, "Restrict which channel plugins can run" |
+| The Slack server starts and connects in a session with no Slack option set. | Debug log of the end-to-end check of plan 2, Task 9 | — |
 | Gitea `POST /repos/{owner}/{repo}/pulls/{index}/merge` takes `Do` (`merge`, `rebase`, `rebase-merge`, `squash`, `fast-forward-only`, `manually-merged`) and `head_commit_id`; a pull request has `merged`, `merged_at`, `merge_commit_sha`, `mergeable`, `draft`, and `head.sha`; `GET /repos/{owner}/{repo}/commits/{ref}/status` returns `state` and `total_count`; `GET /repos/{owner}/{repo}/issues/comments` takes `since`. | Read the API description | <https://gitea.com/swagger.v1.json> (Gitea 1.27 development version) |
 
 ## Self-review

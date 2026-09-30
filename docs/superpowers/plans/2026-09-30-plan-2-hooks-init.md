@@ -60,7 +60,19 @@
 
 **Interfaces:**
 
-- `question_open(priority, subject, body, blocks)` returns `{"id":"Q-<n>","header":"<priority> Q-<n>: <subject>"}`. It stores `questions/Q-<n>.json` = `{"id","priority","subject","body","blocks","asker","at"}` and keeps the next number in `questions/next`, both under the lock `questions`. The header must match the mail header grammar of plan 1, so the subject is one line of at most 200 characters.
+- `question_open(priority, subject, body, blocks)` returns `{"id":"Q-<n>","header":"<priority> Q-<n>: <subject>"}`. It stores `questions/Q-<n>.json` and keeps the next number in `questions/next`, both under the lock `questions`. The header must match the mail header grammar of plan 1, so the subject is one line of at most 200 characters. `blocks` must not be empty. Agents read the question file directly, so its fields are a contract:
+
+  | Field | Value |
+  |---|---|
+  | `id` | `Q-<n>` |
+  | `priority` | `P0`, `P1`, or `P2` |
+  | `subject` | one line, 1 to 200 characters |
+  | `body` | text |
+  | `blocks` | the work that waits for the answer |
+  | `asker` | the role key of the caller (a workflow agent has the key of its clerk) |
+  | `opened_at` | UTC time from the server, layout `2006-01-02T15:04:05.000Z` |
+
+- `mail_post` also accepts the header `START: <subject>` (same length rule as `DONE:`). The parent writes each start message with it. Agent-derived, needs owner decision (request of lane roles through the controller, 2026-09-30).
 - `bruh_info()` returns `{"plugin_root","data_dir","role_key","version"}`. The paths are absolute. The version comes from `.claude-plugin/plugin.json`. It works without `BRUH_ROLE_KEY` (`role_key` is then empty) and writes nothing.
 - `lease_define` takes an optional `patterns` (list of strings, each 1 to 200 characters, one line). When `patterns` is absent, a redefinition keeps the old patterns. `Resource` gets `"patterns"` (omitted when empty).
 
@@ -138,7 +150,7 @@
   - `Env.SettingsFile`: `autoCompactWindow`; `statusLine` (when `wrap_statusline`); `permissions.allow` gets `Workflow(bruh:deliver)` and `mcp__plugin_bruh_bruh__<tool>` for every tool except `init_apply`, plus the two Slack tools when `channels` has `slack`; `pluginConfigs["bruh@bruh"].options` gets `user_name`, `handoff_percent`, and `max_busy_clerks`. Other keys and their order stay.
   - `<data>/bin/statusline-tap.sh` (mode 0755), a copy of `scripts/statusline-tap.sh`, when `wrap_statusline`.
   - `<data>/roles/bigm.json` from `defaults/role-settings.json` with `BRUH_ROLE_KEY=bigm`, only when it does not exist.
-  - Each file of `ledger-template/` (recursive) that does not exist in `ledger_path`, with `{{<answer key>}}` and `{{date}}` replaced. Lists become Markdown bullet lists, or `none`.
+  - Each file of `ledger-template/` (recursive) that does not exist in `ledger_path`, filled by the rules of `ledger-template/README.md` of lane roles: in `mode.md`, the value of each `key: value` line for `mode`, `p1_batch_minutes`, `p1_batch_size`, and `review_round_cap` becomes the answer, `changed` becomes the UTC time (`2006-01-02T15:04:05Z`), and `reason` becomes `init`; `priorities.md` becomes `defaults/priorities.md` with one `- <class>` item for each delegated P1 class at the end of the section "Delegated P1 classes"; `grants.md` gets one row `| <repo> | <merger> | <conditions> | <conditions> | <UTC time> | init |` for each merge grant (a `|` in a cell becomes `\|`). The other files are copied unchanged. The test fixture `mcp/testdata/ledger-template/` is a copy of the template of lane roles, and `mcp/testdata/priorities.md` is a copy of its default priorities.
   - It returns `{"plan_id","diff","launch_command","trust"}`: the diff of all files, the bigm start command of spec 3.4 with the chosen channels, and the folders that need workspace trust (the ledger folder).
 - The status line wrap: `statusLine.command` becomes `'<data>/bin/statusline-tap.sh' '<previous command>'` (each part single-quoted for `sh`). Other `statusLine` fields stay. A command that already starts with the quoted tap path stays as it is, so a second init does not wrap twice. No previous command gives the tap path alone.
 - `init_apply(plan_id)`: reads the plan, checks every `before` hash against the current file, and refuses the whole plan with the stale path when one differs. Then it writes each file with `atomicWrite` (parent folders with mode 0700, except the ledger, 0755), sets the mode, deletes the plan, and returns `{"applied":[<paths>]}`.
@@ -162,7 +174,9 @@
 - `main.go`: no argument runs the MCP server. `init --answers <file>` runs the non-interactive init. Plan 5 adds `watch` and `merge-train`. An unknown command prints the usage and exits 2.
 - `init`: reads the answers file (optional), then `BRUH_INIT_<KEY>` variables override single keys (`BRUH_INIT_USER_NAME=Sam`; a list or object value is JSON, for example `BRUH_INIT_CHANNELS='["telegram"]'`). The data folder is `BRUH_DATA`, default `<home>/.claude/plugins/data/bruh-bruh`. The plugin root is `BRUH_PLUGIN_ROOT`, default the parent of the working folder (`go run -C <plugin root>/mcp` sets it to `mcp/`). It prints the diff, applies the plan, prints the applied paths and the launch command, and exits 0.
 
-- [ ] **Step 1: Write the failing test** `TestCLIInit` that runs `runCLI([]string{"init","--answers",f}, env, stdout)` and checks the diff text and the written files, and `TestCLIInitEnvAnswers`.
+- `role-settings <role key>`: writes `<data>/roles/<role key>.json` with the defaults and `BRUH_ROLE_KEY`, prints the absolute path, and refuses to overwrite an existing file. A remote clanker is started by an Orca worker session that has no `BRUH_ROLE_KEY`, so it cannot call `role_settings_write`. Agent-derived, needs owner decision (request of lane roles through the controller, 2026-09-30).
+
+- [ ] **Step 1: Write the failing test** `TestCLIInit` that runs `runCLI([]string{"init","--answers",f}, env, stdout)` and checks the diff text and the written files, `TestCLIInitEnvAnswers`, and `TestCLIRoleSettings`.
 - [ ] **Step 2: Implement** `runCLI(args, env, out) int`.
 - [ ] **Step 3: Run** `go test -race ./...`. Expected: PASS.
 - [ ] **Step 4: Commit** "Add the non-interactive init command".
@@ -183,7 +197,7 @@
 ### Task 9: Checks
 
 - [ ] Run gofmt, `go vet`, `go test -race`, shellcheck, markdownlint, and both `claude plugin validate` commands. Fix what fails.
-- [ ] End-to-end check: in a scratch folder inside a trusted folder, `claude -p --plugin-dir <repo>/plugins/bruh --model haiku "Call the bruh MCP tool bruh_info and print its result."` prints the plugin root and a data folder. This also proves that the plugin loads with the Slack channel server of plan 5 and no Slack option set.
+- [ ] End-to-end check: in a scratch folder inside a trusted folder, `claude -p "Call the MCP tool mcp__plugin_bruh_bruh__bruh_info and print its JSON result exactly." --plugin-dir <repo>/plugins/bruh --model haiku --allowedTools=mcp__plugin_bruh_bruh__bruh_info` prints the plugin root and a data folder. This also proves that the plugin loads with the Slack channel server of plan 5 and no Slack option set. Result (2026-09-30): PASS, `{"data_dir":"<home>/.claude/plugins/data/bruh-inline","plugin_root":"<repo>/plugins/bruh","role_key":"","version":"0.1.0-dev"}`.
 
 ---
 
@@ -199,9 +213,12 @@
 
 1. The previous status line command is kept inside `statusLine.command` as the quoted argument of the tap, not in a separate file. The user sees what is wrapped, one file holds the value, and unwrapping is one edit. Options, ranked: 1. an argument of the tap, as built; 2. a file `<data>/bin/statusline-previous`; 3. an environment variable in settings.
 2. `user_name` is not `required` in `userConfig`, so a container install does not stop at the dialog. init writes the value. Options: 1. not required, as built; 2. required.
-3. The ledger template uses `{{<answer key>}}` and `{{date}}` placeholders, which init replaces. This is a new cross-lane contract with lane roles. Options: 1. placeholders, as built; 2. init writes `mode.md`, `grants.md`, and the delegated classes itself and copies the other template files unchanged.
+3. A merge grant from init fills the column "Owner words" of `grants.md` with the conditions text that the owner typed, and the column "Question ID" with `init`, because an init answer has no question ID. Options: 1. as built; 2. an extra answer field `words` for each grant; 3. leave both columns empty.
 4. `session_resume` refuses a live session (a `pid` in the agents entry). A live session gets a `SendMessage` nudge instead.
 5. The plugin ID for `pluginConfigs` is `bruh@bruh` (the marketplace install of spec 18). A development load with `--plugin-dir` uses another ID, so the options set by init do not apply to it.
+
+6. Init answers refuse unknown keys (`user_nmae` is an error, not a silent default).
+7. `permissions.allow` of the Slack tools (`mcp__plugin_bruh_slack__post_question`, `mcp__plugin_bruh_slack__reply`) is added only when `channels` contains `slack`.
 
 ## Verified facts
 
@@ -222,6 +239,9 @@
 | `rate_limits.five_hour.used_percentage` exists (0 to 100) only for claude.ai Pro and Max subscribers and after the first API response; each window can be absent. `context_window.used_percentage` can be `null` early. | Read the page | <https://code.claude.com/docs/en/statusline.md>, "Available data" |
 | `autoCompactWindow` is a token count from 100000 to 1000000. | Read the page | settings-reference.md, `autoCompactWindow` |
 | An MCP allow rule can name one tool (`mcp__<server>__<tool>`) or all tools of a server (`mcp__<server>__*`). | Read the page | <https://code.claude.com/docs/en/permissions.md> |
+| A plugin loaded with `--plugin-dir` gets the plugin ID `bruh@inline` and the data folder `~/.claude/plugins/data/bruh-inline/`. So the `pluginConfigs["bruh@bruh"]` values that init writes apply only to the marketplace install. | End-to-end check of Task 9: `bruh_info` returned `data_dir` `<home>/.claude/plugins/data/bruh-inline` | — |
+| The bruh MCP server and the Slack channel server both start when the Slack options are not set (the `${user_config.*}` values are unresolved): the debug log shows `MCP server "plugin:bruh:slack": Successfully connected`. | End-to-end check of Task 9, `claude -p --debug-file` | — |
+| `/plugin configure <plugin>` opens the `userConfig` dialog; `claude plugin install --config key=value` sets an option. | Read the page | <https://code.claude.com/docs/en/plugins/cli-reference.md> |
 | `disable-model-invocation: true` in skill frontmatter stops Claude from starting the skill on its own. | Read the page | <https://code.claude.com/docs/en/skills.md> |
 
 ### Probe G1 (2026-09-30, Claude Code 2.1.284)

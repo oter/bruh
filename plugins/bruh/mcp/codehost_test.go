@@ -272,3 +272,36 @@ func TestHostTokenFallback(t *testing.T) {
 		t.Fatalf("env token = %q", got)
 	}
 }
+
+func TestReposSet(t *testing.T) {
+	env := testEnv(t, "bigm")
+	set := func(env Env, args map[string]any) error {
+		_, err := call(t, env, "repos_set", args)
+		return err
+	}
+	if err := set(env, map[string]any{"repo": "owner/app", "host": "github", "project": "app"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := set(env, map[string]any{"repo": "o/x", "host": "gitea", "api_url": "https://git.example.com/api/v1", "token_env": "GITEA_TOKEN", "interval_seconds": 30}); err != nil {
+		t.Fatal(err)
+	}
+	if err := set(env, map[string]any{"repo": "owner/app", "host": "github", "merge_method": "squash"}); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := loadRepos(env.DataDir)
+	if err != nil || len(cfg.Repos) != 2 || cfg.Repos[1].Repo != "owner/app" || cfg.Repos[1].MergeMethod != "squash" || cfg.IntervalSeconds != 30 {
+		t.Fatalf("cfg = %+v, %v", cfg, err)
+	}
+	mustErr(t, set(env, map[string]any{"repo": "o/y", "host": "gitea"}), "api_url is required")
+	mustErr(t, set(env, map[string]any{"repo": "o/y", "host": "github", "token_env": "ghp_secret-value"}), "variable name")
+	mustErr(t, set(as(env, "clanker-a"), map[string]any{"repo": "o/y", "host": "github"}), "only bigm")
+	if err := set(env, map[string]any{"repo": "o/x", "remove": true}); err != nil {
+		t.Fatal(err)
+	}
+	if cfg, _ := loadRepos(env.DataDir); len(cfg.Repos) != 1 {
+		t.Fatalf("cfg = %+v", cfg)
+	}
+	if _, err := os.Stat(filepath.Join(env.DataDir, "repos.json.check")); err == nil {
+		t.Fatal("check file left")
+	}
+}
