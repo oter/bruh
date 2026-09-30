@@ -417,8 +417,9 @@ ${COMMON}`,
       else byLocation.set(yk, y)
     } else {
       refutedKeys.add(k)
-      // A fix of an earlier round stays on record when a new finding at its key is refuted.
-      if (!(found.has(k) && found.get(k).state === 'fixed')) found.set(k, { ...x, state: 'refuted', reason: v.reason })
+      // A refutation overwrites only a refuted entry: an open finding of an earlier
+      // round stays open, and a fix of an earlier round stays on record.
+      if (!found.has(k) || found.get(k).state === 'refuted') found.set(k, { ...x, state: 'refuted', reason: v.reason })
     }
   })
   // A confirmed finding at the key of an earlier finding (moved there by its

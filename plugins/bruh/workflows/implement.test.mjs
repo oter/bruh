@@ -593,6 +593,20 @@ test('review-and-fix: dedup by file:line, one refuter each, refuted stays refute
   assert.match(byWord('verify')[0].prompt, /throwaway program/)
 })
 
+// Fix round 4, M1: a refuted re-report never erases an open confirmed finding at its key.
+test('review-and-fix: an open finding survives a refuted report at its key', async () => {
+  const { result } = await run('review-and-fix', rfHandlers({
+    review: (p, o, n) => (n === 1 ? { findings: [f('src/a.go', 5, { problem: 'real A' })], summary: '' }
+      : n === 3 ? { findings: [f('src/a.go', 5, { problem: 'taste B' })], summary: '' }
+      : { findings: [], summary: '' }),
+    verify: (p) => ({ confirmed: p.includes('real A'), reason: p.includes('real A') ? 'shown' : 'taste', adjusted_fix: '' }),
+    confirm: (p) => ({ results: listed(p).map((l) => ({ ...l, fixed: false, reason: '' })) }),
+  }), RF())
+  assert.notEqual(result.status, 'done')
+  assert.equal(result.status, 'findings_left')
+  assert.deepEqual(result.confirmed.map((x) => `${x.file}:${x.line} ${x.state} ${x.problem}`), ['src/a.go:5 open real A'])
+})
+
 // Fix round 3: a finding at the key of an earlier finding merges with it, never replaces it.
 test('review-and-fix: a finding moved or reported at an earlier key merges with the earlier finding', async () => {
   for (const moved of [true, false]) {
