@@ -507,6 +507,10 @@ for q in Q-8 Q-3 Q-2; do
 	check "post-findings refuses $q: its approval does not name the reviewed head" contains "$out" "exit 3"
 done
 jq -n '{id: "4", from: "bigm", to: "clerk-app-t1", header: "ANSWER Q-7: post group/app#7 at ccccccc approved", body: "owner: yes"}' >"$tmp/pfbox/mail/clerk-app-t1/read/4.json"
+# The approval SHA must be a prefix of a full 40-hex head_sha: a short head_sha in the result is not enough.
+jq '.head_sha = "ccccccc"' "$tmp/result.json" >"$tmp/short.json"
+out=$(BRUH_ROLE_KEY=clerk-app-t1 pf "$tmp/pf2s" --data "$tmp/pfbox" --answer Q-7 gitlab group/app 7 "$tmp/short.json" 2>&1; echo "exit $?")
+check "post-findings refuses an approval for a result whose head_sha is not 40 hex" contains "$out" "exit 3"
 out=$(BRUH_ROLE_KEY=clerk-app-t1 pf "$tmp/pf2" --data "$tmp/pfbox" --answer Q-7 gitlab group/app 7 "$tmp/result.json" 2>&1; echo "exit $?")
 check "the approval ANSWER of bigm for this post allows it" contains "$out" "exit 0"
 check "post-findings marks each body with the role key" marked "$tmp/pf2" '<!-- bruh:clerk-app-t1 -->'
