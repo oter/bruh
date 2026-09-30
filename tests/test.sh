@@ -141,6 +141,13 @@ check "smoke remote step asks for the rot13 of the reply" contains "$rout" "tr '
 check "smoke remote step removes the remote worktree in cleanup" contains "$rout" "orca worktree rm --environment env1 --worktree name:bruh-smoke-dry1 --force"
 check "smoke refuses an unknown flag" not sh "$here/smoke/run.sh" --bogus
 
+# random_id ends also when SIGPIPE is ignored, as on a CI runner.
+# perl ignores SIGPIPE, then execs sh; the alarm stops sh after 10 seconds with status 142.
+rid_rc=0
+rid=$(perl -e '$SIG{PIPE}="IGNORE"; alarm 10; exec "sh","-c",". \"$ARGV[0]\" && random_id"' "$here/lib.sh") || rid_rc=$?
+check "random_id ends with SIGPIPE ignored" eq "$rid_rc" 0
+check "random_id prints a run ID" valid_run_id "$rid"
+check "random_id has 6 characters" eq "${#rid}" 6
 # remove_scratch deletes only the branches that the run created
 git init -q "$tmp/rs" && git -C "$tmp/rs" -c user.name=t -c user.email=t@example.com commit -q --allow-empty -m init
 mkdir -p "$tmp/rs-ev" "$tmp/rs/.bruh-test/x"
