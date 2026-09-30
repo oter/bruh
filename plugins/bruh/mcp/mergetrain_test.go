@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -189,33 +190,67 @@ func TestMergeGate(t *testing.T) {
 	_, r := newFakeForge(t, "github")
 	grant := "| `owner/repo` | `clerk-repo-merge` | CI green | CI green | 2026-09-30T10:00:00Z | init |\n"
 	env := gateEnv(t, r, grant)
-	if err := mergeGate(env, r, ""); err != nil {
+	if err := mergeGate(env, r, "", []int{9}); err != nil {
 		t.Fatalf("grant: %v", err)
 	}
 	for _, key := range []string{"", "clerk-repo-t1", "clanker-repo", "clerk-other-merge"} {
-		mustErr(t, mergeGate(as(env, key), r, ""), "merger clerk")
+		mustErr(t, mergeGate(as(env, key), r, "", []int{9}), "merger clerk")
 	}
 	env = gateEnv(t, r, "| owner/repo | clerk-repo-other | CI green | x | y | init |\n| owner/other | clerk-repo-merge | x | x | y | init |\n")
-	mustErr(t, mergeGate(env, r, ""), "no merge grant")
-	// A P1 answer of bigm in the mailbox opens the gate; an answer from another role does not.
-	mustErr(t, mergeGate(env, r, "Q-4"), "no ANSWER Q-4")
-	if _, err := call(t, as(env, "clanker-repo"), "mail_post", map[string]any{"to": "clerk-repo-merge", "header": "ANSWER Q-4: merge it", "body": "yes"}); err != nil {
+	mustErr(t, mergeGate(env, r, "", []int{9}), "no merge grant")
+	// An approval of bigm in the mailbox opens the gate; the same header from another role does not.
+	mustErr(t, mergeGate(env, r, "Q-4", []int{9}), "no ANSWER Q-4")
+	post := func(from, header string) {
+		t.Helper()
+		if _, err := call(t, as(env, from), "mail_post", map[string]any{"to": "clerk-repo-merge", "header": header, "body": "owner: yes"}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	post("clanker-repo", "ANSWER Q-4: merge owner/repo#9 approved")
+	mustErr(t, mergeGate(env, r, "Q-4", []int{9}), "no ANSWER Q-4")
+	post("bigm", "ANSWER Q-4: merge owner/repo#9,#11 approved")
+	if err := mergeGate(env, r, "Q-4", []int{9}); err != nil {
 		t.Fatal(err)
 	}
-	mustErr(t, mergeGate(env, r, "Q-4"), "no ANSWER Q-4")
-	if _, err := call(t, as(env, "bigm"), "mail_post", map[string]any{"to": "clerk-repo-merge", "header": "ANSWER Q-4: merge it", "body": "owner: yes"}); err != nil {
-		t.Fatal(err)
-	}
-	if err := mergeGate(env, r, "Q-4"); err != nil {
+	if err := mergeGate(env, r, "Q-4", []int{11, 9}); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := call(t, env, "mail_read", map[string]any{}); err != nil {
 		t.Fatal(err)
 	}
-	if err := mergeGate(env, r, "Q-4"); err != nil {
+	if err := mergeGate(env, r, "Q-4", []int{9}); err != nil {
 		t.Fatalf("after mail_read: %v", err)
 	}
-	mustErr(t, mergeGate(env, r, "Q-40"), "no ANSWER Q-40")
+	mustErr(t, mergeGate(env, r, "Q-40", []int{9}), "no ANSWER Q-40")
+}
+
+// Final review M2: the ANSWER must approve these exact pull requests of this repository.
+func TestMergeGateNeedsApprovalOfEachPull(t *testing.T) {
+	_, r := newFakeForge(t, "github")
+	env := gateEnv(t, r, "")
+	for i, c := range []struct {
+		header  string
+		numbers []int
+		ok      bool
+	}{
+		{"merge owner/repo#12 approved", []int{12}, true},
+		{"merge owner/repo#3,#12 approved", []int{3, 12}, true},
+		{"merge owner/repo#12 refused", []int{12}, false},                // a no
+		{"merge owner/repo#3? No, do not merge.", []int{12}, false},      // the probe of the review
+		{"merge owner/repo#3 approved", []int{12}, false},                // another pull request
+		{"merge owner/repo#12 approved", []int{12, 13}, false},           // one number of the train is not named
+		{"merge owner/other#12 approved", []int{12}, false},              // another repository
+		{"merge owner/repo#12 approved, also #13", []int{12, 13}, false}, // not the closed grammar
+		{"merge owner/repo#012 approved", []int{12}, false},
+	} {
+		qid := fmt.Sprintf("Q-%d", i+1)
+		if _, err := call(t, as(env, "bigm"), "mail_post", map[string]any{"to": "clerk-repo-merge", "header": "ANSWER " + qid + ": " + c.header, "body": "owner words"}); err != nil {
+			t.Fatal(err)
+		}
+		if err := mergeGate(env, r, qid, c.numbers); (err == nil) != c.ok {
+			t.Errorf("%q with %v: err = %v, want ok = %v", c.header, c.numbers, err, c.ok)
+		}
+	}
 }
 
 func TestLaunchScripts(t *testing.T) {

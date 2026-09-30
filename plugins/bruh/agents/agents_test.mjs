@@ -237,3 +237,15 @@ test('bigm sends each RULE to the clerks, and the receivers check the sender', (
   assert.match(agents.clerk, /`RULE R-<n>: <subject>` message from `bigm`/)
   assert.match(agents.clerk, /check that its `from` is your clanker or `bigm`/)
 })
+
+// Final review M2: the merge gate accepts only the closed approval header of bigm.
+test('bigm sends a merge approval in the closed form that the merge gate reads', () => {
+  const yes = '`ANSWER Q-<n>: merge <owner/repo>#<pr>[,#<pr>...] approved`'
+  const merges = agents.bigm.split('## Merges and merge grants')[1].split('\n## ')[0]
+  assert.ok(merges.includes(yes), 'bigm.md: approval header')
+  assert.ok(merges.includes('`ANSWER Q-<n>: merge <owner/repo>#<pr> refused`'), 'bigm.md: refusal header')
+  for (const role of ['clanker', 'clerk']) assert.ok(agents[role].includes(yes), `${role}: approval header`)
+  const gate = read(join(plugin, 'mcp/mergetrain.go')).match(/approvalRE = regexp\.MustCompile\(`(.*)`\)/)[1]
+  assert.match('ANSWER Q-7: merge owner/app#12,#14 approved', new RegExp(gate))
+  assert.doesNotMatch('ANSWER Q-7: merge owner/app#12 refused', new RegExp(gate))
+})

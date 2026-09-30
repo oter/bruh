@@ -132,7 +132,7 @@ func runCLI(args []string, env Env, stdout, stderr io.Writer) int {
 		if i < 0 {
 			return fail(fmt.Errorf("%s is not in repos.json", fs.Arg(0)))
 		}
-		if err := mergeGate(env, cfg.Repos[i], *answer); err != nil {
+		if err := mergeGate(env, cfg.Repos[i], *answer, numbers); err != nil {
 			return fail(err)
 		}
 		h, err := newHost(cfg.Repos[i])

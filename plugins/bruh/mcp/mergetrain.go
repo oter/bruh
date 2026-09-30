@@ -8,6 +8,9 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"regexp"
+	"slices"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -120,11 +123,31 @@ func mergeTrain(ctx context.Context, env Env, h codeHost, r repoConfig, numbers 
 	return all
 }
 
+// approvalRE is the closed grammar of a merge approval of bigm:
+// ANSWER Q-<n>: merge <owner/repo>#<pr>[,#<pr>...] approved
+var approvalRE = regexp.MustCompile(`^ANSWER (Q-\d+): merge ([A-Za-z0-9._-]+/[A-Za-z0-9._-]+)#(\d+(?:,#\d+)*) approved$`)
+
+// approves reports whether header approves the merge of each of numbers in repo, by question qid.
+func approves(header, qid, repo string, numbers []int) bool {
+	m := approvalRE.FindStringSubmatch(header)
+	if m == nil || m[1] != qid || m[2] != repo {
+		return false
+	}
+	named := strings.Split(m[3], ",#")
+	for _, n := range numbers {
+		if !slices.Contains(named, strconv.Itoa(n)) {
+			return false
+		}
+	}
+	return true
+}
+
 // mergeGate is a speed bump (principle 2): it refuses the merge train unless the caller is the
 // merger clerk clerk-<project>-merge of the project of the repository, and either grants.md of the
-// ledger has a row for this repository and this key, or the mailbox of the caller holds an answer
-// of bigm to the question answer. A session with Bash can still merge by other means.
-func mergeGate(env Env, r repoConfig, answer string) error {
+// ledger has a row for this repository and this key, or the mailbox of the caller holds an approval
+// of bigm to the question answer that names this repository and each of numbers. A session with
+// Bash can still merge by other means.
+func mergeGate(env Env, r repoConfig, answer string, numbers []int) error {
 	k, err := ParseRoleKey(env.RoleKey)
 	if err != nil || k.Role != "clerk" || k.Task != "merge" || k.Project != r.Project {
 		return fmt.Errorf("merge-train runs only in the merger clerk clerk-%s-merge (BRUH_ROLE_KEY is %q)", r.Project, env.RoleKey)
@@ -138,12 +161,17 @@ func mergeGate(env Env, r repoConfig, answer string) error {
 			for _, e := range entries {
 				raw, err := os.ReadFile(filepath.Join(dir, e.Name()))
 				var m Message
-				if err == nil && json.Unmarshal(raw, &m) == nil && m.From == "bigm" && strings.HasPrefix(m.Header, "ANSWER "+answer+": ") {
+				if err == nil && json.Unmarshal(raw, &m) == nil && m.From == "bigm" && approves(m.Header, answer, r.Repo, numbers) {
 					return nil
 				}
 			}
 		}
-		return fmt.Errorf("no ANSWER %s from bigm in the mailbox of %s", answer, env.RoleKey)
+		want := make([]string, len(numbers))
+		for i, n := range numbers {
+			want[i] = strconv.Itoa(n)
+		}
+		return fmt.Errorf("no ANSWER %s from bigm in the mailbox of %s that approves these merges; its header must be %q",
+			answer, env.RoleKey, "ANSWER "+answer+": merge "+r.Repo+"#"+strings.Join(want, ",#")+" approved")
 	}
 	var cfg initConfig
 	raw, err := os.ReadFile(filepath.Join(env.DataDir, "init", "config.json"))
