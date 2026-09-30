@@ -106,7 +106,7 @@ For a change of another author, run `/bruh:review-only` with `args = {root, base
 A workflow never posts (spec 6.1). A post goes out under an account of the owner, so it is on the list "Never without the owner". The script `post-findings.sh` needs a cover for each post, and it checks the cover by structure:
 
 - In a manual session of the owner (no `BRUH_ROLE_KEY`): `--yes`, after the owner said yes to this post in the terminal.
-- In a role session: `--answer Q-<n>`, with the message of bigm `ANSWER Q-<n>: post <owner/repo>#<number> approved` in the mailbox of the caller, or a row of the section "Post grants" of `grants.md` for the role key, the host, and the repository. `--yes` is refused.
+- In a role session: `--answer Q-<n>`, with the message of bigm `ANSWER Q-<n>: post <owner/repo>#<number> at <head SHA> approved` in the mailbox of the caller, or a row of the section "Post grants" of `grants.md` for the role key, the host, and the repository. `--yes` is refused.
 
 1. Save the result of the workflow. In a role session, use the MCP tool `result_save` (`name`, for example `review-only-42`, and the result object); it returns the path. In a manual session, write the result to a file outside the repository.
 2. Run the dry run and show its output to the owner (in a role session, put it in the question to the clanker):

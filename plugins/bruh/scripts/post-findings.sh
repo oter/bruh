@@ -12,7 +12,8 @@
 # Without --dry-run it needs a cover, checked by structure only:
 # - no BRUH_ROLE_KEY (a manual session of the owner): --yes, after the owner said yes;
 # - a role session: --answer Q-<n>, with a message from bigm in the mailbox of the
-#   caller whose header is exactly "ANSWER Q-<n>: post <repo>#<number> approved", or
+#   caller whose header is exactly "ANSWER Q-<n>: post <repo>#<number> at <sha> approved",
+#   where <sha> (7 to 40 hex) is a prefix of the head_sha of the result, or
 #   a row of the section "Post grants" of grants.md for BRUH_ROLE_KEY, the host, and
 #   the repository. --yes is refused in a role session.
 # It finds the mailbox and grants.md (through ledger_path in <data>/init/config.json)
@@ -105,13 +106,19 @@ has_grant() {
 }
 
 # has_answer exits 0 when the mailbox of BRUH_ROLE_KEY (read or not) holds a message
-# from bigm with the exact approval header of this post.
+# from bigm with the exact approval header of this post, for the reviewed head: an
+# approval of an earlier review of the same pull request does not cover this one.
 has_answer() {
 	[ -n "$data" ] && [ -n "$answer" ] || return 1
-	want="ANSWER $answer: post $repo#$num approved"
+	head_sha=$(jq -r '.head_sha // ""' "$file")
+	printf '%s\n' "$head_sha" | grep -Eqx '[0-9a-f]{40}' || return 1
+	want="ANSWER $answer: post $repo#$num at "
 	for m in "$data/mail/$BRUH_ROLE_KEY"/*.json "$data/mail/$BRUH_ROLE_KEY"/read/*.json; do
 		[ -f "$m" ] || continue
-		if jq -e --arg h "$want" '.from == "bigm" and .header == $h' "$m" >/dev/null 2>&1; then return 0; fi
+		if jq -e --arg p "$want" --arg head "$head_sha" '
+			.from == "bigm" and (.header | startswith($p) and endswith(" approved"))
+			and (.header[($p | length):-(" approved" | length)] as $sha
+				| ($sha | test("^[0-9a-f]{7,40}$")) and ($head | startswith($sha)))' "$m" >/dev/null 2>&1; then return 0; fi
 	done
 	return 1
 }
@@ -126,7 +133,7 @@ if [ "$dry" = 0 ]; then
 	else
 		[ "$yes" = 0 ] || refuse "--yes works only in a manual session of the owner; a role session needs --answer Q-<n> or a post grant."
 		if ! has_answer && ! has_grant; then
-			refuse "Ask bigm for the ANSWER \"ANSWER Q-<n>: post $repo#$num approved\" and pass --answer Q-<n>, or ask the owner for a row in the section \"Post grants\" of grants.md for $key, $host, and $repo."
+			refuse "Ask bigm for the ANSWER \"ANSWER Q-<n>: post $repo#$num at <head SHA> approved\" and pass --answer Q-<n>, or ask the owner for a row in the section \"Post grants\" of grants.md for $key, $host, and $repo."
 		fi
 	fi
 fi

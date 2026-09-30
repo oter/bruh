@@ -451,9 +451,9 @@ check "post-findings rerun posts nothing new" eq "$(posts "$tmp/pf1")" 3
 check "post-findings rerun reports each body as already posted" contains "$out" "0 inline, 0 general, 0 failed, 2 already posted"
 # A role session needs the approval ANSWER of bigm in its mailbox, or a post grant; --yes is refused.
 mkdir -p "$tmp/pfbox/mail/clerk-app-t1/read"
-jq -n '{id: "1", from: "clanker-app", to: "clerk-app-t1", header: "ANSWER Q-4: post group/app#7 approved", body: "yes"}' >"$tmp/pfbox/mail/clerk-app-t1/1.json"
-jq -n '{id: "2", from: "bigm", to: "clerk-app-t1", header: "ANSWER Q-5: post group/app#8 approved", body: "yes"}' >"$tmp/pfbox/mail/clerk-app-t1/2.json"
-jq -n '{id: "3", from: "bigm", to: "clerk-app-t1", header: "ANSWER Q-6: post group/app#7 refused", body: "no"}' >"$tmp/pfbox/mail/clerk-app-t1/3.json"
+jq -n '{id: "1", from: "clanker-app", to: "clerk-app-t1", header: "ANSWER Q-4: post group/app#7 at ccccccc approved", body: "yes"}' >"$tmp/pfbox/mail/clerk-app-t1/1.json"
+jq -n '{id: "2", from: "bigm", to: "clerk-app-t1", header: "ANSWER Q-5: post group/app#8 at ccccccc approved", body: "yes"}' >"$tmp/pfbox/mail/clerk-app-t1/2.json"
+jq -n '{id: "3", from: "bigm", to: "clerk-app-t1", header: "ANSWER Q-6: post group/app#7 at ccccccc refused", body: "no"}' >"$tmp/pfbox/mail/clerk-app-t1/3.json"
 out=$(BRUH_ROLE_KEY=clerk-app-t1 pf "$tmp/pf2" --yes gitlab group/app 7 "$tmp/result.json" 2>&1; echo "exit $?")
 check "post-findings refuses --yes in a role session" contains "$out" "exit 3"
 for q in Q-4 Q-5 Q-6 Q-9; do
@@ -461,7 +461,15 @@ for q in Q-4 Q-5 Q-6 Q-9; do
 	check "post-findings refuses $q: not an approval of bigm for this post" contains "$out" "exit 3"
 done
 check "a refused post posts nothing" eq "$(posts "$tmp/pf2")" 0
-jq -n '{id: "4", from: "bigm", to: "clerk-app-t1", header: "ANSWER Q-7: post group/app#7 approved", body: "owner: yes"}' >"$tmp/pfbox/mail/clerk-app-t1/read/4.json"
+# An approval names the reviewed head: one for another head, or with no SHA, does not cover this result.
+jq -n '{id: "5", from: "bigm", to: "clerk-app-t1", header: "ANSWER Q-8: post group/app#7 at ddddddd approved", body: "yes"}' >"$tmp/pfbox/mail/clerk-app-t1/5.json"
+jq -n '{id: "6", from: "bigm", to: "clerk-app-t1", header: "ANSWER Q-3: post group/app#7 approved", body: "yes"}' >"$tmp/pfbox/mail/clerk-app-t1/6.json"
+jq -n '{id: "7", from: "bigm", to: "clerk-app-t1", header: "ANSWER Q-2: post group/app#7 at cc approved", body: "yes"}' >"$tmp/pfbox/mail/clerk-app-t1/7.json"
+for q in Q-8 Q-3 Q-2; do
+	out=$(BRUH_ROLE_KEY=clerk-app-t1 pf "$tmp/pf2" --data "$tmp/pfbox" --answer "$q" gitlab group/app 7 "$tmp/result.json" 2>&1; echo "exit $?")
+	check "post-findings refuses $q: its approval does not name the reviewed head" contains "$out" "exit 3"
+done
+jq -n '{id: "4", from: "bigm", to: "clerk-app-t1", header: "ANSWER Q-7: post group/app#7 at ccccccc approved", body: "owner: yes"}' >"$tmp/pfbox/mail/clerk-app-t1/read/4.json"
 out=$(BRUH_ROLE_KEY=clerk-app-t1 pf "$tmp/pf2" --data "$tmp/pfbox" --answer Q-7 gitlab group/app 7 "$tmp/result.json" 2>&1; echo "exit $?")
 check "the approval ANSWER of bigm for this post allows it" contains "$out" "exit 0"
 check "post-findings marks each body with the role key" marked "$tmp/pf2" '<!-- bruh:clerk-app-t1 -->'
