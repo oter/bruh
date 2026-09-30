@@ -303,3 +303,9 @@ The drivers depend on names and shapes that lanes go and roles build at the same
 | The image `ghcr.io/oter/autonomous-agents/agent` has the tag `2026-09-06` and no `latest` tag. | Review of fix round 1 (ghcr `tags/list`) | Reviewer evidence |
 | `go run -C <dir> .` runs the program in `<dir>`, so a relative file argument does not resolve against the folder of the caller. | Review of fix round 1 (scratch module) | Reviewer evidence |
 | The local toolchain: Claude Code 2.1.284, Orca 1.4.216, git 2.54. | `claude --version`, `orca --version`, `git --version` | Command output |
+
+## Final review fixes (2026-09-30)
+
+The final whole-branch review found 1 blocker, 7 major, and 17 minor findings. The rulings of the controller for the findings of this plan are below.
+
+1. **M1, the load test sessions are pairs.** Premise changed: `mail_post` now accepts only the edges of the role tree (plan 2, final review fix 2), so the ring of sibling clerks of deviation 10 is refused. The load driver starts `--sessions` (an even number) sessions in pairs: `clanker-load-<run>-p<k>` and its clerk `clerk-load-<run>-p<k>-s`, and each session sends to its partner. The driver writes the role settings of each key as its parent, and the start messages as bigm. The semantics stay: each session gets a message each interval, the driver resumes a session with no process and counts missed messages. `tests/test.sh` replays each MCP call of the dry runs of both drivers against the real server, so a refused call fails the test. Agent-derived, needs owner decision. Options, ranked: (a) pairs, as built; (b) a star: one clanker session and its clerks, where the clanker answers each clerk (the clanker gets `n - 1` times the load); (c) keep the ring and let the driver post every message as bigm (it then does not test the sessions as senders).

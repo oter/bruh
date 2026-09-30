@@ -243,15 +243,35 @@ check "smoke cleanup removes the run folder" not test -e "$srun"
 # Load driver dry run
 out=$(BRUH_TRUSTED_REPO="$tmp/repo" LOAD_RUN=dry2 sh "$here/load/run.sh" --dry-run --sessions 2 --minutes 1 2>&1)
 check "load dry run exits 0" eq "$(BRUH_TRUSTED_REPO="$tmp/repo" LOAD_RUN=dry2 sh "$here/load/run.sh" --dry-run --sessions 2 --minutes 1 >/dev/null 2>&1; echo $?)" 0
-check "load dry run launches session 1" contains "$out" "claude --bg --name clerk-load-dry2-s1 --permission-mode auto --settings"
-check "load dry run launches session 2" contains "$out" "claude --bg --name clerk-load-dry2-s2 --permission-mode auto --settings"
-check "load dry run launches no third session" not contains "$out" "clerk-load-dry2-s3 --permission-mode"
+check "load dry run launches session 1" contains "$out" "claude --bg --name clanker-load-dry2-p1 --permission-mode auto --settings"
+check "load dry run launches session 2" contains "$out" "claude --bg --name clerk-load-dry2-p1-s --permission-mode auto --settings"
+check "load dry run launches no third session" not contains "$out" "load-dry2-p2"
 check "load dry run uses the model flag" contains "$out" "--model haiku"
-check "load dry run posts start messages" contains "$out" '"name":"mail_post","arguments":{"to":"clerk-load-dry2-s1"'
+check "load dry run posts start messages" contains "$out" '"name":"mail_post","arguments":{"to":"clanker-load-dry2-p1"'
+check "load dry run writes the role settings of a clerk as its clanker" contains "$out" '+ mcp as clanker-load-dry2-p1: {"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"role_settings_write","arguments":{"role_key":"clerk-load-dry2-p1-s"}'
 check "load dry run tells sessions to nudge" contains "$out" "SendMessage"
-check "load dry run closes the ring" contains "$out" "The next session in the ring is clerk-load-dry2-s1."
-check "load dry run defaults to 8 sessions" contains "$(BRUH_TRUSTED_REPO="$tmp/repo" LOAD_RUN=dry3 sh "$here/load/run.sh" --dry-run 2>&1)" "clerk-load-dry3-s8 --permission-mode"
+check "load dry run pairs each session with its partner" contains "$out" "Your partner session is clanker-load-dry2-p1."
+load8=$(BRUH_TRUSTED_REPO="$tmp/repo" LOAD_RUN=dry3 sh "$here/load/run.sh" --dry-run 2>&1)
+check "load dry run defaults to 8 sessions" contains "$load8" "clerk-load-dry3-p4-s --permission-mode"
 check "load refuses --sessions 1" not sh "$here/load/run.sh" --dry-run --sessions 1
+check "load refuses an odd --sessions" not sh "$here/load/run.sh" --dry-run --sessions 3
+
+# The MCP server accepts every call of the drivers: the sender policy of mail_post
+# and the parent checks of role_settings_write (final review M1).
+replay() {
+	calls=$(printf '%s\n' "$1" | grep -c '^+ mcp as ')
+	[ "$calls" -gt 0 ] || return 1
+	printf '%s\n' "$1" | grep '^+ mcp as ' | while IFS= read -r line; do
+		rest=${line#+ mcp as }
+		req=${rest#*: }
+		DRY=0 BRUH_DATA="$tmp/replay" BRUH_ROLE_KEY=${rest%%: *} BRUH_PLUGIN_ROOT="$here/../plugins/bruh" BRUH_TEST_MCP="$tmp/bruh-mcp" \
+			mcp_call "$(printf '%s' "$req" | jq -r .params.name)" "$(printf '%s' "$req" | jq -c .params.arguments)" >/dev/null || return 1
+	done
+}
+GOTOOLCHAIN=local go build -C "$here/../plugins/bruh/mcp" -o "$tmp/bruh-mcp" .
+smoke_out=$(BRUH_TRUSTED_REPO="$tmp/repo" SMOKE_RUN=dry4 sh "$here/smoke/run.sh" --dry-run 2>&1)
+check "the MCP server accepts each call of the smoke driver" replay "$smoke_out"
+check "the MCP server accepts each call of the load driver" replay "$load8"
 check "load refuses a word for --minutes" not sh "$here/load/run.sh" --dry-run --minutes ten
 
 echo "$n tests, $fails failed"

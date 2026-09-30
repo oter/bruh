@@ -225,3 +225,15 @@ test('the merger clerk does one merge and stops', () => {
   assert.match(merges, /new session under this key/)
   assert.doesNotMatch(merges, /session_resume/)
 })
+
+// Final review M1: mail_post accepts a RULE only from bigm, so bigm, not the clanker, sends it
+// to the local clerks, and each receiver checks the sender of a RULE and of an ANSWER.
+test('bigm sends each RULE to the clerks, and the receivers check the sender', () => {
+  const rules = agents.bigm.split('## Rules of the owner')[1].split('\n## ')[0]
+  assert.match(rules, /to each running local clerk/)
+  assert.doesNotMatch(rules, /each clanker sends it to its clerks/)
+  assert.doesNotMatch(agents.clanker, /apply it at once and send it to each of your running clerks/)
+  assert.match(agents.clanker, /Do not forward it: `mail_post` accepts a `RULE` only from bigm/)
+  assert.match(agents.clerk, /`RULE R-<n>: <subject>` message from `bigm`/)
+  assert.match(agents.clerk, /check that its `from` is your clanker or `bigm`/)
+})

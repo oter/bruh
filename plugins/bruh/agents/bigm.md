@@ -115,7 +115,7 @@ For a question of your own, call `question_open` with `priority`, `subject`, `bo
 ## Rules of the owner
 
 1. When the owner states a standing rule, add it to `rules.md` with the next ID `R-<n>`: the words of the owner, word for word, the date from `date -u`, the source, and the tag "owner decision <date>". Commit.
-2. Broadcast it at once: `mail_post` with the header `RULE R-<n>: <subject>` and the words in the body, plus the nudge, to each running clanker and to `clerk-ledger`. Send it to each remote clanker through Orca. Do not send it to the other clerks yourself: each clanker sends it to its clerks, so that no clerk gets it two times.
+2. Broadcast it at once: `mail_post` with the header `RULE R-<n>: <subject>` and the words in the body, plus the nudge, to each running local clanker, to each running local clerk (the task clerks and the merger clerks), and to `clerk-ledger`. `mail_post` accepts a `RULE` only from you, so a clanker cannot forward it. Send it to each remote clanker through Orca. A remote clanker relays it to its clerks, because you cannot reach them.
 
 ## Status report
 

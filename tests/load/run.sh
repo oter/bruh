@@ -1,10 +1,12 @@
 #!/bin/sh
 # Load test of the local transport of bruh (spec section 4.1). See tests/load/README.md.
 #
-# Starts <sessions> background sessions in a ring. Each session posts a message
-# to the next session every <interval> minutes with mail_post and sends a
-# SendMessage nudge. The driver resumes a session whose process is gone, counts
-# the missed messages, and stops every session that it started.
+# Starts <sessions> background sessions in pairs: a clanker key and the key of
+# its clerk, because mail_post allows only the edges of the role tree. Each
+# session posts a message to its partner every <interval> minutes with
+# mail_post and sends a SendMessage nudge. The driver resumes a session whose
+# process is gone, counts the missed messages, and stops every session that it
+# started.
 #
 # Usage: BRUH_TRUSTED_REPO=<repo> sh tests/load/run.sh [--sessions 8] [--minutes 60]
 #          [--interval 2] [--model haiku] [--dry-run]
@@ -48,7 +50,7 @@ done
 for v in "$sessions" "$minutes" "$interval"; do
 	case $v in '' | *[!0-9]*) die "--sessions, --minutes, and --interval take whole numbers" ;; esac
 done
-[ "$sessions" -ge 2 ] || die "--sessions must be 2 or more"
+[ "$sessions" -ge 2 ] && [ $((sessions % 2)) -eq 0 ] || die "--sessions must be an even number, 2 or more"
 [ "$interval" -ge 1 ] && [ "$interval" -le 59 ] || die "--interval must be 1 to 59 minutes"
 [ "$minutes" -ge 1 ] || die "--minutes must be 1 or more"
 case $model in '' | *[!A-Za-z0-9._-]*) die "--model takes a model name such as haiku" ;; esac
@@ -57,7 +59,6 @@ plugin=$root/plugins/bruh
 run_id=${LOAD_RUN:-$(random_id)}
 valid_run_id "$run_id" || die "LOAD_RUN must be 1 to 12 lowercase letters and digits"
 project=load-$run_id
-hub=clanker-$project
 trusted=${BRUH_TRUSTED_REPO:-}
 if [ -n "$trusted" ] && t=$(abs_dir "$trusted"); then trusted=$t; fi
 if [ "$DRY" = 1 ] && [ -z "$trusted" ]; then trusted='<trusted repo>'; fi
@@ -68,15 +69,30 @@ evidence=${LOAD_EVIDENCE:-${TMPDIR:-/tmp}/bruh-load-$run_id}
 ag=$evidence/agents.json
 grace_seconds=300
 
-# The stand-in caller of the MCP server. The driver acts as the hub clanker, the
-# parent of the session role keys.
+# The stand-in caller of the MCP server. The driver acts as the parent of each
+# session role key for its role settings, and as bigm for the start messages.
 BRUH_DATA=$(data_dir)
 BRUH_PLUGIN_ROOT=$plugin
-BRUH_ROLE_KEY=$hub
+BRUH_ROLE_KEY=bigm
 BRUH_TEST_MCP=$evidence/bruh-mcp
 data=$BRUH_DATA
 
-key() { echo "clerk-$project-s$1"; }
+# Session 2k-1 is clanker-<project>-p<k>, and session 2k is its clerk
+# clerk-<project>-p<k>-s. The partner of each session is the other key of its pair.
+key() {
+	if [ $(($1 % 2)) -eq 1 ]; then echo "clanker-$project-p$((($1 + 1) / 2))"; else echo "clerk-$project-p$(($1 / 2))-s"; fi
+}
+partner() { if [ $(($1 % 2)) -eq 1 ]; then key $(($1 + 1)); else key $(($1 - 1)); fi; }
+# parent prints the parent role key of a session key.
+parent() {
+	case $1 in
+	clanker-*) echo bigm ;;
+	*)
+		k=${1#clerk-}
+		echo "clanker-${k%-s}"
+		;;
+	esac
+}
 keys() {
 	i=1
 	while [ "$i" -le "$sessions" ]; do
@@ -126,7 +142,7 @@ cleanup() {
 		result FAIL cleanup "no list of the branches before the run; no branch deleted"
 	fi
 	# shellcheck disable=SC2046 # keys prints one role key for each line
-	remove_role_data "$data" "$hub" $(keys)
+	remove_role_data "$data" $(keys)
 	echo "evidence: $evidence"
 	if [ "$fails" -gt 0 ]; then exit 1; fi
 }
@@ -142,7 +158,7 @@ else
 	RESULTS=$evidence/results.txt
 	: >"$RESULTS"
 	agents_json "$ag" || die "preflight: claude agents --json --all failed"
-	live=$(live_conflicts "$ag" "clerk-$project-" | words)
+	live=$(live_conflicts "$ag" "clanker-$project-p" "clerk-$project-p" | words)
 	[ -z "$live" ] || die "preflight: live sessions have names that this run uses: $live"
 	result PASS preflight "Claude Code $(claude --version | awk '{print $1}')"
 fi
@@ -171,14 +187,16 @@ commit_all "$work" "Add the load test settings"
 i=1
 while [ "$i" -le "$sessions" ]; do
 	me=$(key "$i")
-	next=$(key $((i % sessions + 1)))
+	next=$(partner "$i")
+	BRUH_ROLE_KEY=$(parent "$me")
 	settings=$(mcp_call role_settings_write "$(jq -cn --arg k "$me" '{role_key: $k}')" | jq -r '.path // empty')
+	BRUH_ROLE_KEY=bigm
 	if [ "$DRY" = 1 ]; then
 		settings="<data>/roles/$me.json"
 	elif [ -z "$settings" ]; then
 		die "setup: role_settings_write for $me failed"
 	fi
-	body="You are session s$i of a bruh load test, run $run_id. Your role key is $me. The next session in the ring is $next.
+	body="You are session s$i of a bruh load test, run $run_id. Your role key is $me. Your partner session is $next.
 1. Now, create one recurring task with the CronCreate tool, with the cron expression */$interval * * * * and this prompt: Load tick. Call the bruh MCP tool mail_post with to $next, header \"P2 Q-$i: load tick from s$i\", and body \"tick\". Then send one SendMessage to the session named $next with the text \"P2 Q-$i: load tick from s$i\" followed by a space and the id that mail_post returned.
 2. Each time a message from another session arrives, call mail_read once. Do not answer the message.
 3. Do no other work."

@@ -197,3 +197,9 @@ No live probe was necessary for this plan.
 - **Spec coverage:** 2 (all roles, principles), 3.3 to 3.7 (frontmatter, procedures), 4.1 and 4.2 (bigm and clanker), 5 (headers, attempt counter), 7 (handoff protocol in each agent), 8 (ledger template, bigm), 9 (bigm), 11 and 12 (bigm), 13 and 14 (priorities.md, routing in clanker and bigm), 15 (bigm, clanker, clerk).
 - **Placeholders:** the ledger template has default values only; the init tool replaces `key:` values and `priorities.md`, as the template README documents.
 - **Review Focus:** each item has a subtest in `agents_test.mjs`.
+
+## Final review fixes (2026-09-30)
+
+The final whole-branch review found 1 blocker, 7 major, and 17 minor findings. The rulings of the controller for the findings of this plan are below. Each is agent-derived, needs owner decision. The first option of each list is the one that is built.
+
+1. **M1, rule broadcast and sender checks.** Premise changed: `mail_post` now accepts a `RULE` only from bigm (plan 2, final review fix 2), so decision 16 (a) ("each clanker sends it to its clerks") cannot work. Decision 16 becomes: bigm sends each `RULE` to each running local clanker, each running local clerk (task and merger clerks), and `clerk-ledger`. A remote clanker gets the rule through Orca and relays it to its clerks with the header `DONE: rule R-<n>: <subject>`; a clerk accepts that form only from its own clanker. A clanker and a clerk apply a `RULE` only when its `from` is `bigm`, and a clerk writes an `ANSWER` only when its `from` is its clanker or `bigm`. Options, ranked: (a) as built; (b) `mail_post` also accepts a `RULE` from `Parent(receiver)`, so the clanker forwards it as before on every machine; (c) remote clerks get new rules only in the start message of the next clerk.

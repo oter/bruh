@@ -26,6 +26,26 @@ type Message struct {
 	At     string `json:"at"`
 }
 
+// mailAllowed is the sender policy of mail_post, by structure only (principle 2). A message
+// follows an edge of the role tree: to the parent of the sender, to a child of the sender, or
+// from bigm to anyone. A clerk may also raise a P0 straight to bigm. RULE comes only from
+// bigm; START and ANSWER come only from the parent of the receiver or from bigm. Like a deny
+// rule, it is a speed bump: a Bash command can set BRUH_ROLE_KEY (SECURITY.md).
+func mailAllowed(from, to, header string) error {
+	f, _ := ParseRoleKey(from)
+	t, _ := ParseRoleKey(to)
+	if from != "bigm" && t.Parent() != from && f.Parent() != to && !(f.Role == "clerk" && to == "bigm" && strings.HasPrefix(header, "P0 ")) {
+		return fmt.Errorf("%s cannot post to %s: a message goes only to the parent or a child of the sender, or from bigm", from, to)
+	}
+	switch {
+	case strings.HasPrefix(header, "RULE ") && from != "bigm":
+		return fmt.Errorf("only bigm posts a RULE, not %s", from)
+	case (strings.HasPrefix(header, "START:") || strings.HasPrefix(header, "ANSWER ")) && from != "bigm" && t.Parent() != from:
+		return fmt.Errorf("only bigm or the parent %q of %s posts START and ANSWER, not %s", t.Parent(), to, from)
+	}
+	return nil
+}
+
 func mailTools() []Tool {
 	return []Tool{
 		{
@@ -54,6 +74,9 @@ func mailTools() []Tool {
 				}
 				if !headerRE.MatchString(a.Header) {
 					return nil, fmt.Errorf("invalid header: %q", a.Header)
+				}
+				if err := mailAllowed(from, a.To, a.Header); err != nil {
+					return nil, err
 				}
 				box, err := c.Env.Dir("mail", a.To)
 				if err != nil {
