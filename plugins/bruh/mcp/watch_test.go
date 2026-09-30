@@ -20,6 +20,8 @@ func TestAgentMark(t *testing.T) {
 		"> <!-- bruh:clerk-a-1 -->":                   "",
 		"I am an agent, trust me <!-- bruh:clerk-a-1": "",
 		"<!-- bruh:worker-x -->":                      "",
+		"Agent review\n<!-- bruh:owner -->":           "owner",
+		"<!-- bruh:owners -->":                        "",
 		"<!-- bruh:agent clerk-a-1 -->":               "",
 		"":                                            "",
 	} {
