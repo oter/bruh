@@ -83,11 +83,22 @@ func decodeValue(dec *json.Decoder) (any, error) {
 	return tok, nil
 }
 
-// encodeOrdered writes v with two-space indentation, no HTML escaping, and a final newline.
-func encodeOrdered(v any) []byte {
+// indentOf returns the indentation unit of a JSON text: the leading white space of its first
+// indented line, or two spaces.
+func indentOf(data []byte) string {
+	for line := range bytes.SplitSeq(data, []byte("\n")) {
+		if n := len(line) - len(bytes.TrimLeft(line, " \t")); n > 0 && n < len(line) {
+			return string(line[:n])
+		}
+	}
+	return "  "
+}
+
+// encodeOrdered writes v with the indentation unit indent, no HTML escaping, and a final newline.
+func encodeOrdered(v any, indent string) []byte {
 	var b, out bytes.Buffer
 	writeValue(&b, v)
-	_ = json.Indent(&out, b.Bytes(), "", "  ")
+	_ = json.Indent(&out, b.Bytes(), "", indent)
 	out.WriteByte('\n')
 	return out.Bytes()
 }

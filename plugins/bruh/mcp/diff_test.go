@@ -33,13 +33,13 @@ func TestOrderedJSONRoundTrip(t *testing.T) {
 		t.Fatal(err)
 	}
 	want := "{\n  \"z\": 1,\n  \"a\": {\n    \"y\": [\n      1,\n      2e3,\n      \"x && y <b>\"\n    ],\n    \"b\": null\n  },\n  \"m\": true,\n  \"n\": 1.50\n}\n"
-	if got := string(encodeOrdered(v)); got != want {
+	if got := string(encodeOrdered(v, "  ")); got != want {
 		t.Fatalf("got:\n%s", got)
 	}
 	o := v.(*object)
 	o.child("a").set("c", "new")
 	o.set("z", 2)
-	if got := string(encodeOrdered(o)); !strings.HasPrefix(got, "{\n  \"z\": 2,") || !strings.Contains(got, "\"b\": null,\n    \"c\": \"new\"") {
+	if got := string(encodeOrdered(o, "  ")); !strings.HasPrefix(got, "{\n  \"z\": 2,") || !strings.Contains(got, "\"b\": null,\n    \"c\": \"new\"") {
 		t.Fatalf("got:\n%s", got)
 	}
 	for _, bad := range []string{`{"a":1} x`, `{"a":`, ``} {

@@ -233,7 +233,7 @@ func planSettings(old []byte, a InitAnswers, tap string) ([]byte, error) {
 	opts.set("user_name", a.UserName)
 	opts.set("handoff_percent", json.Number(strconv.Itoa(a.HandoffPercent)))
 	opts.set("max_busy_clerks", json.Number(strconv.Itoa(a.MaxBusyClerks)))
-	return encodeOrdered(top), nil
+	return encodeOrdered(top, indentOf(old)), nil
 }
 
 // fillLedgerFile applies the fill rules of ledger-template/README.md to one template file.

@@ -400,3 +400,16 @@ func TestInitApplyWritesSettingsLast(t *testing.T) {
 		t.Fatalf("settings were written before the tap: %s", b)
 	}
 }
+
+func TestInitKeepsIndentation(t *testing.T) {
+	for _, indent := range []string{"\t", "    "} {
+		env, ledger := initEnv(t)
+		old := "{\n" + indent + "\"theme\": \"dark\",\n" + indent + "\"env\": {\n" + indent + indent + "\"A\": \"1\"\n" + indent + "}\n}\n"
+		writeSettings(t, env, old)
+		d := plan(t, env, answers(ledger, nil))["diff"].(string)
+		d = d[:strings.Index(d, "\n--- /dev/null")]
+		if strings.Contains(d, "-"+indent+"\"theme\"") || strings.Contains(d, "-"+indent+indent+"\"A\"") || !strings.Contains(d, "+"+indent+"\"autoCompactWindow\": 550000") {
+			t.Fatalf("indent %q diff:\n%s", indent, d)
+		}
+	}
+}
