@@ -82,5 +82,18 @@ check "data_dir honors BRUH_TEST_DATA" eq "$(BRUH_TEST_DATA=/d data_dir)" /d
 out=$( (DRY=1 BRUH_ROLE_KEY=bigm mcp_call mail_post '{"to":"x","header":"DONE: y","body":"z"}') 2>&1)
 check "mcp_call dry run prints the tools/call request" contains "$out" '"method":"tools/call","params":{"name":"mail_post"'
 
+# Smoke driver dry run
+out=$(BRUH_TRUSTED_REPO="$tmp/repo" SMOKE_RUN=dry1 sh "$here/smoke/run.sh" --dry-run 2>&1)
+check "smoke dry run exits 0" eq "$(BRUH_TRUSTED_REPO="$tmp/repo" SMOKE_RUN=dry1 sh "$here/smoke/run.sh" --dry-run >/dev/null 2>&1; echo $?)" 0
+check "smoke dry run starts bigm with the documented flags" contains "$out" "claude --bg --agent bruh:bigm --name bigm --permission-mode auto --settings"
+check "smoke dry run loads the plugin of the checkout" contains "$out" "--plugin-dir $(cd "$here/.." && pwd)/plugins/bruh"
+check "smoke dry run writes the bigm role settings" contains "$out" '"name":"role_settings_write","arguments":{"role_key":"bigm"}'
+check "smoke dry run posts to the clanker mailbox" contains "$out" '"name":"mail_post","arguments":{"to":"clanker-smoke-dry1"'
+check "smoke dry run resumes the clanker" contains "$out" '"name":"session_resume","arguments":{"role_key":"clanker-smoke-dry1"'
+check "smoke dry run uses a linked worktree" contains "$out" "worktree add -q --detach"
+check "smoke dry run skips the remote step" contains "$out" "SKIP remote"
+check "smoke dry run stops own sessions in cleanup" contains "$out" "cleanup"
+check "smoke refuses an unknown flag" not sh "$here/smoke/run.sh" --bogus
+
 echo "$n tests, $fails failed"
 [ "$fails" -eq 0 ]

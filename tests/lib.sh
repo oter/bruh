@@ -189,10 +189,13 @@ wait_for() {
 # stop_sessions stops each session id given, and returns 1 when one still has a
 # live process after 60 seconds.
 stop_sessions() {
+	if [ "$DRY" = 1 ]; then
+		for id in "$@"; do show claude stop "$id"; done
+		return 0
+	fi
 	for id in "$@"; do
-		run claude stop "$id" >/dev/null 2>&1 || true
+		claude stop "$id" >/dev/null 2>&1 || true
 	done
-	[ "$DRY" = 1 ] && return 0
 	[ $# -gt 0 ] || return 0
 	i=0
 	while [ $i -lt 6 ]; do
