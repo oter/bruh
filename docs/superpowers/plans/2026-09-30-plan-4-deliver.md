@@ -131,3 +131,7 @@ Probe D1 (2026-09-30, Claude Code 2.1.284): in a scratch folder inside a trusted
 
 - **Spec coverage:** 6.1 (no posts, no file writes by the script), 6.2 (question path and relaunch), 6.3 (all four stages, dedup, refuters, round cap, skipped tests, base SHA), 3.3 (efforts), 15 (a failed agent stops; relaunch with `resumeFromRunId`).
 - **Review Focus:** each item has a test in `deliver.test.mjs`.
+
+## Final review fixes (2026-09-30)
+
+1. **M6, gates without a test count.** Re-decided: decision 11 (a) required `ran > 0` for every gate, so a lint or build gate could never reach `done`. `args` gets the optional key `test_gates`, a subset of `args.gates` (interfaces section 4). Each gate must still report a result and exit 0 with no failed and no skipped test; only a gate of `test_gates` must also run at least one test. Without `test_gates`, no gate needs a test count. `test_gates` that is not a list, or that names a command outside `args.gates`, stops the run before any agent. The clerk passes the test commands of its start message in `test_gates`, and the clanker names them in the start message. Agent-derived, needs owner decision (ruling of the controller, 2026-09-30). Options, ranked: (a) `args.test_gates`, as built; (b) a gate object `{"cmd": "...", "tests": true}` (a change of the shape of `args.gates`); (c) a gate that exits 0 with no test count counts as one passed check.

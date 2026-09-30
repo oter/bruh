@@ -280,3 +280,9 @@ test('bigm calls repos_set with the project of the clanker key', () => {
   const remote = agents.bigm.split('## Remote clankers')[1].split('\n## ')[0]
   assert.match(remote, /call `repos_set`/)
 })
+
+// Final review M6: the clerk passes its test commands in args.test_gates.
+test('the clerk passes the test gates to deliver', () => {
+  assert.ok(agents.clerk.includes('"test_gates": ["<gate command that runs tests>"]'))
+  assert.match(agents.clanker, /the gate commands, and which of them run tests/)
+})

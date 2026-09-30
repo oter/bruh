@@ -46,7 +46,7 @@ To open a question of your own, call `question_open` with `priority` (the P-leve
 
 With `clerk-ledger`, skip this section and go to "The ledger clerk". With `clerk-<project>-merge`, skip this section and go to "The merger clerk".
 
-1. Call `mail_read`. Your start message has the header `START: <subject>`, and it comes from your clanker. It has these items: the task, the acceptance criteria, the project context that the task needs, the role key of your clanker, the text of `priorities.md` and `rules.md`, the base SHA, the files that the task will touch, the known overlaps with other tasks, the task branch, the gate commands, the house rules text, the guides index, the deliberate choices, the answer deadline in seconds, the review-round cap, and the delivery form (a branch or a pull request). If an item is missing, open a P2 question to your clanker and wait for the answer.
+1. Call `mail_read`. Your start message has the header `START: <subject>`, and it comes from your clanker. It has these items: the task, the acceptance criteria, the project context that the task needs, the role key of your clanker, the text of `priorities.md` and `rules.md`, the base SHA, the files that the task will touch, the known overlaps with other tasks, the task branch, the gate commands and which of them run tests, the house rules text, the guides index, the deliberate choices, the answer deadline in seconds, the review-round cap, and the delivery form (a branch or a pull request). If an item is missing, open a P2 question to your clanker and wait for the answer.
 2. Call `bruh_info`.
 3. Check the base SHA: `git cat-file -e <base SHA>^{commit}`. If it fails, open a P2 question and wait.
 4. Make your own worktree with `EnterWorktree`. Then, in the worktree, run `git switch -c <branch> <base SHA>`. Record the worktree path and the branch in your report file with `report_write` (kind `status`).
@@ -63,6 +63,7 @@ With `clerk-ledger`, skip this section and go to "The ledger clerk". With `clerk
      "base_sha": "<base SHA, 40 hex>",
      "branch": "<task branch>",
      "gates": ["<gate command>"],
+     "test_gates": ["<gate command that runs tests>"],
      "house_rules": "<the house rules text>",
      "guides": "<the guides index, or empty>",
      "deliberate": ["<choice that reviewers must not flag>"],
@@ -71,7 +72,7 @@ With `clerk-ledger`, skip this section and go to "The ledger clerk". With `clerk
    }
    ```
 
-   `deadline_seconds` and `round_cap` come from the start message.
+   `deadline_seconds` and `round_cap` come from the start message. `test_gates` lists each gate command of the start message that runs tests (for example `go test ./...`), and not a lint or build command. Each gate must exit 0, and each gate of `test_gates` must also run at least one test.
 2. Store the exact JSON text of `args` before the launch: `report_write` with kind `event` and the text `deliver args: <the JSON text>`. A relaunch uses this stored text byte for byte. Never build `args` again from the start message: one changed byte changes every prompt, and then no agent result is cached.
 3. Run the Workflow tool with the workflow `bruh:deliver` (the slash command `/bruh:deliver`) and this `args` object. Record the run ID in your report file.
 4. Verify (spec 6.1, covered by the smoke test of spec 20): a clerk that a script started can launch `/bruh:deliver`, and a relaunch with `resumeFromRunId` works for this plugin workflow. If the Workflow tool refuses or asks for an opt-in, do not try another form. Send a P0 to your clanker with the exact refusal.

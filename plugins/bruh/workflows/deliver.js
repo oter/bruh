@@ -20,6 +20,8 @@ const task = typeof A.task === 'string' ? A.task.trim() : ''
 const base = typeof A.base_sha === 'string' ? A.base_sha : ''
 const branch = typeof A.branch === 'string' ? A.branch.trim() : ''
 const gateCommands = list(A.gates)
+// The gates that are test suites; only they must run tests. A lint or build gate has no test count.
+const testGates = list(A.test_gates)
 const cap = Number.isInteger(A.round_cap) && A.round_cap >= 1 ? A.round_cap : 2
 const deadline = typeof A.deadline_seconds === 'number' && A.deadline_seconds > 0 ? A.deadline_seconds : 3600
 const answers = A.answers && typeof A.answers === 'object' ? A.answers : {}
@@ -63,6 +65,8 @@ if (!/^[0-9a-f]{40}$/.test(base)) problems.push('args.base_sha is not a 40-chara
 if (!branch) problems.push('args.branch is empty')
 if (!Array.isArray(A.gates)) problems.push('args.gates is not a list')
 else if (!gateCommands.length) problems.push('args.gates is empty; a run without a required suite cannot prove the change')
+if (A.test_gates !== undefined && !Array.isArray(A.test_gates)) problems.push('args.test_gates is not a list')
+else if (testGates.some((c) => !gateCommands.includes(c))) problems.push('args.test_gates has a command that is not in args.gates')
 if (problems.length) return stop(problems.join('; '))
 
 const bullets = (xs) => (xs.length ? xs.map((x) => `- ${x}`).join('\n') : '(none)')
@@ -269,7 +273,7 @@ function gateFindings(g) {
       })
     }
   }
-  // The gate results must cover exactly args.gates, and each gate must run tests.
+  // The gate results must cover exactly args.gates, and each gate of args.test_gates must run tests.
   const reported = new Set((g.gates || []).map((x) => x.command))
   for (const cmd of gateCommands) {
     if (!reported.has(cmd)) {
@@ -279,20 +283,20 @@ function gateFindings(g) {
   for (const x of g.gates || []) {
     if (!gateCommands.includes(x.command)) {
       out.push({ file: `gate: ${x.command}`, line: 0, summary: `The gate check returned \`${x.command}\`, which is not a gate of the task.`, gate: x.command, key: `gate ${x.command} extra` })
-    } else if (!(x.ran > 0)) {
+    } else if (testGates.includes(x.command) && !(x.ran > 0)) {
       out.push({ file: `gate: ${x.command}`, line: 0, summary: `The required suite \`${x.command}\` ran no tests.`, gate: x.command, key: `gate ${x.command} ran 0` })
     }
   }
   return out
 }
 
-// A gate command is clean when its result exits 0, runs tests, and has no
-// failed and no skipped test. A command that is not in args.gates is clean
-// only when the gate check did not return it.
+// A gate command is clean when its result exits 0, runs tests when it is in
+// args.test_gates, and has no failed and no skipped test. A command that is not
+// in args.gates is clean only when the gate check did not return it.
 function gateClean(g, cmd) {
   const x = (g.gates || []).find((y) => y.command === cmd)
   if (!gateCommands.includes(cmd)) return !x
-  return Boolean(x) && x.exit_code === 0 && x.failed === 0 && x.skipped === 0 && x.ran > 0
+  return Boolean(x) && x.exit_code === 0 && x.failed === 0 && x.skipped === 0 && (x.ran > 0 || !testGates.includes(cmd))
 }
 const clean = (g) => gateCommands.every((cmd) => gateClean(g, cmd)) && (g.gates || []).every((x) => gateCommands.includes(x.command))
 const sum = (g, k) => (g.gates || []).reduce((n, x) => n + (Number.isInteger(x[k]) ? x[k] : 0), 0)
@@ -348,7 +352,7 @@ for (let round = 1; ; round++) {
   const [adv, inv, gates] = await parallel([
     () => agent(`${CONTEXT}\n\nStep: adversarial review, round ${round}. Do not edit files.\n${DIFF}\nTry to refute the change: find where it is wrong, where it is incomplete, and where it does not meet the acceptance criteria. Report each finding with the file, the line of the problem, and a summary. Report nothing that you cannot show in the code.`, { label: `adversarial ${round}`, effort: 'low', schema: FINDINGS }),
     () => agent(`${CONTEXT}\n\nStep: invariant check, round ${round}. Do not edit files.\n${DIFF}\nDo not trust the claims of the author. List the invariants that the code must keep, from the code, the tests, and the docs. Verify each invariant against the changed code. Report each broken invariant as a finding with the file, the line, and a summary.`, { label: `invariants ${round}`, effort: 'low', schema: FINDINGS }),
-    () => agent(`${CONTEXT}\n\nStep: gates, round ${round}. Do not edit files.\n${DIFF}\nRun each gate command, in this order:\n${bullets(gateCommands)}\nEach gate is a required suite. Return exactly one result for each gate command above, with the command text unchanged, and run no other gate. For each gate, return its exit code and how many tests ran, passed, failed, and were skipped. Read the counts from the output; do not estimate. For each failed or skipped test, give the file and the line of the test, a summary, and the kind (failed or skipped). When a gate fails or skips a test, return the last 40 lines of its output in output_tail; otherwise return an empty output_tail. Return tests with the totals of all gates, and head_sha from \`git rev-parse HEAD\`.`, { label: `gates ${round}`, effort: 'low', schema: GATES }),
+    () => agent(`${CONTEXT}\n\nStep: gates, round ${round}. Do not edit files.\n${DIFF}\nRun each gate command, in this order:\n${bullets(gateCommands)}\nEach gate is required: it must exit 0. These gates are test suites and must run tests:\n${bullets(testGates)}\nA gate that is not a test suite (for example lint or build) returns 0 for each count when its output has no test count. Return exactly one result for each gate command above, with the command text unchanged, and run no other gate. For each gate, return its exit code and how many tests ran, passed, failed, and were skipped. Read the counts from the output; do not estimate. For each failed or skipped test, give the file and the line of the test, a summary, and the kind (failed or skipped). When a gate fails or skips a test, return the last 40 lines of its output in output_tail; otherwise return an empty output_tail. Return tests with the totals of all gates, and head_sha from \`git rev-parse HEAD\`.`, { label: `gates ${round}`, effort: 'low', schema: GATES }),
   ])
   if (!adv || !inv || !gates) return fail(`a review check of round ${round} did not return a result`)
   // The totals come from the per-gate counts, added in code.

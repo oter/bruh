@@ -73,7 +73,7 @@ To bigm when you run on a remote machine (your start message has the line `remot
    - the files that the task will touch;
    - the known overlaps with other tasks;
    - the task branch;
-   - the gate commands;
+   - the gate commands, and which of them run tests (a test suite, not lint or build);
    - the text of `house-rules.md` (read it from `<plugin_root>/defaults/house-rules.md`);
    - the guides index of the project, or empty;
    - the deliberate choices that reviewers must not flag;

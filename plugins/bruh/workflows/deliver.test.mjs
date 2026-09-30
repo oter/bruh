@@ -223,7 +223,7 @@ test('gate results must cover exactly args.gates', async () => {
   assert.equal(extra.result.status, 'findings_left')
   assert.match(extra.result.findings[0].summary, /not a gate of the task/)
 
-  const none = await run({ gates: () => ({ head_sha: HEAD, tests: {}, gates: [{ command: 'go test ./...', exit_code: 0, ran: 0, passed: 0, failed: 0, skipped: 0, problems: [] }] }) })
+  const none = await run({ gates: () => ({ head_sha: HEAD, tests: {}, gates: [{ command: 'go test ./...', exit_code: 0, ran: 0, passed: 0, failed: 0, skipped: 0, problems: [] }] }) }, baseArgs({ test_gates: ['go test ./...'] }))
   assert.equal(none.result.status, 'findings_left')
   assert.match(none.result.findings[0].summary, /ran no tests/)
 })
@@ -424,5 +424,38 @@ test('no agent prompt allows posts outside the project or pushes', async () => {
   for (const c of calls) {
     assert.ok(c.prompt.includes('Do not post outside the project'), `${c.opts.label} has no post rule`)
     assert.ok(c.prompt.includes('Do not push'), `${c.opts.label} has no push rule`)
+  }
+})
+
+// Final review M6: only the gates of args.test_gates must run tests; every gate must report and exit 0.
+test('only a test gate must run tests', async () => {
+  const lint = (exit) => ({ command: 'make lint', exit_code: exit, ran: 0, passed: 0, failed: 0, skipped: 0, output_tail: exit ? 'lint error' : '', problems: [] })
+  const gates = (exit) => () => ({ ...cleanGates(), gates: [...cleanGates().gates, lint(exit)] })
+  const args = (extra = {}) => baseArgs({ gates: ['go test ./...', 'make lint'], test_gates: ['go test ./...'], ...extra })
+  const ok = await run({ gates: gates(0) }, args())
+  assert.equal(ok.result.status, 'done', 'a lint gate with no test count and exit 0 is clean')
+  assert.deepEqual(ok.result.findings, [])
+  const red = await run({ gates: gates(2) }, args())
+  assert.equal(red.result.status, 'findings_left', 'a lint gate must still exit 0')
+  assert.deepEqual(red.result.findings.map((f) => f.file), ['gate: make lint'])
+  const missing = await run({}, args())
+  assert.equal(missing.result.status, 'findings_left', 'a lint gate must still report')
+  assert.match(missing.result.findings[0].summary, /has no result/)
+  const suite = await run({ gates: () => ({ head_sha: HEAD, tests: {}, gates: [{ ...cleanGates().gates[0], ran: 0, passed: 0 }, lint(0)] }) }, args())
+  assert.equal(suite.result.status, 'findings_left', 'a test gate must run tests')
+  assert.match(suite.result.findings[0].summary, /`go test \.\/\.\.\.` ran no tests/)
+  const noTestGates = await run({ gates: gates(0) }, baseArgs({ gates: ['go test ./...', 'make lint'] }))
+  assert.equal(noTestGates.result.status, 'done', 'without test_gates, no gate needs a test count')
+  const prompt = ok.byWord('gates')[0].prompt
+  assert.match(prompt, /- go test \.\/\.\.\./)
+  assert.match(prompt, /test suites/)
+})
+
+test('args.test_gates must be a list of gates of args.gates', async () => {
+  for (const bad of [{ test_gates: 'go test ./...' }, { test_gates: ['make test'] }]) {
+    const { result, calls } = await run({}, baseArgs(bad))
+    assert.equal(result.status, 'stopped')
+    assert.match(result.deviations.at(-1), /^STOP: .*test_gates/)
+    assert.equal(calls.length, 0)
   }
 })
