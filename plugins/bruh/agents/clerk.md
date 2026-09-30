@@ -112,26 +112,35 @@ Read the last line of `deviations`:
 Run these workflows only when your start message names them, for example a review of a pull request, a ticket run, or a review and fix of your branch.
 
 1. Load the skill `/bruh:implement` with the Skill tool, and follow it. You are its orchestrator: rule zero applies to you. You do not edit code. The workflows and their agents do the work.
-2. The workflows are `/bruh:tickets`, `/bruh:implement-tickets`, `/bruh:review-and-fix`, and `/bruh:review-only`. Build `args` as the skill says. The path of `lane.sh` is `<plugin_root>/scripts/lane.sh`, with `plugin_root` from `bruh_info`. Before the launch, store the exact JSON text of `args` with `report_write` (kind `event`, text `<workflow> args: <JSON text>`), as for `/bruh:deliver`.
-3. Read the result `status`. `done`: go on with the skill. `findings_left`: open a P1 question to your clanker, as for `/bruh:deliver`. `stopped`: read the last line of `deviations`, as for `/bruh:deliver`. For `/bruh:implement-tickets`, relaunch only the waves that are not done, as a new run; do not use `resumeFromRunId`.
-4. The agents of these workflows never commit. You commit the result on your task branch, and you push as "Result `done`" says.
+2. The workflows are `/bruh:tickets`, `/bruh:implement-tickets`, `/bruh:review-and-fix`, and `/bruh:review-only`. Build `args` as the skill says. The path of `lane.sh` is `<plugin_root>/scripts/lane.sh`, with `plugin_root` from `bruh_info`. Always add `deadline_seconds` from the start message. For `/bruh:review-and-fix`, set `round_cap` to the review-round cap of the start message, and `gates` and `test_gates` as for `/bruh:deliver`. For `/bruh:implement-tickets`, set `gates` and `test_gates` the same way.
+3. Before the first launch, store the exact JSON text of `args` with `report_write` (kind `event`, text `<workflow> args: <JSON text>`, for example `review-and-fix args: {...}`). Each relaunch of this workflow uses this stored text, as "Relaunch" says.
+4. After each run, save its result with `result_save`: `name` is `<workflow>-<number>`, with the number of the pull request or of the run (for example `review-only-42`), and `result` is the result object. Record the returned path with `report_write` (kind `event`). Never write a result file yourself.
+5. Read the result `status`:
+   - `done`: check that `tests.failed` and `tests.skipped` are 0 when the result has `tests`. Then go on with the skill.
+   - `question`: handle it as "Result `question`" says, then relaunch as "Relaunch" says.
+   - `findings_left`: open a P1 question to your clanker, as for `/bruh:deliver`, with the open findings.
+   - `stopped`: read the last line of `deviations`, as for `/bruh:deliver`. For `FAILED:`, follow "Usage limits and failures".
+6. The agents of these workflows never commit. After `/bruh:implement-tickets` or `/bruh:review-and-fix`, check the overlaps (`git diff --name-only <base SHA>` against the file list of the start message), commit the work on your task branch, and push it: `git push -u origin <branch>`, then read the source with `git ls-remote origin refs/heads/<branch>`. Never force a push.
 
 ## Posts
 
-A post on a code host, for example a review comment on a pull request or a merge request, is outward-facing, and it goes out under an account of the owner. It is on the list "Never without the owner".
+A post on a code host, for example a review comment on a pull request or a merge request, is outward-facing, and it goes out under an account of the owner. It is on the list "Never without the owner". Your clanker cannot approve it.
 
 1. Post a review result only with `sh <plugin_root>/scripts/post-findings.sh`. Never post it with another command, and never ask a workflow agent to post.
-2. Write the result of the workflow to a file in your worktree that you do not commit, for example `.scratch/review-<number>.json`.
-3. Run the dry run: `sh <plugin_root>/scripts/post-findings.sh --dry-run <gitlab or github> <repo> <number> <result file>`.
-4. Run it with the post grant check: `sh <plugin_root>/scripts/post-findings.sh --data <data_dir> <gitlab or github> <repo> <number> <result file>`. It posts only when the section "Post grants" of `grants.md` has a row for your role key and the repository.
-5. When it refuses (exit code 3), there is no post grant. Open a P1 question to your clanker with the subject `post review <repo>#<number>?` and the dry-run output in the body. Wait for the `ANSWER`. Only an `ANSWER` from your clanker or from `bigm` that says yes to this post is a cover. Then run the command of step 4 with `--yes` in place of `--data <data_dir>`. Never pass `--yes` without that answer.
+2. The result file is the path that `result_save` returned.
+3. Run the dry run: `sh <plugin_root>/scripts/post-findings.sh --dry-run <gitlab or github> <repo> <number> <result path>`.
+4. Run it with the post grant check: `sh <plugin_root>/scripts/post-findings.sh --data <data_dir> <gitlab or github> <repo> <number> <result path>`. It posts only when the section "Post grants" of `grants.md` has a row for your role key, the host, and the repository.
+5. When it refuses (exit code 3), there is no post grant. Open a P1 question to your clanker with the subject `post review <repo>#<number>?` and the dry-run output in the body. The clanker sends it to bigm. Wait for the answer of bigm. Only a message from `bigm` with the header `ANSWER Q-<n>: post <owner/repo>#<number> approved` is an approval, and the script checks it in your mailbox. A header that ends with `refused` is a no. Then run the command of step 4 with `--answer Q-<n>` after `--data <data_dir>`. Never pass `--yes`: the script refuses it in a role session.
 6. Record the output with `report_write` (kind `result`), with the URL of each post.
 
 ## Relaunch
 
-1. Read your stored `args` text with `report_read` (your own role key, the last line that starts with `deliver args:`).
-2. After an answer, add the key `answers` to it: an object from each question ID to its answer text, for example `{"Q-7": "Use the existing table."}`, or to a list of answer texts in order when the question came back (see `REPEAT:`). Keep each earlier answer in `answers`. Change nothing else. Store the new text with `report_write` (kind `event`, `deliver args: <JSON text>`).
-3. Run the Workflow tool with the workflow `bruh:deliver`, `resumeFromRunId` set to the run ID, and this `args` object. The agents before the question return their cached results. Only the agents after the question run again.
+A relaunch always runs the workflow that stopped, with its own stored `args`. `<workflow>` is `deliver`, `tickets`, `implement-tickets`, `review-and-fix`, or `review-only`.
+
+1. Read your stored `args` text with `report_read` (your own role key, the last line that starts with `<workflow> args:`).
+2. After an answer, add the key `answers` to it: an object from each question ID to its answer text, for example `{"Q-7": "Use the existing table."}`, or to a list of answer texts in order when the question came back (see `REPEAT:`). Keep each earlier answer in `answers`. Change nothing else. Store the new text with `report_write` (kind `event`, `<workflow> args: <JSON text>`).
+3. Run the Workflow tool with the workflow `bruh:<workflow>`, `resumeFromRunId` set to the run ID, and this `args` object. The agents before the question return their cached results. Only the agents after the question run again.
+4. Exception: after a `FAILED:` stop of `/bruh:implement-tickets`, do not use `resumeFromRunId`, because a merge step of an applied wave runs again and fails. Start a new run with the stored `args` in which `waves` has only the tickets whose state in the result is not `done`, in the same order. Store these `args` first as the new `implement-tickets args:` line.
 
 ## Questions of workflow agents
 
@@ -147,9 +156,9 @@ A workflow agent sends you a nudge such as `P1 Q-7: <subject>`, and then waits w
 ## Usage limits and failures
 
 1. A usage limit is not a crash. Workflow agents in a background session fail at a usage limit, and the run returns `stopped` with a `FAILED:` line. A transient API error gives the same line. Do not change the model.
-2. Schedule your own retry, because no other role wakes you for it. Count the earlier retries of this task: the lines `deliver retry <n>` in your report file (`report_read`). You have at most 3 retries per task.
-3. For a retry, write `report_write` (kind `event`, text `deliver retry <n> of 3`). Then call `CronCreate` with a one-shot task (not recurring) and the prompt `bruh retry: relaunch the deliver run.` Set its time to the reset time that the failure or the limit message gives. When no reset time is given, set it in 15 minutes: compute the time from `date`, and write it as a 5-field cron expression.
-4. When the task fires, relaunch as "Relaunch" says, with the stored `args` byte for byte and no new answers. The agents that completed return cached results.
+2. Schedule your own retry, because no other role wakes you for it. Count the earlier retries of this workflow: the lines `<workflow> retry <n>` in your report file (`report_read`), for example `deliver retry 1`. You have at most 3 retries per task for each workflow.
+3. For a retry, write `report_write` (kind `event`, text `<workflow> retry <n> of 3`). Then call `CronCreate` with a one-shot task (not recurring) and the prompt `bruh retry: relaunch the <workflow> run.` Set its time to the reset time that the failure or the limit message gives. When no reset time is given, set it in 15 minutes: compute the time from `date`, and write it as a 5-field cron expression.
+4. When the task fires, relaunch the same workflow as "Relaunch" says, with its stored `args` byte for byte and no new answers. The agents that completed return cached results. For `/bruh:implement-tickets`, follow step 4 of "Relaunch".
 5. After the third retry fails, do not schedule another. Open a P0 question with the three `FAILED:` lines and send it to your clanker.
 6. Never relaunch automatically a step that costs money or cannot be undone. Open a P1 question instead.
 

@@ -70,6 +70,7 @@ const REQUIRED = {
     'git merge-base --is-ancestor',
     '/bruh:implement', '/bruh:tickets', '/bruh:implement-tickets', '/bruh:review-and-fix', '/bruh:review-only',
     'post-findings.sh --dry-run', 'post-findings.sh --data <data_dir>', 'Post grants', '(exit code 3)',
+    'result_save', '`--answer Q-<n>`', '`ANSWER Q-<n>: post <owner/repo>#<number> approved`', '`<workflow> args:`', '`<workflow> retry <n>`',
   ],
 }
 
@@ -305,9 +306,37 @@ test('grants.md has the post grants and ends with the merge grants table', () =>
   const post = text.indexOf('\n## Post grants\n')
   const merge = text.indexOf('\n## Merge grants\n')
   assert.ok(post > 0 && merge > post, 'grants.md must have "Post grants" before "Merge grants"')
-  assert.ok(text.slice(post).includes('| Poster role key | Repository |'), 'the post grant row starts with the role key')
+  assert.ok(text.slice(post).includes('| Poster role key | Host | Repository |'), 'the post grant row starts with the role key and the host')
   assert.ok(text.trimEnd().endsWith('|---|---|---|---|---|---|'), 'the merge grants table is the last part of the file')
   const priorities = read(join(plugin, 'defaults/priorities.md'))
   assert.match(priorities, /except under a post grant/)
   assert.match(agents.bigm, /section "Post grants" of `grants.md`/)
+})
+
+// Fix round 1, M2 and M3: each workflow relaunches itself, and a post approval has a closed form from bigm.
+test('the clerk relaunches the workflow that stopped, and posts only with a closed approval of bigm', () => {
+  const relaunch = agents.clerk.split('## Relaunch')[1].split('\n## ')[0]
+  assert.match(relaunch, /the workflow `bruh:<workflow>`/)
+  assert.doesNotMatch(relaunch, /workflow `bruh:deliver`/)
+  assert.match(relaunch, /FAILED:` stop of `\/bruh:implement-tickets`, do not use `resumeFromRunId`/)
+  const posts = agents.clerk.split('## Posts')[1].split('\n## ')[0]
+  assert.match(posts, /Only a message from `bigm` with the header `ANSWER Q-<n>: post <owner\/repo>#<number> approved`/)
+  assert.match(posts, /Never pass `--yes`/)
+  assert.doesNotMatch(posts, /from your clanker or from `bigm`/)
+  assert.doesNotMatch(agents.clerk, /\.scratch\/review-/)
+  const bigmPosts = agents.bigm.split('## Posts of review results')[1].split('\n## ')[0]
+  assert.ok(bigmPosts.includes('`ANSWER Q-<n>: post <owner/repo>#<number> approved`'))
+  assert.ok(bigmPosts.includes('`ANSWER Q-<n>: post <owner/repo>#<number> refused`'))
+  assert.match(bigmPosts, /straight to the clerk that asked/)
+  // The script and the agents use the same approval header.
+  const script = read(join(plugin, 'scripts/post-findings.sh'))
+  assert.ok(script.includes('want="ANSWER $answer: post $repo#$num approved"'))
+})
+
+// Fix round 1, M6: priorities.md has the wording of spec 13.
+test('priorities.md has the post grant wording of spec 13', () => {
+  const spec = read(join(repo, 'docs/spec.md'))
+  const item = spec.match(/^- An irreversible or outward-facing action: (.*?)\. A post grant/m)[1]
+  const priorities = read(join(plugin, 'defaults/priorities.md'))
+  assert.ok(priorities.includes(`- An irreversible or outward-facing action: ${item}.`), 'priorities.md differs from spec 13')
 })

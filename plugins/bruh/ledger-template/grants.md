@@ -4,10 +4,10 @@ A grant is an answer that the owner gave in advance, for one kind of outward-fac
 
 ## Post grants
 
-A post on a code host (a comment on a pull request or a merge request) goes out under an account of the owner. Every post is a P1 to the owner, except under a post grant. A post grant names one poster role key and one repository. `scripts/post-findings.sh` reads only this section: it posts without `--yes` only when a row here names `BRUH_ROLE_KEY` in the first column and the repository in the second column.
+A post on a code host (a comment on a pull request or a merge request) goes out under an account of the owner. Every post is a P1 to the owner, except under a post grant. A post grant names one poster role key, one host (`gitlab` or `github`), and one repository. `scripts/post-findings.sh` reads only this section: in a role session, it posts without an approval `ANSWER` of bigm only when a row here names `BRUH_ROLE_KEY` in the first column, the host in the second column, and the repository in the third column.
 
-| Poster role key | Repository | Conditions | Owner words | Date (UTC) | Question ID |
-|---|---|---|---|---|---|
+| Poster role key | Host | Repository | Conditions | Owner words | Date (UTC) | Question ID |
+|---|---|---|---|---|---|---|
 
 ## Merge grants
 

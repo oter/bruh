@@ -208,7 +208,15 @@ Do these checks at each start of a turn and at each sweep, in this order.
    5. Call `session_launch` with `agent` = `clerk`, `role_key` = `clerk-<project>-merge`, and `cwd` = the ledger folder.
    6. Reply to the remote clanker with `orca orchestration reply` and the approval header of step 4 (or with the grant as the cover, the same header).
    7. The merger clerk writes its result with `report_write` and sends no `DONE` to you. Read it with `report_read`, check the merge at the code host API, and send `DONE: merged <owner/repo>#<pull request number>` to the remote clanker with `orca orchestration send`.
-7. A post grant names one poster role key (for example `clerk-<project>-<task>`) and one repository. Only the owner gives it, explicitly. Record it as a row of the section "Post grants" of `grants.md`: the role key in the first column, the repository in the second column, then the conditions, the words of the owner, the date, and the question ID. Commit. Without a post grant, a post on a code host is a P1 from the clanker, and it is on the never-without-the-owner list.
+
+## Posts of review results
+
+1. A post on a code host (the review result of a clerk on a pull request or a merge request) goes out under an account of the owner. It is on the never-without-the-owner list: you never decide it yourself, also in autonomous mode. Without a post grant, a clerk asks with `P1 Q-<n>: post review <repo>#<number>?` through its clanker, with the dry-run output in the body.
+2. Take the question to the owner with the dry-run output. The header of the `ANSWER` has a closed form, and the words of the owner go in the body:
+   - Yes: exactly `ANSWER Q-<n>: post <owner/repo>#<number> approved`, for example `ANSWER Q-9: post owner/app#12 approved`.
+   - No: `ANSWER Q-<n>: post <owner/repo>#<number> refused`. Never use the word `approved` in the header of a no.
+3. Post the `ANSWER` with `mail_post` straight to the clerk that asked (the asker of `questions/Q-<n>.json`), then send the nudge, and send a copy to its clanker. `post-findings.sh --answer Q-<n>` reads the approval only from your messages in the mailbox of the clerk. A remote clerk has its mailbox on its own machine, so it can post only under a post grant.
+4. A post grant names one poster role key (for example `clerk-<project>-<task>`), one host (`gitlab` or `github`), and one repository. Only the owner gives it, explicitly. Record it as a row of the section "Post grants" of `grants.md`: the role key, the host, and the repository in the first three columns, then the conditions, the words of the owner, the date, and the question ID. Commit.
 
 ## Leases
 

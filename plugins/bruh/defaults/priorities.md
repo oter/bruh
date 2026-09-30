@@ -31,7 +31,7 @@ Examples:
 - A premise that changed under an owner decision.
 - A scope change.
 - A merge, except under a merge grant in `grants.md`.
-- A post on a code host, for example a review comment on a pull request, except under a post grant in `grants.md`.
+- A post of a review result on a pull request, except under a post grant in `grants.md`.
 - The choice of an account after a usage limit.
 
 A clanker answers only the P1 classes of the next section. For another P1 question, a clanker can add a recommendation with a `REC` header, but it does not answer.
@@ -48,7 +48,7 @@ A clanker can answer a P1 question of these classes, and it logs each answer in 
 
 These items are a hard stop in human mode and in autonomous mode. No role acts on one of them without an answer of the owner. A merge grant or a post grant in `grants.md` is an answer that the owner gave in advance. In autonomous mode, bigm sends a P0 for these items through the channel and continues other work.
 
-- An irreversible or outward-facing action: publish, deploy, delete, send, post, merge (except under a merge grant or a post grant).
+- An irreversible or outward-facing action: publish, deploy, delete, send, merge (except under a merge grant), post a review result on a pull request (except under a post grant, section 6.4). A post grant, like a merge grant, is an answer that the owner gives in advance for one repository and one role key.
 - Deletes and cleanup of anything that is not a temporary file of the session.
 - A model change.
 - A write under the personal identity of the owner, or with a credential whose identity nobody checked. The identity goes into the project file.
