@@ -382,20 +382,31 @@ printf 'edit again\n' >"$lb/g.txt"
 git -C "$lb" update-ref -d refs/lane/base
 check "a lane without refs/lane/base is not kept" eq "$(ROOT="$tmp/rb" LANES="$rl" LANE_RUN=other sh "$lane" start mr1-01-schema >/dev/null 2>&1; cat "$lb/g.txt")" b
 check "a remade lane has refs/lane/base again" git -C "$lb" rev-parse -q --verify refs/lane/base
-# A patch is applied once: repeated context could let git apply match it at an offset again.
-printf 'x\ny\nz\nw\nx\ny\nz\nw\nx\ny\nz\nw\nx\ny\nz\nw\n' >"$tmp/ra/g.txt" && git -C "$tmp/ra" -c user.name=t -c user.email=t@example.com commit -qam blocks
+# A patch is applied once. Four identical blocks give repeated context: plain git apply
+# inserts the same line a second time at an offset, and lane.sh apply does not.
+for _ in 1 2 3 4; do printf 'x\ny\nz\nw\n'; done >"$tmp/ra/g.txt" && git -C "$tmp/ra" -c user.name=t -c user.email=t@example.com commit -qam blocks
 ROOT="$tmp/ra" LANES="$rl" sh "$lane" clean mr1-02-rep >/dev/null
 lr=$(ROOT="$tmp/ra" LANES="$rl" sh "$lane" start mr1-02-rep 2>/dev/null)
-awk 'NR == 2 { print "inserted" } { print }' "$lr/g.txt" >"$lr/g.new" && mv "$lr/g.new" "$lr/g.txt"
+awk 'NR == 7 { print "inserted" } { print }' "$lr/g.txt" >"$lr/g.new" && mv "$lr/g.new" "$lr/g.txt"
 ROOT="$tmp/ra" LANES="$rl" sh "$lane" patch mr1-02-rep >/dev/null 2>&1
+cp -R "$tmp/ra" "$tmp/ra-plain"
+git -C "$tmp/ra-plain" apply "$rl/mr1-02-rep.patch" && git -C "$tmp/ra-plain" apply "$rl/mr1-02-rep.patch" 2>/dev/null
+check "plain git apply of the patch twice inserts the line twice (the reproduction)" eq "$(grep -c inserted "$tmp/ra-plain/g.txt")" 2
 ROOT="$tmp/ra" LANES="$rl" sh "$lane" apply mr1-02-rep >/dev/null 2>&1
 out=$(ROOT="$tmp/ra" LANES="$rl" sh "$lane" apply mr1-02-rep 2>&1)
 check "a second apply of the same patch is skipped" contains "$out" "already applied mr1-02-rep; skipped"
-check "the shared tree has the change once" eq "$(grep -c inserted "$tmp/ra/g.txt")" 1
+check "lane.sh apply twice inserts the line once" eq "$(grep -c inserted "$tmp/ra/g.txt")" 1
 printf 'more\n' >>"$lr/g.txt"
 ROOT="$tmp/ra" LANES="$rl" sh "$lane" patch mr1-02-rep >/dev/null 2>&1
 check "an applied lane refuses a changed patch" not env ROOT="$tmp/ra" LANES="$rl" sh "$lane" apply mr1-02-rep
 check "the refused patch changes nothing" eq "$(grep -c more "$tmp/ra/g.txt")" 0
+# The root half of the lane meta: a clone at the same HEAD is another root.
+git clone -q "$tmp/rb" "$tmp/rc"
+check "the clone has the same HEAD" eq "$(git -C "$tmp/rc" rev-parse HEAD)" "$(git -C "$tmp/rb" rev-parse HEAD)"
+ROOT="$tmp/rb" LANES="$rl" sh "$lane" clean mr1-03-root >/dev/null
+lo=$(ROOT="$tmp/rb" LANES="$rl" sh "$lane" start mr1-03-root 2>/dev/null)
+printf 'edit of rb\n' >"$lo/g.txt"
+check "a lane of another root at the same HEAD is not kept" eq "$(ROOT="$tmp/rc" LANES="$rl" sh "$lane" start mr1-03-root >/dev/null 2>&1; cat "$lo/g.txt")" b
 
 # post-findings.sh with a fake glab and a fake gh on PATH
 post="$here/../plugins/bruh/scripts/post-findings.sh"
