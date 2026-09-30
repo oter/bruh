@@ -214,6 +214,8 @@ bigm starts a clanker for each project that has work. Tell bigm what to do. For 
 | Go 1.26 or later | Claude Code starts the bruh MCP server with `go run` |
 | `jq` | The hook scripts |
 | `git` | Worktrees, branches, and the ledger |
+| `rsync` | The lanes of `/bruh:implement-tickets` (`scripts/lane.sh`) |
+| `glab` or `gh` | Posts of review results (`scripts/post-findings.sh`) only |
 | Orca | Remote machines only |
 | Bun | The Telegram channel plugin only |
 | macOS or Linux | Native Windows is not supported |
