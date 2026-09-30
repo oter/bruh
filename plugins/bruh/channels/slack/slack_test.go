@@ -21,6 +21,7 @@ type fakeSlack struct {
 	calls   int
 	next    int
 	limited bool
+	asked   []string // ts of each conversations.replies call
 }
 
 func (f *fakeSlack) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -54,6 +55,7 @@ func (f *fakeSlack) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		send(map[string]any{"messages": out})
 	case "conversations.replies":
 		ts := r.Form.Get("ts")
+		f.asked = append(f.asked, ts)
 		out := []slackMessage{{TS: ts, ThreadTS: ts, BotID: "B1", Text: "the question"}}
 		out = append(out, f.replies[ts]...)
 		send(map[string]any{"messages": out})
@@ -298,5 +300,84 @@ func TestSlackServeLoop(t *testing.T) {
 	}
 	if msgs := out.lines(t); len(msgs) != 2 {
 		t.Fatalf("messages = %v", msgs)
+	}
+}
+
+func reply(t *testing.T, s *server, ts, text string) {
+	t.Helper()
+	rpc(s, `{"jsonrpc":"2.0","id":9,"method":"tools/call","params":{"name":"reply","arguments":{"thread_ts":"`+ts+`","text":"`+text+`"}}}`)
+}
+
+func poll(t *testing.T, s *server) {
+	t.Helper()
+	if err := s.pollOnce(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestSlackFollowUpAfterReply(t *testing.T) {
+	s, f, out := setup(t, true)
+	ts := postQuestion(t, s, out)
+	f.replies[ts] = []slackMessage{{User: "UOWNER", Text: "which branch?", TS: "1900000001.000001"}}
+	poll(t, s)
+	out.lines(t)
+	// The thread is answered, so it is not read again until bigm replies in it.
+	f.asked = nil
+	poll(t, s)
+	if len(f.asked) != 0 {
+		t.Fatalf("an answered thread was polled: %v", f.asked)
+	}
+	reply(t, s, ts, "main or release?")
+	out.lines(t)
+	f.replies[ts] = append(f.replies[ts], slackMessage{User: "UOWNER", Text: "main", TS: "1900000001.000002"})
+	poll(t, s)
+	msgs := out.lines(t)
+	if len(msgs) != 1 || msgs[0]["params"].(map[string]any)["content"] != "main" || msgs[0]["params"].(map[string]any)["meta"].(map[string]any)["question_id"] != "Q-7" {
+		t.Fatalf("messages = %v", msgs)
+	}
+}
+
+func TestSlackTopLevelThreadAndSubtypes(t *testing.T) {
+	s, f, out := setup(t, true)
+	f.history = []slackMessage{{User: "UOWNER", Text: "status?", TS: "1900000002.000001"}}
+	poll(t, s)
+	out.lines(t)
+	f.replies["1900000002.000001"] = []slackMessage{
+		{User: "UOWNER", Subtype: "file_share", Text: "see the screenshot", TS: "1900000002.000002"},
+		{User: "UOWNER", Subtype: "message_changed", Text: "edited", TS: "1900000002.000003"},
+	}
+	f.history = append(f.history, slackMessage{User: "UOWNER", Subtype: "thread_broadcast", Text: "also to the channel", TS: "1900000003.000001", ThreadTS: "1900000009.000001"})
+	poll(t, s)
+	var got []string
+	for _, m := range out.lines(t) {
+		p := m["params"].(map[string]any)
+		got = append(got, p["content"].(string)+" @"+p["meta"].(map[string]any)["thread_ts"].(string))
+	}
+	want := []string{"also to the channel @1900000009.000001", "see the screenshot @1900000002.000001"}
+	if len(got) != 2 || got[0] != want[0] || got[1] != want[1] {
+		t.Fatalf("messages = %q", got)
+	}
+}
+
+func TestSlackVerdictClosesRelayThread(t *testing.T) {
+	s, f, out := setup(t, true)
+	rpc(s, `{"jsonrpc":"2.0","method":"notifications/claude/channel/permission_request","params":{"request_id":"abcde","tool_name":"Bash","description":"d","input_preview":"p"}}`)
+	f.history = []slackMessage{{User: "UOWNER", Text: "yes abcde", TS: "1900000001.000001"}}
+	poll(t, s)
+	out.lines(t)
+	f.asked = nil
+	poll(t, s)
+	if len(f.asked) != 0 {
+		t.Fatalf("a closed relay thread was polled: %v", f.asked)
+	}
+}
+
+func TestSlackPollsNewestThreadFirst(t *testing.T) {
+	s, f, out := setup(t, true)
+	a := postQuestion(t, s, out)
+	b := postQuestion(t, s, out)
+	poll(t, s)
+	if len(f.asked) != 2 || f.asked[0] != b || f.asked[1] != a {
+		t.Fatalf("order = %v, want %s then %s", f.asked, b, a)
 	}
 }

@@ -30,7 +30,8 @@ claude --agent bruh:bigm --name bigm --permission-mode auto \
 
 - The server polls the Slack Web API: `conversations.history` for new top-level messages, and `conversations.replies` for each open question thread. The poll interval is 20 seconds (`SLACK_POLL_SECONDS`, minimum 5). Socket Mode needs a WebSocket client, and bruh uses only the Go standard library, so the server polls instead.
 - Only messages of the owner (`slack_owner_user_id`) reach the session. Messages of other people and of bots are dropped.
-- A question thread stays open for 7 days. The state is in `<plugin data folder>/channels/slack/state.json`.
+- The server polls a thread until the first message of the owner in it, or until the verdict of its permission prompt. A `reply` of bigm in a thread opens it again. A top-level message of the owner opens its thread too. The server polls the newest threads first. A question thread or a permission thread is dropped after 7 days, and another thread after one day. The state is in `<plugin data folder>/channels/slack/state.json`.
+- Replies that the owner also sends to the channel, and messages with a file, reach the session.
 - Permission relay: when bigm waits on a permission prompt, the server posts the tool, its description, and its input preview. The owner answers `yes <id>` or `no <id>`. The terminal prompt stays open, and the first answer wins. The relay reaches only the prompts of bigm, not the prompts of other sessions.
 
 ## Tools

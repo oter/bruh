@@ -38,10 +38,18 @@ func orEmpty(raw json.RawMessage) json.RawMessage {
 const threadLife = 7 * 24 * time.Hour
 
 type thread struct {
-	QuestionID string `json:"question_id,omitempty"` // empty for a permission prompt
+	QuestionID string `json:"question_id,omitempty"` // a question thread
+	RequestID  string `json:"request_id,omitempty"`  // a permission prompt thread
 	Last       string `json:"last"`                  // ts of the last message read
 	Opened     int64  `json:"opened"`                // Unix seconds
+	// Done stops the polling of a thread: after the first message of the owner in it, or after the
+	// verdict of its permission prompt. The reply tool opens it again.
+	Done bool `json:"done,omitempty"`
 }
+
+// A thread with no question and no permission prompt (a message of the owner, a reply of bigm)
+// is polled for one day only.
+const plainThreadLife = 24 * time.Hour
 
 type state struct {
 	Oldest  string             `json:"oldest"` // ts of the last top-level message read
@@ -112,10 +120,22 @@ func (s *server) save() error {
 	return os.Rename(tmp.Name(), file)
 }
 
-func (s *server) track(ts, questionID string) error {
+func (s *server) track(ts, questionID, requestID string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.st.Threads[ts] = &thread{QuestionID: questionID, Last: ts, Opened: s.now().Unix()}
+	s.st.Threads[ts] = &thread{QuestionID: questionID, RequestID: requestID, Last: ts, Opened: s.now().Unix()}
+	return s.save()
+}
+
+// reopen polls a thread again, and keeps its question ID and its read position when it is known.
+func (s *server) reopen(ts string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if t := s.st.Threads[ts]; t != nil {
+		t.Done, t.Opened = false, s.now().Unix()
+	} else {
+		s.st.Threads[ts] = &thread{Last: ts, Opened: s.now().Unix()}
+	}
 	return s.save()
 }
 
@@ -163,13 +183,16 @@ func (s *server) callTool(ctx context.Context, name string, raw json.RawMessage)
 		if err != nil {
 			return nil, err
 		}
-		return map[string]string{"thread_ts": ts}, s.track(ts, a.QuestionID)
+		return map[string]string{"thread_ts": ts}, s.track(ts, a.QuestionID, "")
 	case "reply":
 		if a.ThreadTS == "" || strings.TrimSpace(a.Text) == "" {
 			return nil, errors.New("reply needs thread_ts and text")
 		}
 		ts, err := s.api.post(ctx, s.cfg.Channel, a.ThreadTS, slackEscape.Replace(a.Text))
-		return map[string]string{"ts": ts}, err
+		if err != nil {
+			return nil, err
+		}
+		return map[string]string{"ts": ts}, s.reopen(a.ThreadTS) // read the answer of the owner to this reply
 	}
 	return nil, fmt.Errorf("unknown tool: %s", name)
 }
@@ -190,14 +213,16 @@ func (s *server) relay(ctx context.Context, raw json.RawMessage) error {
 	if err != nil {
 		return err
 	}
-	return s.track(ts, "")
+	return s.track(ts, "", p.RequestID)
 }
 
 // inbound handles one message. It drops a message of a bot or of a sender who is not on the
-// allowlist, turns a verdict into a permission notification, and forwards the rest.
-func (s *server) inbound(m slackMessage, threadTS, questionID string) {
-	if m.BotID != "" || m.Subtype != "" || !slices.Contains(s.cfg.Allowed, m.User) {
-		return
+// allowlist, turns a verdict into a permission notification, and forwards the rest. It returns
+// dropped, verdict, or forwarded.
+func (s *server) inbound(m slackMessage, threadTS, questionID string) int {
+	// Replies also sent to the channel and messages with a file are messages of the owner too.
+	if m.BotID != "" || !slices.Contains([]string{"", "thread_broadcast", "file_share"}, m.Subtype) || !slices.Contains(s.cfg.Allowed, m.User) {
+		return dropped
 	}
 	text := slackUnescape.Replace(m.Text)
 	if v := verdictRE.FindStringSubmatch(text); v != nil {
@@ -205,15 +230,30 @@ func (s *server) inbound(m slackMessage, threadTS, questionID string) {
 		if strings.HasPrefix(strings.ToLower(v[1]), "y") {
 			behavior = "allow"
 		}
-		s.notify("notifications/claude/channel/permission", map[string]string{"request_id": strings.ToLower(v[2]), "behavior": behavior})
-		return
+		id := strings.ToLower(v[2])
+		s.notify("notifications/claude/channel/permission", map[string]string{"request_id": id, "behavior": behavior})
+		s.mu.Lock()
+		for _, t := range s.st.Threads {
+			if t.RequestID == id {
+				t.Done = true
+			}
+		}
+		s.mu.Unlock()
+		return verdict
 	}
 	meta := map[string]string{"thread_ts": threadTS, "ts": m.TS, "user_id": m.User}
 	if questionID != "" {
 		meta["question_id"] = questionID
 	}
 	s.notify("notifications/claude/channel", map[string]any{"content": text, "meta": meta})
+	return forwarded
 }
+
+const (
+	dropped = iota
+	verdict
+	forwarded
+)
 
 func sortByTS(ms []slackMessage) {
 	slices.SortFunc(ms, func(a, b slackMessage) int {
@@ -243,11 +283,17 @@ func (s *server) poll(ctx context.Context) error {
 	oldest := s.st.Oldest
 	threads := map[string]thread{}
 	for ts, t := range s.st.Threads {
-		if s.now().Sub(time.Unix(t.Opened, 0)) > threadLife {
+		life := threadLife
+		if t.QuestionID == "" && t.RequestID == "" {
+			life = plainThreadLife
+		}
+		if s.now().Sub(time.Unix(t.Opened, 0)) > life {
 			delete(s.st.Threads, ts)
 			continue
 		}
-		threads[ts] = *t
+		if !t.Done {
+			threads[ts] = *t
+		}
 	}
 	s.mu.Unlock()
 
@@ -257,34 +303,56 @@ func (s *server) poll(ctx context.Context) error {
 	}
 	sortByTS(top)
 	for _, m := range top {
-		if !tsAfter(m.TS, oldest) || (m.ThreadTS != "" && m.ThreadTS != m.TS) {
-			continue // old, or a thread reply also sent to the channel
+		if !tsAfter(m.TS, oldest) {
+			continue
 		}
 		oldest = m.TS
-		s.inbound(m, m.TS, "")
+		thread := m.TS
+		if m.ThreadTS != "" && m.ThreadTS != m.TS {
+			// A reply also sent to the channel: the thread poll reads it when the thread is open.
+			if _, open := threads[m.ThreadTS]; open {
+				continue
+			}
+			thread = m.ThreadTS
+		}
+		s.mu.Lock()
+		questionID := ""
+		if t := s.st.Threads[thread]; t != nil {
+			questionID = t.QuestionID
+		}
+		s.mu.Unlock()
+		if s.inbound(m, thread, questionID) == forwarded && questionID == "" {
+			if err := s.reopen(thread); err != nil { // read the follow-ups of the owner in its thread
+				return err
+			}
+		}
 	}
 	s.mu.Lock()
 	s.st.Oldest = oldest
 	s.mu.Unlock()
 
-	for _, ts := range slices.Sorted(maps.Keys(threads)) {
+	// Newest threads first: after a rate limit, the current answers are read first.
+	order := slices.Sorted(maps.Keys(threads))
+	slices.Reverse(order)
+	for _, ts := range order {
 		t := threads[ts]
 		rs, err := s.api.replies(ctx, s.cfg.Channel, ts, t.Last)
 		if err != nil {
 			return err
 		}
 		sortByTS(rs)
-		last := t.Last
+		last, answered := t.Last, false
 		for _, m := range rs {
 			if m.TS == ts || !tsAfter(m.TS, last) {
-				continue // the question itself, or read before
+				continue // the parent message, or read before
 			}
 			last = m.TS
-			s.inbound(m, ts, t.QuestionID)
+			answered = s.inbound(m, ts, t.QuestionID) != dropped || answered
 		}
 		s.mu.Lock()
 		if cur := s.st.Threads[ts]; cur != nil {
 			cur.Last = last
+			cur.Done = cur.Done || answered
 		}
 		s.mu.Unlock()
 	}
