@@ -106,7 +106,7 @@ Read the last line of `deviations`:
 
 ## Relaunch
 
-1. Read your stored `args` text with `report_read` (your own role key, the last line that starts with `deliver args: `).
+1. Read your stored `args` text with `report_read` (your own role key, the last line that starts with `deliver args:`).
 2. After an answer, add the key `answers` to it: an object from each question ID to its answer text, for example `{"Q-7": "Use the existing table."}`. Keep each earlier answer in `answers`. Change nothing else. Store the new text with `report_write` (kind `event`, `deliver args: <JSON text>`).
 3. Run the Workflow tool with the workflow `bruh:deliver`, `resumeFromRunId` set to the run ID, and this `args` object. The agents before the question return their cached results. Only the agents after the question run again.
 

@@ -49,7 +49,7 @@ const REQUIRED = {
     'owed.md', 'rules.md', 'grants.md', 'questions.md', 'leases.md', 'priorities.md', 'clerk-ledger',
     'orca orchestration check --wait', 'orca orchestration worker-start', '${user_config.user_name}',
     'START: ', 'role-settings clanker-<project>', 'mcp__plugin_telegram_telegram__reply', 'chat_id',
-    'clerk-<project>-merge', '## Never without the owner',
+    'clerk-<project>-merge', 'has no section "Never without the owner"',
   ],
   clanker: [
     'session_launch', 'session_resume', 'session_list', 'mail_post', 'mail_read', 'role_settings_write',
