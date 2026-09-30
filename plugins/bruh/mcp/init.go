@@ -90,7 +90,7 @@ func (a *InitAnswers) normalize() error {
 	for _, g := range a.MergeGrants {
 		k, err := ParseRoleKey(g.Merger)
 		check(repoRE.MatchString(g.Repo), "merge_grants: repo must be owner/name: %q", g.Repo)
-		check(err == nil && k.Role == "clerk", "merge_grants: merger must be a clerk role key: %q", g.Merger)
+		check(err == nil && k.Role == "clerk" && k.Task == "merge", "merge_grants: merger must be the merger clerk key clerk-<project>-merge: %q", g.Merger)
 		check(oneLine(g.Conditions), "merge_grants: conditions are one line: %q", g.Conditions)
 	}
 	for _, e := range a.RemoteEnvironments {

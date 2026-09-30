@@ -41,6 +41,9 @@ func TestRoleSettingsWrite(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "BRUH_ROLE_KEY") {
 		t.Fatalf("err = %v", err)
 	}
+	// Final review m3: a child under another Claude Code config folder runs under another supervisor.
+	_, err = call(t, env, "role_settings_write", map[string]any{"role_key": "clanker-x", "env": map[string]string{"CLAUDE_CONFIG_DIR": "/tmp/other"}})
+	mustErr(t, err, "CLAUDE_CONFIG_DIR")
 	_, err = call(t, as(env, "clerk-a-1"), "role_settings_write", map[string]any{"role_key": "clanker-a"})
 	mustErr(t, err, "only its parent")
 }

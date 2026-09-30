@@ -49,6 +49,11 @@ func rolesTools() []Tool {
 				if _, ok := a.Env["BRUH_ROLE_KEY"]; ok {
 					return nil, errors.New("env must not set BRUH_ROLE_KEY; role_key sets it")
 				}
+				// A child under another config folder runs under another supervisor, so session_list
+				// and session_resume never find it (spec 4.1: bruh never sets it).
+				if _, ok := a.Env["CLAUDE_CONFIG_DIR"]; ok {
+					return nil, errors.New("env must not set CLAUDE_CONFIG_DIR; bruh never sets it (spec 4.1)")
+				}
 				out, err := roleSettings(c.Env.PluginRoot, key, a.Env, a.Deny)
 				if err != nil {
 					return nil, err

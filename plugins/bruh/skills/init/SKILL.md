@@ -25,10 +25,10 @@ You set up bruh for the user. You ask questions, then the bruh MCP server writes
 6. Auto-compact window in tokens, from 100000 to 1000000. (default 550000, which is 55 percent of a 1M window)
 7. Handoff threshold in percent of the context window. (default 50)
 8. Concurrency cap: the maximum number of busy clerks. (default 8)
-9. Wrap the current status line with the bruh tap? (default yes) Before you ask, read `statusLine.command` in `~/.claude/settings.json` with the Read tool. Show the current value, or "none". Show the new value: `'<data folder>/bin/statusline-tap.sh' '<current value>'`. Get the data folder from the `bruh_info` tool.
+9. Wrap the current status line with the bruh tap? (default yes) Before you ask, read `statusLine.command` in `~/.claude/settings.json` with the Read tool. Show the current value, or "none". Show the new value: `'<data folder>/bin/statusline-tap.sh' '<current value>'`. Get the data folder from the `bruh_info` tool. Tell the user: without the tap, no role gets the handoff message at the handoff threshold, because the message reads the context use from the tap files. The roles then write a handoff only when a message tells them to.
 10. Channels: `telegram`, `slack`, both, or none. (default none)
 11. Delegated P1 classes: the P1 question classes that a clanker can answer. One class for each line. (optional, default none)
-12. Merge grants: for each repository, the repository (`owner/name`), the merger role key (a clerk key, for example `clerk-my-app-merge`), and the conditions, for example "CI green and all review rounds passed". (optional, default none)
+12. Merge grants: for each repository, the repository (`owner/name`), the merger role key (the merger clerk `clerk-<project>-merge` of the project of the repository, for example `clerk-my-app-merge`), and the conditions, for example "CI green and all review rounds passed". (optional, default none)
 13. Remote machines: the names of the paired Orca environments that bigm can use. (optional, default none)
 
 ## Plan and apply

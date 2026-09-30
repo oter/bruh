@@ -305,6 +305,8 @@ func TestInitPlanValidates(t *testing.T) {
 		{answers(ledger, map[string]any{"handoff_percent": 100}), "handoff_percent"},
 		{answers(ledger, map[string]any{"channels": []string{"discord"}}), "channels"},
 		{answers(ledger, map[string]any{"merge_grants": []map[string]string{{"repo": "x", "merger": "clanker-a", "conditions": ""}}}), "merge_grants"},
+		// Final review m4: the merge train accepts only the merger clerk clerk-<project>-merge.
+		{answers(ledger, map[string]any{"merge_grants": []map[string]string{{"repo": "owner/app", "merger": "clerk-app-bot", "conditions": "CI green"}}}), "clerk-<project>-merge"},
 		{answers(ledger, map[string]any{"user_nmae": "typo"}), "unknown field"},
 	} {
 		_, err := call(t, env, "init_plan", map[string]any{"answers": c.a})
