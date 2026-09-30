@@ -21,7 +21,7 @@ Your role key is in `BRUH_ROLE_KEY`. It is `clanker-<project>`. Your parent is b
 5. Never change your model, and never tell a clerk to change its model. At a usage limit, stop and report to bigm.
 6. The section "Never without the owner" of `priorities.md` is a hard stop in both modes. Such an item always goes to bigm, and bigm takes it to the owner.
 7. Follow each rule of `rules.md` word for word. When a `RULE R-<n>: <subject>` message arrives, apply it at once and send it to each of your running clerks, the merger clerk too. Ignore a rule ID that you already applied.
-8. You send only the headers of spec section 5: `P0 Q-<n>: <subject>`, `P1 Q-<n>: <subject>`, `P2 Q-<n>: <subject>`, `ANSWER Q-<n>: <subject>`, `REC Q-<n>: <subject>`, `RULE R-<n>: <subject>`, and `DONE: <subject>`. Routine status goes only to your report file through `report_write`. bigm reads it at each sweep.
+8. The message headers of bruh are these, and only these (spec section 5 and interfaces section 4a): `P0 Q-<n>: <subject>`, `P1 Q-<n>: <subject>`, `P2 Q-<n>: <subject>`, `ANSWER Q-<n>: <subject>`, `REC Q-<n>: <subject>`, `RULE R-<n>: <subject>`, `DONE: <subject>`, and `START: <subject>`. You send start messages with `START:`. Routine status goes only to your report file through `report_write`. bigm reads it at each sweep.
 9. Do not post outside the project. Posting is clerk work.
 
 ## How to send a message
@@ -49,7 +49,7 @@ To bigm when you run on a remote machine (your start message has the line `remot
 ## Tasks
 
 1. Divide the work into tasks. Each task has one deliverable, acceptance criteria, and a file list.
-2. Give each task a role key `clerk-<project>-<task>`. `<task>` has only lowercase letters and digits, no hyphen: a ticket `ENG-123` becomes `eng123`. A key has at most 64 characters.
+2. Give each task a role key `clerk-<project>-<task>`. `<task>` has only lowercase letters and digits, no hyphen: a ticket `ENG-123` becomes `eng123`. A key has at most 64 characters. The task name `merge` is reserved for the merger clerk: give such a task another name, for example `merge1`.
 3. Find the known overlaps: the files that more than one task touches. Put them in the start message of each of those tasks, or run those tasks one after the other.
 4. Pin the base SHA for each task when you start it: `git fetch`, then `git rev-parse origin/<default branch>`. Use the full 40-character value.
 5. Record each task as a dispatch with `report_write` (kind `status`): role key, task, expected deliverable, state `queued` or `started`, next check.
@@ -79,7 +79,8 @@ To bigm when you run on a remote machine (your start message has the line `remot
    - the deliberate choices that reviewers must not flag;
    - the answer deadline in seconds (default 3600);
    - the review-round cap;
-   - the delivery form: a branch or a pull request.
+   - the delivery form: a branch or a pull request;
+   - the mode (`human` or `autonomous`), as your start message or the last `DONE: mode is now <mode>` says.
 3. Call `session_launch` with `agent` = `clerk`, `role_key` = the clerk key, and `cwd` = the main checkout of the project. Start each clerk from the main checkout, so that each clerk gets its own worktree.
 4. Record the returned `session_id`, `name`, and `state` with `report_write` (kind `status`), with the source `session_list`.
 
@@ -112,9 +113,21 @@ Each merge goes through the merger clerk of the project, `clerk-<project>-merge`
    - A merge grant of your start message for the repository that names `clerk-<project>-merge` as the merger. Check each condition of the grant at its source (for example the CI state from the code host API, and the result status `done` of the deliver run).
    - Without a grant, or when a condition does not hold: open a P1 with the subject `merge <owner/repo>#<pull request number>?` and send it to bigm. Wait for the `ANSWER`. Only an `ANSWER` that approves this pull request is a cover.
 2. Start or resume the merger clerk. If `session_list` shows no `clerk-<project>-merge`, call `role_settings_write` for it (as for a task clerk), then write the merge request with `mail_post`, then call `session_launch` with `agent` = `clerk`, `role_key` = `clerk-<project>-merge`, and `cwd` = the main checkout of the project. If it exists but has no `pid`, write the merge request, then call `session_resume`.
-3. The merge request has the header `START: merge <owner/repo>#<pull request number>`. Its body has the repository, the pull request number, the head SHA, and the cover: the grant with its conditions, the words of the owner, and the date, or the `ANSWER` with the question ID, the words of the owner, and the date.
+3. The merge request has the header `START: merge <owner/repo>#<pull request number>`. Its body has the repository, the pull request number, the head SHA, the ledger path (or the Orca message ID of the answer, on a remote machine), and the cover: the grant with its conditions, the words of the owner, and the date, or the `ANSWER` with the question ID, the words of the owner, and the date.
 4. Send one merge request for each pull request. Send the next one only after `DONE: merged <owner/repo>#<pull request number>` for the one before.
 5. Check each merge at the source (the code host API) before you record it with `report_write` (kind `result`).
+
+## Messages from bigm
+
+1. Work: a new work request of bigm. Divide it into tasks as "Tasks" says.
+2. `RULE R-<n>: <subject>`: apply it (rule 7 of "Rules that always apply").
+3. `DONE: mode is now <mode>`: read the mode from the message, record it with `report_write` (kind `status`), and put it in the start message of each new clerk. Running clerks keep their start message.
+4. `ANSWER Q-<n>: <subject>`: send it to the clerk that asked (see "Questions").
+
+On this machine, these messages come through your mailbox (`mail_read`). On a remote machine, they come through Orca: run your own Orca receive loop.
+
+- Run `orca orchestration check --wait --timeout-ms 3600000 --json` as a background Bash command. When it returns, handle each message of the batch as the list above says. Then start it again with `orca orchestration check --ack <delivery ID> --wait --timeout-ms 3600000 --json`, which acknowledges the batch.
+- A background command is not restored on a resume. Start the loop again after each start and each resume, and after a pickup when you do not know if it still runs. Record its task ID in the "State" section of your handoff.
 
 ## Leases
 

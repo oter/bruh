@@ -211,7 +211,7 @@ test('every header kind is in the allowed list of every agent', () => {
   for (const role of ROLES) {
     const line = agents[role].split('\n').find((l) => l.includes('The message headers of bruh are'))
     assert.ok(line, `agents/${role}.md has no header list`)
-    const allowed = new Set([...line.matchAll(/`([^`]+)`/g)].map((m) => kind(m[1])))
+    const allowed = new Set([...line.matchAll(/`((?:P[012]|ANSWER|REC|RULE|DONE|START)[^`]*: [^`]*)`/g)].map((m) => kind(m[1])))
     for (const k of used) assert.ok(allowed.has(k), `agents/${role}.md does not allow ${k}`)
   }
 })
