@@ -8,3 +8,7 @@ updates:
     directory: /plugins/bruh/mcp
     schedule:
       interval: weekly
+  - package-ecosystem: gomod
+    directory: /plugins/bruh/channels/slack
+    schedule:
+      interval: weekly

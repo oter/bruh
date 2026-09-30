@@ -203,17 +203,17 @@
 
 ## Deviations from the specification
 
-1. Script tests are Go tests (`scripts_test.go`), not `bats` (index deviation 1).
-2. `lease_request` refuses a request from bigm and stores the grantor, which the specification does not name. A request needs a grantor, and bigm has none.
-3. The ledger layout is written for each missing file, not only when the folder is empty. A new private repository on a code host often has a `README.md`, and an "only when empty" rule would then write nothing. No existing file is changed.
+1. Script tests are Go tests (`scripts_test.go`), not `bats` (index deviation 1). Agent-derived, needs owner decision (tag added by the final review, m11).
+2. `lease_request` refuses a request from bigm and stores the grantor, which the specification does not name. A request needs a grantor, and bigm has none. Agent-derived, needs owner decision (tag added by the final review, m11).
+3. The ledger layout is written for each missing file, not only when the folder is empty. A new private repository on a code host often has a `README.md`, and an "only when empty" rule would then write nothing. No existing file is changed. Agent-derived, needs owner decision (tag added by the final review, m11).
 4. `permissions.allow` lists each MCP tool by name and leaves out `init_apply`. A wildcard rule would let an agent write user settings without the user. Agent-derived, needs owner decision (options, ranked: 1. every tool except `init_apply`, as built; 2. the server wildcard `mcp__plugin_bruh_bruh__*`; 3. no MCP allow rules).
-5. `role_settings_write` lets bigm write its own `bigm` file. The specification (3.4) starts bigm with that file, and `Parent("bigm")` is empty.
+5. `role_settings_write` lets bigm write its own `bigm` file. The specification (3.4) starts bigm with that file, and `Parent("bigm")` is empty. Agent-derived, needs owner decision (tag added by the final review, m11).
 
 ## Agent-derived decisions (need owner decision)
 
 1. The previous status line command is kept inside `statusLine.command` as the quoted argument of the tap, not in a separate file. The user sees what is wrapped, one file holds the value, and unwrapping is one edit. Options, ranked: 1. an argument of the tap, as built; 2. a file `<data>/bin/statusline-previous`; 3. an environment variable in settings.
-2. `user_name` is not `required` in `userConfig`, so a container install does not stop at the dialog. init writes the value. Options: 1. not required, as built; 2. required.
-3. A merge grant from init fills the column "Owner words" of `grants.md` with the conditions text that the owner typed, and the column "Question ID" with `init`, because an init answer has no question ID. Options: 1. as built; 2. an extra answer field `words` for each grant; 3. leave both columns empty.
+2. `user_name` is not `required` in `userConfig`, so a container install does not stop at the dialog. init writes the value. Options, ranked: 1. not required, as built; 2. required.
+3. A merge grant from init fills the column "Owner words" of `grants.md` with the conditions text that the owner typed, and the column "Question ID" with `init`, because an init answer has no question ID. Options, ranked: 1. as built; 2. an extra answer field `words` for each grant; 3. leave both columns empty.
 4. `session_resume` refuses a live session (a `pid` in the agents entry). A live session gets a `SendMessage` nudge instead. Options, ranked: 1. refuse, as built; 2. send the prompt as a `SendMessage` nudge instead; 3. resume anyway, which starts a copy (probe G1).
 5. The plugin ID for `pluginConfigs` is `bruh@bruh` (the marketplace install of spec 18). A development load with `--plugin-dir` uses another ID, so the options set by init do not apply to it. Options, ranked: 1. `bruh@bruh` only, as built; 2. write the options for both `bruh@bruh` and `bruh@inline`; 3. an answer `plugin_id`.
 

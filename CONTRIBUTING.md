@@ -4,11 +4,15 @@ Thank you for your help. Read the [specification](docs/spec.md) before you chang
 
 ## Checks to run locally
 
-Run all checks before you open a pull request. CI runs the Go checks and `sh tests/test.sh` on macOS and Linux. CI runs shellcheck, Markdown lint, the link check, and `claude plugin validate` on Linux only. CI does not run the smoke test or the load test.
+Run all checks before you open a pull request. CI runs the Go checks of both Go modules, `sh tests/test.sh`, and the Node tests on macOS and Linux. CI runs shellcheck, Markdown lint, the link check, and `claude plugin validate` on Linux only. CI does not run the smoke test or the load test.
 
 ```bash
-# Go: the MCP server
+# Go: the MCP server and the Slack channel server
 cd plugins/bruh/mcp && test -z "$(gofmt -l .)" && go vet ./... && go test -race ./... && cd -
+cd plugins/bruh/channels/slack && test -z "$(gofmt -l .)" && go vet ./... && go test -race ./... && cd -
+
+# Node: the structural test of the agents and the tests of the deliver workflow
+node --test plugins/bruh/agents/agents_test.mjs plugins/bruh/workflows/deliver.test.mjs
 
 # Shell: the test library and the dry runs of the smoke test and the load test
 sh tests/test.sh
