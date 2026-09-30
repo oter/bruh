@@ -17,6 +17,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 )
 
 // pluginID is the ID of the marketplace install (spec 18): the key of pluginConfigs.
@@ -109,6 +110,7 @@ type plannedFile struct {
 // same session calls init_plan and init_apply, and a plan file on disk could be forged.
 type storedPlan struct {
 	answers InitAnswers
+	at      time.Time
 	files   []plannedFile
 	diffSHA string
 }
@@ -295,7 +297,8 @@ func fillLedgerFile(rel string, content []byte, a InitAnswers, pluginRoot, now s
 }
 
 // planInit computes every file that init would write. It writes nothing.
-func planInit(env Env, a InitAnswers) ([]plannedFile, error) {
+// planInit computes the files of init at the time at (the ledger rows carry it). It writes nothing.
+func planInit(env Env, a InitAnswers, at time.Time) ([]plannedFile, error) {
 	if env.DataDir == "" {
 		return nil, errors.New("BRUH_DATA is not set")
 	}
@@ -363,7 +366,7 @@ func planInit(env Env, a InitAnswers) ([]plannedFile, error) {
 	if err := add(filepath.Join(data, "init", "config.json"), 0o600, append(cfg, '\n')); err != nil {
 		return nil, err
 	}
-	now := env.Now().UTC().Format("2006-01-02T15:04:05Z") // the time format of the ledger
+	now := at.UTC().Format("2006-01-02T15:04:05Z") // the time format of the ledger
 	tmpl := filepath.Join(root, "ledger-template")
 	err = filepath.WalkDir(tmpl, func(p string, d fs.DirEntry, err error) error {
 		if err != nil || d.IsDir() {
@@ -431,7 +434,8 @@ func initPlanRun(env Env, a InitAnswers) (map[string]any, error) {
 	if err := a.normalize(); err != nil {
 		return nil, err
 	}
-	files, err := planInit(env, a)
+	at := env.Now()
+	files, err := planInit(env, a, at)
 	if err != nil {
 		return nil, err
 	}
@@ -441,7 +445,7 @@ func initPlanRun(env Env, a InitAnswers) (map[string]any, error) {
 	}
 	id := strings.ToLower(rand.Text()[:16])
 	plans.Lock()
-	plans.m[id] = &storedPlan{answers: a, files: files, diffSHA: sha256Hex(diff)}
+	plans.m[id] = &storedPlan{answers: a, at: at, files: files, diffSHA: sha256Hex(diff)}
 	plans.Unlock()
 	data, _ := filepath.Abs(env.DataDir)
 	paths := []string{}
@@ -471,7 +475,7 @@ func initApplyRun(env Env, id, diffSHA string) ([]string, error) {
 	if diffSHA != p.diffSHA {
 		return nil, errors.New("diff_sha256 is not the hash of the diff of this plan; show the diff of init_plan to the user and pass its diff_sha256")
 	}
-	now, err := planInit(env, p.answers)
+	now, err := planInit(env, p.answers, p.at)
 	if err != nil {
 		return nil, err
 	}

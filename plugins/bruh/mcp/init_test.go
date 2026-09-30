@@ -9,6 +9,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 )
 
 // initEnv returns an environment with a temporary plugin root that has copies of the real
@@ -411,5 +412,17 @@ func TestInitKeepsIndentation(t *testing.T) {
 		if strings.Contains(d, "-"+indent+"\"theme\"") || strings.Contains(d, "-"+indent+indent+"\"A\"") || !strings.Contains(d, "+"+indent+"\"autoCompactWindow\": 550000") {
 			t.Fatalf("indent %q diff:\n%s", indent, d)
 		}
+	}
+}
+
+func TestInitApplyAcrossASecond(t *testing.T) {
+	env, ledger := initEnv(t)
+	now := time.Date(2026, 9, 30, 10, 0, 0, 0, time.UTC)
+	env.Now = func() time.Time { return now }
+	p := plan(t, env, answers(ledger, nil))
+	now = now.Add(2 * time.Second)
+	apply(t, env, p)
+	if b, _ := os.ReadFile(filepath.Join(ledger, "mode.md")); !strings.Contains(string(b), "changed: 2026-09-30T10:00:00Z") {
+		t.Fatalf("mode.md:\n%s", b)
 	}
 }
