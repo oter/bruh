@@ -32,7 +32,7 @@ For a short check before the full hour:
 BRUH_TRUSTED_REPO=<scratch folder>/bruh-smoke-home sh tests/load/run.sh --sessions 2 --minutes 10
 ```
 
-Environment variables: `LOAD_RUN` sets the run ID, `LOAD_EVIDENCE` sets the evidence folder (default `$TMPDIR/bruh-load-<run>`), and `BRUH_TEST_DATA` sets the plugin data folder (default `~/.claude/plugins/data/bruh-inline`).
+Environment variables: `LOAD_RUN` sets the run ID (1 to 12 lowercase letters and digits), `LOAD_EVIDENCE` sets the evidence folder (default `$TMPDIR/bruh-load-<run>`), and `BRUH_TEST_DATA` sets the plugin data folder (default `~/.claude/plugins/data/bruh-inline`).
 
 ## What the driver does
 
@@ -55,13 +55,15 @@ Environment variables: `LOAD_RUN` sets the run ID, `LOAD_EVIDENCE` sets the evid
 The driver prints one line for each session and one result line:
 
 ```text
-clerk-load-<run>-s1: messages 31, read 31, missed 0, resumes 0, resumes with a new session ID 0
+clerk-load-<run>-s1: messages 31, read 31, missed 0, windows of 5 minutes with no message 0, resumes 0, resumes with a new session ID 0
 ...
-PASS load - no missed message, each resume kept its session ID
+PASS load - no missed message, each session got a message in each window, no resume happened
 ```
 
 - A message is missed when it is still unread at the end and was posted more than 5 minutes before the end.
-- The result is `FAIL` when a message is missed, when a session got no message after its start message (`no-traffic`), or when a resume started a new session ID (`new-session-id`).
+- The run is divided into windows of 5 minutes, or of 2 intervals when the interval is more than 2.5 minutes. The first window is the warm-up. Each session must get at least one message in each later window.
+- The result is `FAIL` when a message is missed, when a session has a window with no message (`gaps=<n>`), when a resume started a new session ID (`new-session-id`), or when the run is shorter than two windows (`too-short`).
+- The result line says "no resume happened" when the driver did not resume a session.
 
 The evidence folder keeps `results.txt`, `resumes.tsv`, and the log of each session.
 

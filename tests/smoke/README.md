@@ -36,8 +36,8 @@ BRUH_TRUSTED_REPO=<scratch folder>/bruh-smoke-home sh tests/smoke/run.sh --dry-r
 
 Before the run:
 
-- Stop your own bigm. The driver refuses to start when a live session named `bigm` runs, because the nudges of the test go to the name `bigm`.
-- The driver refuses to start when the plugin data folder of the checkout (`~/.claude/plugins/data/bruh-inline/`) already has bigm state, such as `mail/bigm/` or `handoffs/bigm.md`.
+- Stop your own bigm and your own `clerk-ledger`. These two role keys are fixed, and a nudge goes to a session name. The driver refuses to start when a live session has a name that the run uses: `bigm`, `clerk-ledger`, `clanker-smoke-<run>`, or a name that starts with `clerk-smoke-<run>-`.
+- The driver refuses to start when the plugin data folder of the checkout (`~/.claude/plugins/data/bruh-inline/`) already has state of `bigm` or `clerk-ledger`, such as `mail/bigm/` or `handoffs/bigm.md`.
 
 ## Environment variables
 
@@ -45,12 +45,12 @@ Before the run:
 |---|---|---|
 | `BRUH_TRUSTED_REPO` | none, required | The trusted repository of the one-time setup |
 | `SMOKE_STEP_MINUTES` | 30 | The timeout of each step |
-| `SMOKE_SWEEP_MINUTES` | 15 | The sweep interval of bigm. The P0 step waits this time plus 5 minutes. |
+| `SMOKE_SWEEP_MINUTES` | 15 | The time that the P0 step allows for one sweep, plus 5 minutes. The sweep of bigm runs every 15 minutes, and this value does not change it. Do not set a lower value. |
 | `SMOKE_IDLE_MINUTES` | 0 | 0: the driver stops the clanker with `claude stop`. A value above 60, for example 65: the driver waits for the idle stop of the supervisor. |
+| `SMOKE_RUN` | random | The run ID: 1 to 12 lowercase letters and digits. It is part of each role key, folder, and branch of the run. |
 | `SMOKE_ORCA_ENV` | none | A paired Orca environment for the remote step |
-| `SMOKE_ORCA_REPO` | none | The Orca repository selector for the remote step, for example `name:<repository>` |
+| `SMOKE_ORCA_REPO` | none | The Orca repository selector on the remote machine for the remote step, for example `name:<repository>`. Use a repository with no remote. |
 | `SMOKE_EVIDENCE` | `$TMPDIR/bruh-smoke-<run>` | The folder for the results and the session logs |
-| `SMOKE_RUN` | random | The run ID. It is part of each role key and branch name. |
 | `BRUH_TEST_DATA` | `~/.claude/plugins/data/bruh-inline` | The plugin data folder of the checkout |
 
 ## What the driver does
@@ -61,7 +61,7 @@ Setup:
 2. It adds two linked worktrees of `BRUH_TRUSTED_REPO` on new orphan branches: a project and a ledger.
 3. The project gets `TASK.md` with two tasks (`greet` and `gate`), `gate.sh`, and `.claude/settings.json` with the allow rules `Workflow(bruh:deliver)` and `mcp__plugin_bruh_bruh`, ask rules for `./gate.sh`, and the deny rule `Bash(git push:*)`.
 4. The ledger gets the ledger template of the plugin, with `mode: autonomous`, so that bigm decides the P1 question itself.
-5. It writes the bigm role settings with `role_settings_write`, and starts bigm in the ledger:
+5. It writes the bigm role settings with `role_settings_write`, and starts bigm in the ledger. The start prompt also tells bigm what to do when a session sends it `SMOKE-IDLE <word>` (the idle-resume step):
 
    ```bash
    CLAUDE_CODE_FORCE_SESSION_PERSISTENCE=1 claude --bg --agent bruh:bigm --name bigm \
@@ -79,19 +79,20 @@ Steps:
 | `deliver` | `claude logs` of the greet clerk contains `bruh:deliver` |
 | `p1-sent` | a file `questions/Q-<n>.json` with priority `P1` names the greet clerk |
 | `p1-bigm` | a message with the header `P1 Q-<n>:` is in the mailbox of bigm |
-| `answer-same-run` | the answer file of the question exists, the greet clerk sent `DONE:` to the clanker, and its log does not contain `resumeFromRunId` |
+| `answer-same-run` | the answer file of the question exists, the greet clerk sent `DONE:` to the clanker, its log does not contain `resumeFromRunId`, and the word in `GREETING.txt` (on a new branch or in a clerk worktree) is in the answer |
 | `p0-prompt` | the gate clerk waits on a permission prompt, and within one sweep the text `claude attach <gate clerk id>` is in a P0 question, a P0 message to bigm, a ledger file, or the output of bigm |
-| `idle-resume` | after the clanker process stops, the stand-in bigm posts a message and calls `session_resume`; the clanker gets a process under the same session ID and reads the message |
-| `remote` | `SKIP` when `SMOKE_ORCA_ENV` or `SMOKE_ORCA_REPO` is not set, or when the environment is not paired. Else a worker on the environment asks `P1 Q-1: smoke remote <run>` with `orca orchestration ask`, and the question is in `orca orchestration inbox`. Run the driver in an Orca terminal for this step. |
+| `idle-resume` | the driver stops the clanker, then a short `claude -p` session sends `SMOKE-IDLE <word>` to bigm. The real smoke bigm, not the driver, sends `DONE: smoke idle check <word>` to the clanker. PASS when the clanker has a process again under the same session ID, the message from bigm is in its `read/` folder, and the output of bigm shows `session_resume` (or `respawn`, when the driver stopped the clanker with `claude stop`) |
+| `remote` | `SKIP` when `SMOKE_ORCA_ENV` or `SMOKE_ORCA_REPO` is not set, or when the environment is not paired. Else the driver starts a worker on the environment (worktree `bruh-smoke-<run>`, no setup hooks) that starts a `claude -p --agent bruh:clanker`. The clanker asks `P1 Q-1: smoke remote <run>` with `orca orchestration ask`. The driver replies with a new random word. PASS when a message in `orca orchestration inbox` carries the rot13 form of that word, which only a session that got the reply can make. Run the driver in an Orca terminal for this step. |
 
 A step that needs a failed step prints `SKIP <step> - needs <step>`.
 
 Cleanup (also after a failure or Ctrl+C):
 
 1. It saves `claude logs` of each session of the run to the evidence folder.
-2. It stops each session whose name belongs to the run and whose folder is in the run folder, and checks that none has a process.
-3. It removes the scratch worktrees and the branches that the run created in `BRUH_TRUSTED_REPO`.
-4. It removes the bruh data files of the role keys of the run.
+2. It stops each session whose folder is in the run folder, and checks that none has a process. These are bigm, `clerk-ledger`, the clanker, the task clerks, a merger clerk, and the `claude -p` sessions of the driver.
+3. It removes the scratch worktrees. It deletes each new branch in `BRUH_TRUSTED_REPO` that does not contain the HEAD commit of that repository from before the run. A run branch starts from an orphan commit, so a branch that somebody made from HEAD during the run stays.
+4. It removes the bruh data files of the role keys of the run, including `bigm` and `clerk-ledger`.
+5. For the remote step, it stops the worker and removes the remote worktree with `orca worktree rm`.
 
 ## Read the result
 
@@ -105,7 +106,7 @@ PASS clanker
 SKIP remote - SMOKE_ORCA_ENV or SMOKE_ORCA_REPO is not set, so no Orca environment is paired for this run
 ```
 
-The exit code is 0 when no step failed. A `FAIL` line stops the release. Read the session logs in the evidence folder to find the cause.
+The exit code is 0 when no step failed. A `FAIL` line stops the release. A `SKIP` line exits 0, but a release with `SKIP remote` needs the go of the owner. Read the session logs in the evidence folder to find the cause.
 
 ## Release notes
 
@@ -116,4 +117,9 @@ Put `results.txt` into the release notes of the release (see the release checkli
 - bigm runs as a background session, not in a terminal, because a script cannot own a terminal. The scratch ledger is a linked worktree, so bigm does not move into a new worktree.
 - The test uses autonomous mode. The path where you answer in the bigm terminal is not in the test.
 - The allow rules come from the scratch project, not from `/bruh:init`.
-- The two clerks share the scratch project worktree.
+- Spec 20 has one clerk. The test has two clerks, because one task asks the P1 question and the other task waits on the permission prompt.
+- Each clerk makes its own worktree with `EnterWorktree` under `.claude/worktrees/` of the scratch project.
+- The idle stop is simulated with `claude stop` by default. `claude stop` sets the state `stopped`, which bigm treats as a failure and restarts with `claude respawn`, not with `session_resume`. Only `SMOKE_IDLE_MINUTES=65` tests the real idle stop and requires `session_resume`.
+- The scratch ledger is a copy of the ledger template of the plugin, not a ledger that `/bruh:init` made, because the non-interactive init also writes user settings.
+- The `deliver` step reads `claude logs`, which is not a stable interface. The text `bruh:deliver` can be in the log before the workflow runs. The later steps prove the run.
+- The remote step cannot prove that the session that answers is a bruh clanker. The rot13 word proves only that a session on the remote machine got the reply through Orca.
