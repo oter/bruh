@@ -6,14 +6,21 @@
 # one note of the fixes. A body that is already on the pull request is not posted
 # again, so a rerun after a partial failure posts only what is missing.
 #
-#   post-findings.sh [--dry-run] [--yes] [--data <folder>] gitlab|github <repo> <number> <result.json>
+#   post-findings.sh [--dry-run] [--yes] [--answer Q-<n>] [--data <folder>] gitlab|github <repo> <number> <result.json>
 #
 # A post is outward-facing and goes out under an account of the owner (spec 13).
-# Without --dry-run the script refuses unless it has --yes (the owner said yes to
-# this post) or the section "Post grants" of grants.md has a row for BRUH_ROLE_KEY
-# and the repository. It finds grants.md through ledger_path in
-# <data>/init/config.json, as the merge train does. This is a speed bump
-# (principle 2): a session with Bash can still post by other means.
+# Without --dry-run it needs a cover, checked by structure only:
+# - no BRUH_ROLE_KEY (a manual session of the owner): --yes, after the owner said yes;
+# - a role session: --answer Q-<n>, with a message from bigm in the mailbox of the
+#   caller whose header is exactly "ANSWER Q-<n>: post <repo>#<number> approved", or
+#   a row of the section "Post grants" of grants.md for BRUH_ROLE_KEY, the host, and
+#   the repository. --yes is refused in a role session.
+# It finds the mailbox and grants.md (through ledger_path in <data>/init/config.json)
+# in the data folder, as the merge train does. This is a speed bump (principle 2):
+# a session with Bash can still post by other means.
+#
+# A failed read of the comments that are on the pull request (any page) stops the
+# script before the first post, so a rerun never posts a body twice.
 #
 # Each body starts and ends with the marker line <!-- bruh:<role key> -->
 # (<!-- bruh:owner --> without BRUH_ROLE_KEY): the watcher reads the last line.
@@ -21,7 +28,7 @@
 # finding never passes through the shell, and glab gets no bracketed field names.
 set -eu
 
-usage='usage: post-findings.sh [--dry-run] [--yes] [--data <folder>] gitlab|github <repo> <number> <result.json>'
+usage='usage: post-findings.sh [--dry-run] [--yes] [--answer Q-<n>] [--data <folder>] gitlab|github <repo> <number> <result.json>'
 err() { printf 'post-findings.sh: %s\n' "$*" >&2; }
 bad() {
 	err "$*"
@@ -30,11 +37,17 @@ bad() {
 
 dry=0
 yes=0
+answer=
 data=${BRUH_DATA:-}
 while [ $# -gt 0 ]; do
 	case $1 in
 	--dry-run) dry=1 ;;
 	--yes) yes=1 ;;
+	--answer)
+		[ $# -ge 2 ] || bad "$usage"
+		answer=$2
+		shift
+		;;
 	--data)
 		[ $# -ge 2 ] || bad "$usage"
 		data=$2
@@ -56,7 +69,12 @@ gitlab) re='^([0-9]+|[A-Za-z0-9_.-]+(/[A-Za-z0-9_.-]+)+)$' cli=glab ;;
 github) re='^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$' cli=gh ;;
 *) bad "$usage" ;;
 esac
+case $repo in *"
+"*) bad "bad repository for $host: a newline" ;; esac
 printf '%s\n' "$repo" | grep -Eqx "$re" || bad "bad repository for $host: $repo"
+if [ -n "$answer" ]; then
+	printf '%s\n' "$answer" | grep -Eqx 'Q-[0-9]+' || bad "bad question ID: $answer"
+fi
 key=${BRUH_ROLE_KEY:-owner}
 case $key in '' | *[!a-z0-9-]*) bad "bad BRUH_ROLE_KEY: $key" ;; esac
 mark="<!-- bruh:$key -->"
@@ -70,26 +88,67 @@ jq -e '(.workflow == "review-only" or .workflow == "review-and-fix")
 		and ([.file, .rule, .problem, .fix, .severity, .lens] | all(type == "string")))' "$file" >/dev/null 2>&1 ||
 	bad "$file: needs workflow, summaries, refuted, and confirmed[] with file, line, lens, rule, severity, problem, fix"
 
+# config_ledger prints the ledger path of the init config of the data folder.
+config_ledger() { jq -r '.ledger_path // empty' "$data/init/config.json" 2>/dev/null; }
+
 # has_grant exits 0 when the "Post grants" section of grants.md has a row
-# | <role key> | <repository> | ... for BRUH_ROLE_KEY and the repository.
+# | <role key> | <host> | <repository> | ... for BRUH_ROLE_KEY, the host, and the repository.
 has_grant() {
-	[ -n "${BRUH_ROLE_KEY:-}" ] && [ -n "$data" ] || return 1
-	ledger=$(jq -r '.ledger_path // empty' "$data/init/config.json" 2>/dev/null) || return 1
+	[ -n "$data" ] || return 1
+	ledger=$(config_ledger) || return 1
 	[ -n "$ledger" ] && [ -f "$ledger/grants.md" ] || return 1
-	awk -v key="$BRUH_ROLE_KEY" -v repo="$repo" '
+	awk -v key="$BRUH_ROLE_KEY" -v host="$host" -v repo="$repo" '
 		function cell(s) { gsub(/^[ \t`]+|[ \t`]+$/, "", s); return s }
 		/^## / { post = ($0 ~ /^## Post grants[ \t]*$/); next }
-		post && /^\|/ { split($0, c, "|"); if (cell(c[2]) == key && cell(c[3]) == repo) found = 1 }
+		post && /^\|/ { split($0, c, "|"); if (cell(c[2]) == key && cell(c[3]) == host && cell(c[4]) == repo) found = 1 }
 		END { exit !found }' "$ledger/grants.md"
 }
-if [ "$dry" = 0 ] && [ "$yes" = 0 ] && ! has_grant; then
-	err "refused: a post is outward-facing and goes out under an account of the owner."
-	err "Pass --yes only after the owner said yes to this post, or ask the owner for a row in the section \"Post grants\" of grants.md for $key and $repo."
+
+# has_answer exits 0 when the mailbox of BRUH_ROLE_KEY (read or not) holds a message
+# from bigm with the exact approval header of this post.
+has_answer() {
+	[ -n "$data" ] && [ -n "$answer" ] || return 1
+	want="ANSWER $answer: post $repo#$num approved"
+	for m in "$data/mail/$BRUH_ROLE_KEY"/*.json "$data/mail/$BRUH_ROLE_KEY"/read/*.json; do
+		[ -f "$m" ] || continue
+		if jq -e --arg h "$want" '.from == "bigm" and .header == $h' "$m" >/dev/null 2>&1; then return 0; fi
+	done
+	return 1
+}
+
+refuse() {
+	err "refused: a post is outward-facing and goes out under an account of the owner. $*"
 	exit 3
+}
+if [ "$dry" = 0 ]; then
+	if [ -z "${BRUH_ROLE_KEY:-}" ]; then
+		[ "$yes" = 1 ] || refuse "In a manual session, pass --yes only after the owner said yes to this post."
+	else
+		[ "$yes" = 0 ] || refuse "--yes works only in a manual session of the owner; a role session needs --answer Q-<n> or a post grant."
+		if ! has_answer && ! has_grant; then
+			refuse "Ask bigm for the ANSWER \"ANSWER Q-<n>: post $repo#$num approved\" and pass --answer Q-<n>, or ask the owner for a row in the section \"Post grants\" of grants.md for $key, $host, and $repo."
+		fi
+	fi
 fi
 
 tmp=$(mktemp -d)
 trap 'rm -rf "$tmp"' EXIT
+
+# fetch <file> <command>: runs one read into its own file. Any failure (also of a
+# later page of --paginate) stops the script before the first post.
+fetch() {
+	out=$1
+	shift
+	if ! "$@" >"$out" 2>"$tmp/read-err.txt"; then
+		cat "$tmp/read-err.txt" >&2
+		err "could not read the comments of $repo#$num ($*); posted nothing"
+		exit 1
+	fi
+	jq -e . "$out" >/dev/null 2>&1 || {
+		err "the comments of $repo#$num are not JSON ($*); posted nothing"
+		exit 1
+	}
+}
 
 # Read the pull request and the bodies that are on it already.
 if [ "$host" = gitlab ]; then
@@ -101,16 +160,16 @@ if [ "$host" = gitlab ]; then
 	}
 	web_url=$(jq -r '.web_url' "$tmp/pr.json")
 	head=$(jq -r '.diff_refs.head_sha' "$tmp/pr.json")
-	glab api --paginate "$api/discussions" | jq -s '[.[][] | .notes[]? | .body]' >"$tmp/existing.json"
+	fetch "$tmp/page-discussions.json" glab api --paginate "$api/discussions"
+	jq -s '[.[][] | .notes[]? | .body]' "$tmp/page-discussions.json" >"$tmp/existing.json"
 else
 	api="repos/$repo"
 	gh api "$api/pulls/$num" >"$tmp/pr.json"
 	web_url=$(jq -r '.html_url' "$tmp/pr.json")
 	head=$(jq -r '.head.sha' "$tmp/pr.json")
-	{
-		gh api --paginate "$api/issues/$num/comments"
-		gh api --paginate "$api/pulls/$num/comments"
-	} | jq -s '[.[][] | .body]' >"$tmp/existing.json"
+	fetch "$tmp/page-issue.json" gh api --paginate "$api/issues/$num/comments"
+	fetch "$tmp/page-pull.json" gh api --paginate "$api/pulls/$num/comments"
+	jq -s '[.[][] | .body]' "$tmp/page-issue.json" "$tmp/page-pull.json" >"$tmp/existing.json"
 fi
 reviewed=$(jq -r '.head_sha // ""' "$file")
 stale=0

@@ -364,6 +364,16 @@ if [ "$method" = POST ]; then
 	exit 0
 fi
 case $path in
+*/discussions | */comments)
+	# FAKE_FAIL_PAGE2: print the first page, then fail on the second, as --paginate does.
+	if [ -n "${FAKE_FAIL_PAGE2:-}" ]; then
+		jq -s '[.[] | {notes: [{body}], body}] | .[:1]' "$FAKE_DIR/posted.jsonl"
+		echo "$tool: HTTP 502 on page 2" >&2
+		exit 1
+	fi
+	;;
+esac
+case $path in
 */discussions) jq -s '[.[] | {notes: [{body}]}]' "$FAKE_DIR/posted.jsonl" ;;
 */pulls/*/comments) jq -s '[.[] | select(has("path")) | {body}]' "$FAKE_DIR/posted.jsonl" ;;
 */issues/*/comments) jq -s '[.[] | select(has("path") | not) | {body}]' "$FAKE_DIR/posted.jsonl" ;;
@@ -398,7 +408,7 @@ marked() {
 }
 out=$(unset BRUH_ROLE_KEY; pf "$tmp/pf1" gitlab group/app 7 "$tmp/result.json" 2>&1; echo "exit $?")
 check "post-findings refuses without --yes or a post grant" contains "$out" "exit 3"
-check "post-findings refusal names the owner yes and the post grant" contains "$out" "Post grants"
+check "post-findings refusal in a manual session names --yes" contains "$out" "pass --yes only after the owner said yes"
 check "post-findings refusal posts nothing" eq "$(posts "$tmp/pf1")" 0
 check "post-findings refusal reads nothing from the code host" eq "$(grep -c . "$tmp/pf1/calls")" 0
 out=$(unset BRUH_ROLE_KEY; pf "$tmp/pf1" --dry-run gitlab group/app 7 "$tmp/result.json" 2>&1)
@@ -414,8 +424,23 @@ check "post-findings never runs finding text in a shell" not test -e "$tmp/pwned
 out=$(unset BRUH_ROLE_KEY; pf "$tmp/pf1" --yes gitlab group/app 7 "$tmp/result.json" 2>&1)
 check "post-findings rerun posts nothing new" eq "$(posts "$tmp/pf1")" 3
 check "post-findings rerun reports each body as already posted" contains "$out" "0 inline, 0 general, 0 failed, 2 already posted"
-BRUH_ROLE_KEY=clerk-app-t1 pf "$tmp/pf2" --yes gitlab group/app 7 "$tmp/result.json" >/dev/null 2>&1
+# A role session needs the approval ANSWER of bigm in its mailbox, or a post grant; --yes is refused.
+mkdir -p "$tmp/pfbox/mail/clerk-app-t1/read"
+jq -n '{id: "1", from: "clanker-app", to: "clerk-app-t1", header: "ANSWER Q-4: post group/app#7 approved", body: "yes"}' >"$tmp/pfbox/mail/clerk-app-t1/1.json"
+jq -n '{id: "2", from: "bigm", to: "clerk-app-t1", header: "ANSWER Q-5: post group/app#8 approved", body: "yes"}' >"$tmp/pfbox/mail/clerk-app-t1/2.json"
+jq -n '{id: "3", from: "bigm", to: "clerk-app-t1", header: "ANSWER Q-6: post group/app#7 refused", body: "no"}' >"$tmp/pfbox/mail/clerk-app-t1/3.json"
+out=$(BRUH_ROLE_KEY=clerk-app-t1 pf "$tmp/pf2" --yes gitlab group/app 7 "$tmp/result.json" 2>&1; echo "exit $?")
+check "post-findings refuses --yes in a role session" contains "$out" "exit 3"
+for q in Q-4 Q-5 Q-6 Q-9; do
+	out=$(BRUH_ROLE_KEY=clerk-app-t1 pf "$tmp/pf2" --data "$tmp/pfbox" --answer "$q" gitlab group/app 7 "$tmp/result.json" 2>&1; echo "exit $?")
+	check "post-findings refuses $q: not an approval of bigm for this post" contains "$out" "exit 3"
+done
+check "a refused post posts nothing" eq "$(posts "$tmp/pf2")" 0
+jq -n '{id: "4", from: "bigm", to: "clerk-app-t1", header: "ANSWER Q-7: post group/app#7 approved", body: "owner: yes"}' >"$tmp/pfbox/mail/clerk-app-t1/read/4.json"
+out=$(BRUH_ROLE_KEY=clerk-app-t1 pf "$tmp/pf2" --data "$tmp/pfbox" --answer Q-7 gitlab group/app 7 "$tmp/result.json" 2>&1; echo "exit $?")
+check "the approval ANSWER of bigm for this post allows it" contains "$out" "exit 0"
 check "post-findings marks each body with the role key" marked "$tmp/pf2" '<!-- bruh:clerk-app-t1 -->'
+check "post-findings refuses a bad question ID" not pf "$tmp/pf2" --answer 'Q-1 x' gitlab group/app 7 "$tmp/result.json"
 # A post grant row lets the named role key post without --yes; a merge grant row does not.
 mkdir -p "$tmp/pfdata/init" "$tmp/pfledger"
 jq -n --arg l "$tmp/pfledger" '{ledger_path: $l}' >"$tmp/pfdata/init/config.json"
@@ -430,14 +455,16 @@ cat >"$tmp/pfledger/grants.md" <<'MD'
 
 ## Post grants
 
-| Poster role key | Repository | Conditions | Owner words | Date (UTC) | Question ID |
-|---|---|---|---|---|---|
-| `clerk-app-t2` | `group/app` | review results | "post reviews" | 2026-09-30T10:00:00Z | Q-2 |
+| Poster role key | Host | Repository | Conditions | Owner words | Date (UTC) | Question ID |
+|---|---|---|---|---|---|---|
+| `clerk-app-t2` | gitlab | `group/app` | review results | "post reviews" | 2026-09-30T10:00:00Z | Q-2 |
 MD
 out=$(BRUH_ROLE_KEY=clerk-app-t1 pf "$tmp/pf3" --data "$tmp/pfdata" gitlab group/app 7 "$tmp/result.json" 2>&1; echo "exit $?")
 check "a merge grant row is not a post grant" contains "$out" "exit 3"
 out=$(BRUH_ROLE_KEY=clerk-app-t2 pf "$tmp/pf3" --data "$tmp/pfdata" gitlab group/other 7 "$tmp/result.json" 2>&1; echo "exit $?")
 check "a post grant covers only its repository" contains "$out" "exit 3"
+out=$(BRUH_ROLE_KEY=clerk-app-t2 pf "$tmp/pf3" --data "$tmp/pfdata" github group/app 7 "$tmp/result.json" 2>&1; echo "exit $?")
+check "a post grant covers only its host" contains "$out" "exit 3"
 out=$(BRUH_ROLE_KEY=clerk-app-t2 pf "$tmp/pf3" --data "$tmp/pfdata" gitlab group/app 7 "$tmp/result.json" 2>&1; echo "exit $?")
 check "a post grant row for the repository and the role key allows the post" contains "$out" "exit 0"
 check "the post grant posts each body" eq "$(posts "$tmp/pf3")" 3
@@ -458,6 +485,18 @@ jq '.status = "stopped"' "$tmp/result.json" >"$tmp/stopped.json"
 out=$(unset BRUH_ROLE_KEY; pf "$tmp/pf7" --yes gitlab group/app 7 "$tmp/stopped.json" 2>&1; echo "exit $?")
 check "post-findings refuses a stopped result" contains "$out" "exit 2"
 check "post-findings refuses a bad repository" not pf "$tmp/pf7" --yes github 'owner/app;x' 7 "$tmp/result.json"
+check "post-findings refuses a repository with a newline" not pf "$tmp/pf7" --yes github "owner/app
+../../orgs/x" 7 "$tmp/result.json"
+check "a refused repository reaches no code host" eq "$(grep -c . "$tmp/pf7/calls")" 0
+# A failed read of any page of the existing comments stops before the first post.
+for h in gitlab github; do
+	r=group/app
+	[ "$h" = github ] && r=owner/app
+	(unset BRUH_ROLE_KEY; pf "$tmp/pf9$h" --yes "$h" "$r" 7 "$tmp/result.json" >/dev/null 2>&1)
+	out=$(unset BRUH_ROLE_KEY; FAKE_FAIL_PAGE2=1 pf "$tmp/pf9$h" --yes "$h" "$r" 7 "$tmp/result.json" 2>&1; echo "exit $?")
+	check "a failed page 2 of the $h comments exits non-zero" not contains "$out" "exit 0"
+	check "a failed page 2 of the $h comments posts nothing" eq "$(posts "$tmp/pf9$h")" 3
+done
 check "post-findings refuses an unknown host" not pf "$tmp/pf7" --yes gitea owner/app 7 "$tmp/result.json"
 jq '.workflow = "review-and-fix" | .status = "findings_left" | .confirmed[0].state = "fixed" | .confirmed[1].state = "open" | .confirmed[1].round = 2' "$tmp/result.json" >"$tmp/fixed.json"
 out=$(unset BRUH_ROLE_KEY; pf "$tmp/pf8" --yes gitlab group/app 7 "$tmp/fixed.json" 2>&1)
