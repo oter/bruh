@@ -44,15 +44,22 @@ type fakeForge struct {
 }
 
 func newFakeForge(t *testing.T, kind string) (*fakeForge, repoConfig) {
-	t.Setenv("BRUH_TEST_TOKEN", "tok") // so no test reaches the gh fallback
+	// The fake runs on 127.0.0.1; name it as a GitHub host and give both hosts a token, so no
+	// test reaches the gh fallback.
+	t.Setenv("BRUH_GITHUB_HOSTS", "127.0.0.1")
+	t.Setenv("GITHUB_TOKEN", "tok")
+	t.Setenv("BRUH_GITEA_TOKEN_127_0_0_1", "tok")
 	f := &fakeForge{kind: kind, branches: map[string]string{}, pulls: map[int]*hostPull{}, statuses: map[string]fakeStatus{}, runs: map[string][]fakeRun{}}
-	srv := httptest.NewServer(f)
+	srv := httptest.NewTLSServer(f)
 	t.Cleanup(srv.Close)
+	old := hostHTTP
+	hostHTTP = srv.Client() // trusts the test certificate of every httptest TLS server
+	t.Cleanup(func() { hostHTTP = old })
 	api := srv.URL
 	if kind == "gitea" {
 		api += "/api/v1"
 	}
-	return f, repoConfig{Repo: "owner/repo", Host: kind, APIURL: api, TokenEnv: "BRUH_TEST_TOKEN", Project: "repo", MergeMethod: "squash"}
+	return f, repoConfig{Repo: "owner/repo", Host: kind, APIURL: api, Project: "repo", MergeMethod: "squash"}
 }
 
 func (f *fakeForge) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -175,11 +182,14 @@ func TestLoadRepos(t *testing.T) {
 	}
 	cfg, _ := loadRepos(dir)
 	gh, gt := cfg.Repos[0], cfg.Repos[1]
-	if cfg.IntervalSeconds != 60 || gh.APIURL != "https://api.github.com" || gh.TokenEnv != "GITHUB_TOKEN" || gh.Project != "app" || gh.MergeMethod != "merge" ||
-		gt.APIURL != "https://git.example.com/api/v1" || gt.TokenEnv != "GITEA_TOKEN" {
+	if cfg.IntervalSeconds != 60 || gh.APIURL != "https://api.github.com" || gh.Project != "app" || gh.MergeMethod != "merge" ||
+		gt.APIURL != "https://git.example.com/api/v1" {
 		t.Fatalf("cfg = %+v", cfg)
 	}
-	for _, bad := range []string{`{"repos":[{"repo":"x","host":"github"}]}`, `{"repos":[{"repo":"o/x","host":"gitea"}]}`, `{"repos":[{"repo":"o/x","host":"gitlab"}]}`, `{"repo":[]}`} {
+	for _, bad := range []string{`{"repos":[{"repo":"x","host":"github"}]}`, `{"repos":[{"repo":"o/x","host":"gitea"}]}`, `{"repos":[{"repo":"o/x","host":"gitlab"}]}`, `{"repo":[]}`,
+		`{"repos":[{"repo":"o/x","host":"github","api_url":"http://attacker.example.com"}]}`,
+		`{"repos":[{"repo":"o/x","host":"gitea","api_url":"https://u:p@git.example.com/api/v1"}]}`,
+		`{"repos":[{"repo":"o/x","host":"github","token_env":"GITHUB_TOKEN"}]}`} {
 		if err := write(bad); err == nil {
 			t.Errorf("%s: no error", bad)
 		}
@@ -252,24 +262,50 @@ func TestCodeHostMergeBodies(t *testing.T) {
 	}
 }
 
-func TestHostTokenFallback(t *testing.T) {
+func TestHostTokenGoesOnlyToItsHost(t *testing.T) {
 	gh := filepath.Join(t.TempDir(), "gh")
-	if err := os.WriteFile(gh, []byte("#!/bin/sh\n[ \"$*\" = \"auth token\" ] && echo gh-token\n"), 0o700); err != nil {
+	if err := os.WriteFile(gh, []byte("#!/bin/sh\n[ \"$*\" = \"auth token --hostname $WANT\" ] && echo gh-token\n"), 0o700); err != nil {
 		t.Fatal(err)
 	}
 	old := ghBin
 	ghBin = gh
 	t.Cleanup(func() { ghBin = old })
-	t.Setenv("BRUH_TEST_TOKEN", "")
-	if got := hostToken(repoConfig{Host: "github", TokenEnv: "BRUH_TEST_TOKEN"}); got != "gh-token" {
-		t.Fatalf("github token = %q", got)
+	tok := func(host, api string) string { return hostToken(repoConfig{Host: host, APIURL: api}) }
+	t.Setenv("GITHUB_TOKEN", "")
+	t.Setenv("BRUH_GITHUB_HOSTS", "ghe.example.com")
+	t.Setenv("WANT", "github.com")
+	if got := tok("github", "https://api.github.com"); got != "gh-token" {
+		t.Fatalf("github.com fallback = %q", got)
 	}
-	if got := hostToken(repoConfig{Host: "gitea", TokenEnv: "BRUH_TEST_TOKEN"}); got != "" {
-		t.Fatalf("gitea token = %q", got)
+	t.Setenv("WANT", "ghe.example.com")
+	if got := tok("github", "https://ghe.example.com/api/v3"); got != "gh-token" {
+		t.Fatalf("enterprise fallback = %q", got)
 	}
-	t.Setenv("BRUH_TEST_TOKEN", "env-token")
-	if got := hostToken(repoConfig{Host: "github", TokenEnv: "BRUH_TEST_TOKEN"}); got != "env-token" {
-		t.Fatalf("env token = %q", got)
+	t.Setenv("GITHUB_TOKEN", "env-token")
+	t.Setenv("BRUH_GITEA_TOKEN_GIT_EXAMPLE_COM", "gitea-token")
+	for _, c := range [][3]string{
+		{"github", "https://api.github.com", "env-token"},
+		{"github", "https://attacker.example.com", ""},
+		{"github", "http://api.github.com", ""},
+		{"gitea", "https://git.example.com/api/v1", "gitea-token"},
+		{"gitea", "https://attacker.example.com/api/v1", ""},
+		{"gitea", "https://api.github.com", ""},
+	} {
+		if got := tok(c[0], c[1]); got != c[2] {
+			t.Errorf("%s %s: token %q, want %q", c[0], c[1], got, c[2])
+		}
+	}
+}
+
+func TestReposEntryElsewhereGetsNoToken(t *testing.T) {
+	f, r := newFakeForge(t, "github")
+	t.Setenv("BRUH_GITHUB_HOSTS", "")
+	h, _ := newHost(r)
+	if _, err := h.Branches(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if f.auth[0] != "" {
+		t.Fatalf("a token went to %s: %q", r.APIURL, f.auth[0])
 	}
 }
 
@@ -282,7 +318,7 @@ func TestReposSet(t *testing.T) {
 	if err := set(env, map[string]any{"repo": "owner/app", "host": "github", "project": "app"}); err != nil {
 		t.Fatal(err)
 	}
-	if err := set(env, map[string]any{"repo": "o/x", "host": "gitea", "api_url": "https://git.example.com/api/v1", "token_env": "GITEA_TOKEN", "interval_seconds": 30}); err != nil {
+	if err := set(env, map[string]any{"repo": "o/x", "host": "gitea", "api_url": "https://git.example.com/api/v1", "interval_seconds": 30}); err != nil {
 		t.Fatal(err)
 	}
 	if err := set(env, map[string]any{"repo": "owner/app", "host": "github", "merge_method": "squash"}); err != nil {
@@ -293,7 +329,7 @@ func TestReposSet(t *testing.T) {
 		t.Fatalf("cfg = %+v, %v", cfg, err)
 	}
 	mustErr(t, set(env, map[string]any{"repo": "o/y", "host": "gitea"}), "api_url is required")
-	mustErr(t, set(env, map[string]any{"repo": "o/y", "host": "github", "token_env": "ghp_secret-value"}), "variable name")
+	mustErr(t, set(env, map[string]any{"repo": "o/y", "host": "github", "api_url": "http://attacker.example.com"}), "https")
 	mustErr(t, set(as(env, "clanker-a"), map[string]any{"repo": "o/y", "host": "github"}), "only bigm")
 	if err := set(env, map[string]any{"repo": "o/x", "remove": true}); err != nil {
 		t.Fatal(err)

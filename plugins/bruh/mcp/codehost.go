@@ -15,7 +15,6 @@ import (
 	"os/exec"
 	"path"
 	"path/filepath"
-	"regexp"
 	"slices"
 	"strconv"
 	"strings"
@@ -27,7 +26,6 @@ type repoConfig struct {
 	Repo        string `json:"repo"`
 	Host        string `json:"host"`
 	APIURL      string `json:"api_url"`
-	TokenEnv    string `json:"token_env"`
 	Project     string `json:"project"`
 	MergeMethod string `json:"merge_method"`
 }
@@ -62,16 +60,17 @@ func loadReposFile(file string) (reposConfig, error) {
 		switch r.Host {
 		case "github":
 			r.APIURL = cmp.Or(r.APIURL, "https://api.github.com")
-			r.TokenEnv = cmp.Or(r.TokenEnv, "GITHUB_TOKEN")
 		case "gitea":
 			if r.APIURL == "" {
 				return cfg, fmt.Errorf("%s: %s: api_url is required for gitea", file, r.Repo)
 			}
-			r.TokenEnv = cmp.Or(r.TokenEnv, "GITEA_TOKEN")
 		default:
 			return cfg, fmt.Errorf("%s: %s: host must be github or gitea: %q", file, r.Repo, r.Host)
 		}
 		r.APIURL = strings.TrimRight(r.APIURL, "/")
+		if u, err := url.Parse(r.APIURL); err != nil || u.Scheme != "https" || u.Hostname() == "" || u.User != nil || u.RawQuery != "" || u.Fragment != "" {
+			return cfg, fmt.Errorf("%s: %s: api_url must be an https URL with no user, query, or fragment: %q", file, r.Repo, r.APIURL)
+		}
 		r.Project = cmp.Or(r.Project, path.Base(r.Repo))
 		r.MergeMethod = cmp.Or(r.MergeMethod, "merge")
 	}
@@ -327,26 +326,61 @@ func (g *gitea) Merge(ctx context.Context, n int, sha, method string) error {
 // ghBin is the gh binary of the token fallback; tests replace it.
 var ghBin = "gh"
 
-// hostToken reads the token of a repository. For GitHub, `gh auth token` is the fallback.
+// hostHTTP is the HTTP client of the code host clients; tests replace it.
+var hostHTTP = &http.Client{Timeout: 30 * time.Second}
+
+// envHostKey turns a host name into the suffix of a per-host variable: GIT_EXAMPLE_COM.
+func envHostKey(host string) string {
+	return strings.Map(func(r rune) rune {
+		switch {
+		case r >= 'a' && r <= 'z':
+			return r - 'a' + 'A'
+		case r >= 'A' && r <= 'Z', r >= '0' && r <= '9':
+			return r
+		}
+		return '_'
+	}, host)
+}
+
+// hostToken returns the token for the api_url of a repository, and sends a token only to the
+// host it belongs to. GitHub: GITHUB_TOKEN, or `gh auth token --hostname`, only for
+// api.github.com or a host listed in BRUH_GITHUB_HOSTS (GitHub Enterprise). Gitea: only
+// BRUH_GITEA_TOKEN_<HOST> of that host. Any other api_url gets no token.
 func hostToken(r repoConfig) string {
-	if t := os.Getenv(r.TokenEnv); t != "" {
-		return t
-	}
-	if r.Host != "github" {
+	u, err := url.Parse(r.APIURL)
+	if err != nil || u.Scheme != "https" {
 		return ""
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-	out, err := exec.CommandContext(ctx, ghBin, "auth", "token").Output()
-	if err != nil {
-		return ""
+	host := strings.ToLower(u.Hostname())
+	switch r.Host {
+	case "gitea":
+		return os.Getenv("BRUH_GITEA_TOKEN_" + envHostKey(host))
+	case "github":
+		ghHost := "github.com"
+		if host != "api.github.com" {
+			listed := strings.FieldsFunc(strings.ToLower(os.Getenv("BRUH_GITHUB_HOSTS")), func(c rune) bool { return c == ',' || c == ' ' })
+			if !slices.Contains(listed, host) {
+				return ""
+			}
+			ghHost = host
+		}
+		if t := os.Getenv("GITHUB_TOKEN"); t != "" {
+			return t
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		out, err := exec.CommandContext(ctx, ghBin, "auth", "token", "--hostname", ghHost).Output()
+		if err != nil {
+			return ""
+		}
+		return strings.TrimSpace(string(out))
 	}
-	return strings.TrimSpace(string(out))
+	return ""
 }
 
 // newHost builds the client of one repository.
 func newHost(r repoConfig) (codeHost, error) {
-	c := rest{base: r.APIURL + "/repos/" + r.Repo, hc: &http.Client{Timeout: 30 * time.Second}}
+	c := rest{base: r.APIURL + "/repos/" + r.Repo, hc: hostHTTP}
 	tok := hostToken(r)
 	switch r.Host {
 	case "github":
@@ -363,15 +397,13 @@ func newHost(r repoConfig) (codeHost, error) {
 	return nil, errors.New("unknown host: " + r.Host)
 }
 
-var tokenEnvRE = regexp.MustCompile(`^[A-Z_][A-Z0-9_]*$`)
-
 func reposTools() []Tool {
 	str := stringSchema()
 	return []Tool{{
 		Name:        "repos_set",
-		Description: "Add, replace, or remove (remove: true) one repository in <data>/repos.json, the code host configuration of the watcher and the merge train. Only bigm. Tokens are never stored: token_env names the variable that holds the token.",
+		Description: "Add, replace, or remove (remove: true) one repository in <data>/repos.json, the code host configuration of the watcher and the merge train. Only bigm. api_url must be https. Tokens are never stored: GitHub uses GITHUB_TOKEN or gh only for api.github.com and the hosts of BRUH_GITHUB_HOSTS; Gitea uses BRUH_GITEA_TOKEN_<HOST>.",
 		InputSchema: objectSchema(map[string]any{
-			"repo": str, "host": map[string]any{"type": "string", "enum": []string{"github", "gitea"}}, "api_url": str, "token_env": str,
+			"repo": str, "host": map[string]any{"type": "string", "enum": []string{"github", "gitea"}}, "api_url": str,
 			"project": str, "merge_method": str, "remove": map[string]any{"type": "boolean"},
 			"interval_seconds": map[string]any{"type": "integer", "minimum": 10},
 		}, "repo"),
@@ -390,9 +422,6 @@ func reposTools() []Tool {
 			}
 			if err := json.Unmarshal(raw, &a); err != nil {
 				return nil, err
-			}
-			if a.TokenEnv != "" && !tokenEnvRE.MatchString(a.TokenEnv) {
-				return nil, fmt.Errorf("token_env must be a variable name: %q", a.TokenEnv)
 			}
 			var out any
 			err = c.Env.WithLock("repos", func() error {
