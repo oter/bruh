@@ -133,7 +133,7 @@ check "smoke dry run traps HUP" grep -q "trap 'exit 129' HUP" "$here/smoke/run.s
 check "load dry run traps HUP" grep -q "trap 'exit 129' HUP" "$here/load/run.sh"
 check "smoke dry run uses a linked worktree" contains "$out" "worktree add -q --detach"
 check "smoke dry run skips the remote step" contains "$out" "SKIP remote"
-check "smoke dry run stops own sessions in cleanup" contains "$out" "claude stop '<each session in the run folder>'"
+check "smoke dry run stops own sessions in cleanup" contains "$out" "claude stop '<each session in the run folder or in the clerk worktrees of the trusted repository>'"
 rout=$(BRUH_TRUSTED_REPO="$tmp/repo" SMOKE_RUN=dry1 SMOKE_ORCA_ENV=env1 SMOKE_ORCA_REPO=name:r sh "$here/smoke/run.sh" --dry-run 2>&1)
 check "smoke remote step starts a worker with no setup hooks" contains "$rout" "--setup skip --agent claude --spec"
 check "smoke remote step names the remote worktree" contains "$rout" "--name bruh-smoke-dry1"
@@ -225,7 +225,9 @@ mkdir -p "$tmp/sdata/roles"
 pout=$(smoke_fake 2>&1)
 check "smoke preflight refuses a live clerk-ledger of the owner" contains "$pout" "clerk-ledger (own1)"
 check "smoke preflight starts nothing when it refuses" not test -e "$tmp/fake/stops.txt"
-jq -n --arg l "$srun/ledger" --arg p "$srun/project" '[
+jq -n --arg l "$srun/ledger" --arg p "$srun/project" --arg t "$(cd "$tmp/strust" && pwd -P)" '[
+	{id: "gt1", name: "clerk-smoke-fk1-gate", pid: 5, cwd: ($t + "/.claude/worktrees/smoke-fk1-gate")},
+	{id: "oth1", name: "clerk-other-x", pid: 6, cwd: ($t + "/.claude/worktrees/x")},
 	{id: "bg1", name: "bigm", pid: 1, cwd: $l},
 	{id: "cl1", name: "clerk-ledger", pid: 2, cwd: $l},
 	{id: "mg1", name: "clerk-smoke-fk1-merge", pid: 3, cwd: ($p + "/.claude/worktrees/m")},
@@ -234,7 +236,8 @@ echo '[]' >"$tmp/fake/agents.json"
 FAKE_AGENTS_AFTER="$tmp/fake/agents-after.json" smoke_fake >"$tmp/fake/run.txt" 2>&1
 stops=$(sort "$tmp/fake/stops.txt" 2>/dev/null | words)
 check "smoke run reaches cleanup with the fake claude" contains "$(cat "$tmp/fake/run.txt")" "cleanup"
-check "smoke cleanup stops bigm, clerk-ledger, and a merger clerk of the run" eq "$stops" "bg1 cl1 mg1"
+check "smoke cleanup stops bigm, clerk-ledger, a merger clerk, and a clerk in a worktree of the trusted repository" eq "$stops" "bg1 cl1 gt1 mg1"
+check "smoke cleanup does not stop a clerk of another project in the trusted repository" not contains "$stops" oth1
 check "smoke cleanup does not stop the clerk-ledger of the owner" not contains "$stops" own1
 check "smoke cleanup removes the clerk-ledger data" not test -e "$tmp/sdata/mail/clerk-ledger"
 check "smoke cleanup removes the clerk-ledger role settings" not test -e "$tmp/sdata/roles/clerk-ledger.json"
