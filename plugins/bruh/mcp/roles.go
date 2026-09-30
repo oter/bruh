@@ -66,6 +66,8 @@ func rolesTools() []Tool {
 	}
 }
 
+const telegramPlugin = "telegram@claude-plugins-official"
+
 // roleSettings builds a role settings file: the plugin defaults, the extra env values and
 // deny rules, and BRUH_ROLE_KEY.
 func roleSettings(pluginRoot, key string, extraEnv map[string]string, extraDeny []string) ([]byte, error) {
@@ -105,6 +107,16 @@ func roleSettings(pluginRoot, key string, extraEnv map[string]string, extraDeny 
 	}
 	perms["deny"] = deny
 	settings["permissions"] = perms
+	// The Telegram server of the official plugin polls the bot at start and ends any other
+	// poller of the token, also in a session without --channels. Only bigm may hold the bot.
+	if key != "bigm" {
+		plugins, _ := settings["enabledPlugins"].(map[string]any)
+		if plugins == nil {
+			plugins = map[string]any{}
+		}
+		plugins[telegramPlugin] = false
+		settings["enabledPlugins"] = plugins
+	}
 	out, err := json.MarshalIndent(settings, "", "  ")
 	return append(out, '\n'), err
 }

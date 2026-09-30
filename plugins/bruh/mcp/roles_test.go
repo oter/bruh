@@ -73,3 +73,44 @@ func TestRoleSettingsWriteParentOnly(t *testing.T) {
 		}
 	}
 }
+
+// Final review B1: only bigm may load the Telegram plugin. Its server takes over the one
+// getUpdates poller of the bot token, so any other role session would steal the bot from bigm.
+func TestRoleSettingsDisableTelegramExceptBigm(t *testing.T) {
+	env := testEnv(t, "bigm")
+	telegram := func(path string) (bool, bool) {
+		t.Helper()
+		var s struct {
+			EnabledPlugins map[string]bool `json:"enabledPlugins"`
+		}
+		readJSON(t, path, &s)
+		v, ok := s.EnabledPlugins["telegram@claude-plugins-official"]
+		return v, ok
+	}
+	for caller, key := range map[string]string{"bigm": "clanker-a", "clanker-a": "clerk-a-1"} {
+		out, err := call(t, as(env, caller), "role_settings_write", map[string]any{"role_key": key})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if v, ok := telegram(out.(map[string]any)["path"].(string)); !ok || v {
+			t.Errorf("%s: telegram enabled = %v, set = %v; want false", key, v, ok)
+		}
+	}
+	for _, key := range []string{"clerk-ledger", "bigm"} {
+		out, err := call(t, env, "role_settings_write", map[string]any{"role_key": key})
+		if err != nil {
+			t.Fatal(err)
+		}
+		_, ok := telegram(out.(map[string]any)["path"].(string))
+		if want := key != "bigm"; ok != want {
+			t.Errorf("%s: telegram entry set = %v, want %v", key, ok, want)
+		}
+	}
+	var out, errOut strings.Builder
+	if code := runCLI([]string{"role-settings", "clanker-remote-b"}, env, &out, &errOut); code != 0 {
+		t.Fatalf("exit %d: %s", code, errOut.String())
+	}
+	if v, ok := telegram(strings.TrimSpace(out.String())); !ok || v {
+		t.Errorf("role-settings CLI: telegram enabled = %v, set = %v; want false", v, ok)
+	}
+}

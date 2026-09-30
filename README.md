@@ -127,6 +127,8 @@ Start bigm with `--channels plugin:telegram@claude-plugins-official` (step 7). S
 /telegram:access policy allowlist
 ```
 
+The bot allows only one reader. Each session that loads the Telegram plugin starts its server, and that server takes the bot from the session before it, also without `--channels`. The role settings of bruh turn the plugin off for every role except bigm. Your own other Claude Code sessions load it too: while bigm runs, turn the plugin off in them, for example with `--settings '{"enabledPlugins": {"telegram@claude-plugins-official": false}}'`.
+
 ### 5. Add a remote machine (optional)
 
 On the remote machine:
