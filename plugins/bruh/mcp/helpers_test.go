@@ -2,16 +2,21 @@ package main
 
 import (
 	"encoding/json"
+	"path/filepath"
 	"testing"
 	"time"
 )
 
 func testEnv(t *testing.T, role string) Env {
 	t.Helper()
+	home := t.TempDir()
 	return Env{
 		DataDir:          t.TempDir(),
 		RoleKey:          role,
 		PluginRoot:       "..",
+		Home:             home,
+		SettingsFile:     filepath.Join(home, ".claude", "settings.json"),
+		ClaudeBin:        filepath.Join(home, "no-claude-in-tests"),
 		PollInterval:     10 * time.Millisecond,
 		ProgressInterval: 30 * time.Millisecond,
 		Now:              time.Now,

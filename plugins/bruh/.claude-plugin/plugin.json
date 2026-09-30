@@ -2,7 +2,53 @@
   "name": "bruh",
   "version": "0.1.0-dev",
   "description": "Coordinate Claude Code sessions across projects and machines: bigm, clankers, clerks, and workflows.",
-  "author": { "name": "oter" },
+  "author": {
+    "name": "oter"
+  },
   "license": "Apache-2.0",
-  "repository": "https://github.com/oter/bruh"
+  "repository": "https://github.com/oter/bruh",
+  "userConfig": {
+    "user_name": {
+      "type": "string",
+      "title": "Your name",
+      "description": "How bruh addresses you. /bruh:init sets it."
+    },
+    "handoff_percent": {
+      "type": "number",
+      "title": "Handoff threshold (percent)",
+      "description": "At this context use, a role session updates its handoff.",
+      "default": 50,
+      "min": 1,
+      "max": 99
+    },
+    "max_busy_clerks": {
+      "type": "number",
+      "title": "Busy clerk cap",
+      "description": "The maximum number of clerks that work at the same time.",
+      "default": 8,
+      "min": 1
+    },
+    "slack_bot_token": {
+      "type": "string",
+      "title": "Slack bot token",
+      "description": "Bot token (xoxb-...) of the internal Slack app of bruh. Leave empty when you do not use Slack.",
+      "sensitive": true
+    },
+    "slack_channel_id": {
+      "type": "string",
+      "title": "Slack channel ID",
+      "description": "ID of the Slack channel where bigm posts P0 and P1 questions, for example C0123456789."
+    },
+    "slack_owner_user_id": {
+      "type": "string",
+      "title": "Your Slack user ID",
+      "description": "Only messages of this Slack user reach bigm, for example U0123456789."
+    }
+  },
+  "channels": [
+    {
+      "server": "slack",
+      "displayName": "Slack"
+    }
+  ]
 }

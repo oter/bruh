@@ -22,13 +22,15 @@ type Grant struct {
 }
 
 type Resource struct {
-	Capacity int     `json:"capacity"`
-	Grants   []Grant `json:"grants"`
+	Capacity int      `json:"capacity"`
+	Patterns []string `json:"patterns,omitempty"`
+	Grants   []Grant  `json:"grants"`
 }
 
 type LeaseRequest struct {
 	Resource  string `json:"resource"`
 	Requester string `json:"requester"`
+	Grantor   string `json:"grantor"`
 	At        string `json:"at"`
 }
 
@@ -109,8 +111,12 @@ func leaseTools() []Tool {
 	return []Tool{
 		{
 			Name:        "lease_define",
-			Description: "Define a shared resource and its capacity. Only bigm.",
-			InputSchema: objectSchema(map[string]any{"resource": stringSchema(), "capacity": map[string]any{"type": "integer", "minimum": 1}}, "resource", "capacity"),
+			Description: "Define a shared resource, its capacity, and the command prefixes that use it (the lease guard hook reads them). Only bigm.",
+			InputSchema: objectSchema(map[string]any{
+				"resource": stringSchema(),
+				"capacity": map[string]any{"type": "integer", "minimum": 1},
+				"patterns": map[string]any{"type": "array", "items": stringSchema(), "description": `Exact command prefixes, for example ["psql -h test-db", "make integration"]`},
+			}, "resource", "capacity"),
 			Handler: func(c *Call, raw json.RawMessage) (any, error) {
 				me, err := c.Env.Caller()
 				if err != nil {
@@ -120,11 +126,17 @@ func leaseTools() []Tool {
 					return nil, errors.New("only bigm defines resources")
 				}
 				a, err := decode[struct {
-					Resource string `json:"resource"`
-					Capacity int    `json:"capacity"`
+					Resource string   `json:"resource"`
+					Capacity int      `json:"capacity"`
+					Patterns []string `json:"patterns"`
 				}](raw)
 				if err != nil {
 					return nil, err
+				}
+				for _, p := range a.Patterns {
+					if strings.TrimSpace(p) != p || p == "" || len(p) > 200 || strings.ContainsAny(p, "\n\r\t") {
+						return nil, fmt.Errorf("invalid pattern: %q (one line, 1 to 200 characters, no white space at the start or the end)", p)
+					}
 				}
 				if _, err := checkID(a.Resource, resourceRE, "resource"); err != nil {
 					return nil, err
@@ -133,12 +145,15 @@ func leaseTools() []Tool {
 					return nil, errors.New("capacity must be 1 or more")
 				}
 				return withLeases(c.Env, func(st *LeaseState) (any, error) {
-					grants := []Grant{}
+					r := &Resource{Capacity: a.Capacity, Patterns: a.Patterns, Grants: []Grant{}}
 					if old, ok := st.Resources[a.Resource]; ok {
-						grants = old.Grants
+						r.Grants = old.Grants
+						if a.Patterns == nil {
+							r.Patterns = old.Patterns
+						}
 					}
-					st.Resources[a.Resource] = &Resource{Capacity: a.Capacity, Grants: grants}
-					return map[string]any{"resource": a.Resource, "capacity": a.Capacity}, nil
+					st.Resources[a.Resource] = r
+					return map[string]any{"resource": a.Resource, "capacity": r.Capacity, "patterns": r.Patterns}, nil
 				})
 			},
 		},
@@ -157,12 +172,17 @@ func leaseTools() []Tool {
 				if err != nil {
 					return nil, err
 				}
+				k, _ := ParseRoleKey(me)
+				grantor := k.Parent()
+				if grantor == "" {
+					return nil, errors.New("bigm has no grantor; bigm defines resources with lease_define")
+				}
 				return withLeases(c.Env, func(st *LeaseState) (any, error) {
 					if _, err := resourceOf(st, a.Resource); err != nil {
 						return nil, err
 					}
 					at := c.Env.Stamp()
-					st.Requests = append(st.Requests, LeaseRequest{Resource: a.Resource, Requester: me, At: at})
+					st.Requests = append(st.Requests, LeaseRequest{Resource: a.Resource, Requester: me, Grantor: grantor, At: at})
 					return map[string]string{"at": at}, nil
 				})
 			},
@@ -184,18 +204,20 @@ func leaseTools() []Tool {
 				if err != nil {
 					return nil, err
 				}
-				if _, err := checkKey(a.To, "role key"); err != nil {
+				to, err := ParseRoleKey(a.To)
+				if err != nil {
 					return nil, err
 				}
+				caller, _ := ParseRoleKey(me)
 				return withLeases(c.Env, func(st *LeaseState) (any, error) {
 					r, err := resourceOf(st, a.Resource)
 					if err != nil {
 						return nil, err
 					}
 					until := c.Env.Now().Add(time.Duration(a.Minutes * float64(time.Minute))).UTC().Format(stampLayout)
-					switch {
-					case me == "bigm":
-						if !strings.HasPrefix(a.To, "clanker-") {
+					switch caller.Role {
+					case "bigm":
+						if to.Role != "clanker" {
 							return nil, errors.New("bigm grants only to clankers")
 						}
 						active := 0
@@ -207,9 +229,8 @@ func leaseTools() []Tool {
 						if active >= r.Capacity {
 							return nil, fmt.Errorf("resource %s is at capacity %d", a.Resource, r.Capacity)
 						}
-					case strings.HasPrefix(me, "clanker-"):
-						project := strings.TrimPrefix(me, "clanker-")
-						if !strings.HasPrefix(a.To, "clerk-"+project+"-") {
+					case "clanker":
+						if to.Role != "clerk" || to.Parent() != me {
 							return nil, errors.New("a clanker grants only to its own clerks")
 						}
 						i := slices.IndexFunc(r.Grants, func(g Grant) bool { return g.Holder == me && g.Grantor == "bigm" })

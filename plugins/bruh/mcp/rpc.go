@@ -13,6 +13,7 @@ type Tool struct {
 	Name        string
 	Description string
 	InputSchema map[string]any
+	Meta        map[string]any // the _meta of the tools/list entry
 	Handler     func(c *Call, args json.RawMessage) (any, error)
 }
 
@@ -123,7 +124,11 @@ func (s *Server) handle(env Env, req request) {
 	case "tools/list":
 		list := make([]map[string]any, 0, len(s.tools))
 		for _, t := range s.tools {
-			list = append(list, map[string]any{"name": t.Name, "description": t.Description, "inputSchema": t.InputSchema})
+			entry := map[string]any{"name": t.Name, "description": t.Description, "inputSchema": t.InputSchema}
+			if t.Meta != nil {
+				entry["_meta"] = t.Meta
+			}
+			list = append(list, entry)
 		}
 		s.result(req.ID, map[string]any{"tools": list})
 	case "tools/call":

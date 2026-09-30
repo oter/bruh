@@ -37,10 +37,39 @@ func TestRoleSettingsWrite(t *testing.T) {
 	if !slices.Contains(s.Permissions.Deny, "Bash(docker volume rm:*)") || !slices.Contains(s.Permissions.Deny, "Bash(rm -rf /:*)") {
 		t.Fatalf("deny = %v", s.Permissions.Deny)
 	}
-	_, err = call(t, env, "role_settings_write", map[string]any{"role_key": "x", "env": map[string]string{"BRUH_ROLE_KEY": "bigm"}})
+	_, err = call(t, env, "role_settings_write", map[string]any{"role_key": "clanker-x", "env": map[string]string{"BRUH_ROLE_KEY": "bigm"}})
 	if err == nil || !strings.Contains(err.Error(), "BRUH_ROLE_KEY") {
 		t.Fatalf("err = %v", err)
 	}
 	_, err = call(t, as(env, "clerk-a-1"), "role_settings_write", map[string]any{"role_key": "clanker-a"})
-	mustErr(t, err, "only bigm or a clanker writes role settings")
+	mustErr(t, err, "only its parent")
+}
+
+func TestRoleSettingsWriteParentOnly(t *testing.T) {
+	env := testEnv(t, "bigm")
+	w := func(caller, target string) error {
+		_, err := call(t, as(env, caller), "role_settings_write", map[string]any{"role_key": target})
+		return err
+	}
+	for _, c := range []struct {
+		caller, target string
+		ok             bool
+	}{
+		{"bigm", "clanker-a", true},
+		{"bigm", "clerk-ledger", true},
+		{"bigm", "bigm", true},
+		{"bigm", "clerk-a-1", false},
+		{"clanker-a", "clerk-a-1", true},
+		{"clanker-a", "clerk-ab-1", false},
+		{"clanker-a", "clerk-a-b-1", false},
+		{"clanker-a", "clanker-b", false},
+		{"clanker-a", "clanker-a", false},
+		{"clerk-a-1", "clerk-a-2", false},
+		{"clerk-ledger", "clerk-ledger", false},
+	} {
+		err := w(c.caller, c.target)
+		if (err == nil) != c.ok {
+			t.Errorf("%s writes %s: err = %v, want ok = %v", c.caller, c.target, err, c.ok)
+		}
+	}
 }
