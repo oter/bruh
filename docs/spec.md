@@ -210,7 +210,7 @@ Owner decision 2026-09-30: the plugin includes the bruh-implement skillset of th
 - The skill is the procedure of rule zero: the orchestrating session never edits code. Each change is a brief to an implementer agent and a review by a separate agent with the review guides, in a fix loop. For a settled spec with many changes, the pipeline is: review guides, function-sized TDD tickets, execution waves, lanes, a whole-branch gate, and a multi-lens review whose findings are refuted before they count.
 - Workflows: `/bruh:tickets` (ticket breakdown), `/bruh:implement-tickets` (waves and lanes), `/bruh:review-and-fix` (review, refute, and fix of the own change), and `/bruh:review-only` (review and refute of a change that bruh did not write). Each takes its paths in `args`.
 - Scripts: `scripts/lane.sh` (a private lane copy of the tree for a ticket, its patch, and its merge back) and `scripts/post-findings.sh` (posts a saved review result on the pull request or merge request).
-- No workflow posts outside the project (section 6.1). A workflow returns its findings. A session posts them with `post-findings.sh` after the owner said yes to the post, or under a post grant in `grants.md`. A post goes out under an account of the owner, so it is on the never-without-the-owner list (section 13). Each post opens with the structural marker of section 9.2.
+- No workflow posts outside the project (section 6.1). A workflow returns its findings. A session saves the result with the MCP tool `result_save` and posts it with `post-findings.sh` after the owner approved the post (an `ANSWER` of bigm with the header `ANSWER Q-<n>: post <owner/repo>#<number> approved`, or a yes in the terminal of a manual session), or under a post grant in `grants.md`. A post goes out under an account of the owner, so it is on the never-without-the-owner list (section 13). Each post opens with the structural marker of section 9.2.
 - In a role session, `/bruh:implement` runs inside a clerk. In a manual session of the owner, the owner is the orchestrator and answers each ask in the terminal.
 - The published files contain no project names, account names, host names, or ticket names of the setup of the owner.
 
@@ -347,7 +347,7 @@ Owner decision 2026-09-29: P0 and P1 questions can go through chat channels. bru
 
 Agent-derived, accepted 2026-09-30, except where tagged. The list is data in `priorities.md`, shipped as a default and copied by the init skill. It is a hard stop in both modes. Owner decision 2026-09-29.
 
-- An irreversible or outward-facing action: publish, deploy, delete, send, merge (except under a merge grant).
+- An irreversible or outward-facing action: publish, deploy, delete, send, merge (except under a merge grant), post a review result on a pull request (except under a post grant, section 6.4). A post grant, like a merge grant, is an answer that the owner gives in advance for one repository and one role key. Agent-derived, needs owner decision: the post grant.
 - Deletes and cleanup of anything that is not a temporary file of the session. In the setup of the owner, a coordinator deleted 116 volumes against its own memory note.
 - A model change (section 3.3).
 - A write under the personal identity of the owner, or with a credential whose identity nobody checked. The identity goes into the project file. Owner decision 2026-09-29.
@@ -528,4 +528,5 @@ All numbered questions of version 0.3 are decided. Their answers are in design.m
 ## 24. Changes from version 0.4
 
 - Owner decision 2026-09-30: the implement skillset of the setup of the owner is part of the plugin (section 6.4). The review of pull requests that bruh did not write moves from section 21 into version 0.1, as `/bruh:review-only`.
+- Section 13 gets the post grant, the counterpart of the merge grant for posts of review results.
 - Premise changed: section 21 excluded `review-only`. Dependent decisions re-decided: the plugin layout of section 17 lists the new files; the posting rule of section 6.1 stays and now also covers the review workflows, so the posting step of the setup of the owner moves out of the workflows into a session step with the owner yes or a post grant.
