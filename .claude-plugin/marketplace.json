@@ -1,6 +1,7 @@
 {
   "name": "bruh",
   "owner": { "name": "oter" },
+  "description": "Claude Code plugins for coordinating sessions across projects and machines.",
   "plugins": [
     {
       "name": "bruh",

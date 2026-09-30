@@ -1,3 +1,4 @@
 *.tmp
 .remember/
 plugins/bruh/mcp/mcp
+.superpowers/

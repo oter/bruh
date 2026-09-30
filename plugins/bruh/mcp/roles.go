@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 )
 
 func rolesTools() []Tool {
@@ -23,8 +24,12 @@ func rolesTools() []Tool {
 				"required": []string{"role_key"},
 			},
 			Handler: func(c *Call, raw json.RawMessage) (any, error) {
-				if _, err := c.Env.Caller(); err != nil {
+				me, err := c.Env.Caller()
+				if err != nil {
 					return nil, err
+				}
+				if me != "bigm" && !strings.HasPrefix(me, "clanker-") {
+					return nil, errors.New("only bigm or a clanker writes role settings")
 				}
 				a, err := decode[struct {
 					RoleKey string            `json:"role_key"`

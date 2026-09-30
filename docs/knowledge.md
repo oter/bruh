@@ -6,10 +6,10 @@ Verified on 2026-09-27 with Claude Code 2.1.280 and Orca 1.4.209.
 
 ## Context window and compaction
 
-- `autoCompactWindow` (settings), `--autocompact` (CLI flag), and `CLAUDE_CODE_AUTO_COMPACT_WINDOW` (environment variable) set how full the context gets before automatic compaction. The environment variable has the highest precedence, then the flag, then the setting. Source: https://code.claude.com/docs/en/model-config.md, "Set the auto-compact window".
+- `autoCompactWindow` (settings), `--autocompact` (CLI flag), and `CLAUDE_CODE_AUTO_COMPACT_WINDOW` (environment variable) set how full the context gets before automatic compaction. The environment variable has the highest precedence, then the flag, then the setting. Source: <https://code.claude.com/docs/en/model-config.md>, "Set the auto-compact window".
 - The value is a token count from 100K to 1M, not a percent. Claude Code caps it at the context window of the model. A value of 550000 gives 55 percent on a 1M model only. On a 200K model the cap makes the value equal to the full window. Source: same section.
 - Without a setting, a 1M model compacts at about 967K tokens. Source: same page, "Sonnet 5 context window".
-- `SessionStart` fires again after compaction, with `source` equal to `compact`. Its hook can return `hookSpecificOutput.additionalContext`. Source: https://code.claude.com/docs/en/hooks.md, SessionStart input and decision control.
+- `SessionStart` fires again after compaction, with `source` equal to `compact`. Its hook can return `hookSpecificOutput.additionalContext`. Source: <https://code.claude.com/docs/en/hooks.md>, SessionStart input and decision control.
 - `PreCompact` has the matchers `manual` and `auto`. It can block a proactive automatic compaction. Claude Code discards its `systemMessage`, so it cannot instruct the agent. Source: hooks.md, PreCompact.
 - `PostCompact` receives `compact_summary`. It has no decision control. Source: hooks.md, PostCompact.
 - A `PostToolUse` hook can return `hookSpecificOutput.additionalContext` to give Claude a message after a tool call. Source: hooks.md, PostToolUse.
@@ -17,18 +17,18 @@ Verified on 2026-09-27 with Claude Code 2.1.280 and Orca 1.4.209.
 - `SessionStart` matcher values are `startup`, `resume`, `clear`, `compact`, and `fork`. Source: hooks.md, matcher table.
 - Plugin hooks also run inside subagents. `PostToolUse` then fires for the tool calls of the subagent, and the input contains `agent_id`. The main conversation has no `agent_id`. Source: hooks.md.
 - Claude Code caps `additionalContext` at 10,000 characters. For a longer value, Claude gets a file path and a preview of the first 2,000 characters. Source: hooks.md.
-- The status line input contains `context_window.used_percentage` and `session_id`. The `session_id` is stable for the life of a session. Source: https://code.claude.com/docs/en/statusline.md.
+- The status line input contains `context_window.used_percentage` and `session_id`. The `session_id` is stable for the life of a session. Source: <https://code.claude.com/docs/en/statusline.md>.
 - `context_window.used_percentage` can be `null` early in a session. `context_window.current_usage` is `null` after `/compact` until the next API call. Source: statusline.md.
 - The status line runs on events with a 300 ms debounce. It can go quiet while the session is idle. `refreshInterval` adds a timer. Source: statusline.md, "When it updates".
 - No documented mechanism lets one session start compaction in another session.
 
 ## Cross-session messaging
 
-- Cross-session messaging does not use TCP. Source for all items in this section: https://code.claude.com/docs/en/cross-session-messaging.md.
+- Cross-session messaging does not use TCP. Source for all items in this section: <https://code.claude.com/docs/en/cross-session-messaging.md>.
 - On one machine, each session binds a Unix domain socket (a named pipe on Windows). Claude Code exports its path as `CLAUDE_CODE_MESSAGING_SOCKET` and restricts it to the operating-system user.
 - To a session on another machine, a message goes through Anthropic servers over Remote Control. Both ends need a sign-in with a Claude account and Remote Control. Without Remote Control on the sender, the message has no reply address.
 - Messages are plain text.
-- Before a send on the same machine, Claude Code checks that the process that holds the target socket is the target session. A forwarded socket fails with `connected endpoint is not the expected process`. Source: https://code.claude.com/docs/en/errors.md, "Refusing to send a cross-session message".
+- Before a send on the same machine, Claude Code checks that the process that holds the target socket is the target session. A forwarded socket fails with `connected endpoint is not the expected process`. Source: <https://code.claude.com/docs/en/errors.md>, "Refusing to send a cross-session message".
 - Only the auth line of the socket protocol is documented: `{"type":"auth","token":"<CLAUDE_CODE_MESSAGING_TOKEN>"}`. The message line format is not documented.
 - `crossSessionInbound` (`accept`, `hold`, `refuse`) controls inbound messages. Without a value, a session that bypasses permission prompts holds a message from a session that does not bypass them.
 - `isolatePeerMachines: true` requires approval before a message leaves the machine.
@@ -46,16 +46,16 @@ Verified on 2026-09-27 with Claude Code 2.1.280 and Orca 1.4.209.
 
 ## Claude Code plugins
 
-- A plugin can ship skills, agents, commands, hooks, MCP servers, and `userConfig` values that Claude Code prompts for when the plugin is enabled. Hook commands can reference `${CLAUDE_PLUGIN_ROOT}`. Source: https://code.claude.com/docs/en/plugins-reference.md.
+- A plugin can ship skills, agents, commands, hooks, MCP servers, and `userConfig` values that Claude Code prompts for when the plugin is enabled. Hook commands can reference `${CLAUDE_PLUGIN_ROOT}`. Source: <https://code.claude.com/docs/en/plugins-reference.md>.
 - A plugin `settings.json` applies only the keys `agent` and `subagentStatusLine`. Claude Code drops all other keys at load. A plugin cannot set `autoCompactWindow` or `statusLine`. Source: plugins-reference.md, `settings`.
-- A plugin ships Workflow scripts in a `workflows/` directory at the plugin root, or in the paths of the `workflows` manifest field. Plugin workflows are namespaced: a script with `meta.name` `release-audit` in the plugin `acme-tools` runs as `/acme-tools:release-audit`. Source: https://code.claude.com/docs/en/workflows.md, "Distribute a workflow in a plugin".
+- A plugin ships Workflow scripts in a `workflows/` directory at the plugin root, or in the paths of the `workflows` manifest field. Plugin workflows are namespaced: a script with `meta.name` `release-audit` in the plugin `acme-tools` runs as `/acme-tools:release-audit`. Source: <https://code.claude.com/docs/en/workflows.md>, "Distribute a workflow in a plugin".
 - `${CLAUDE_PLUGIN_DATA}` resolves to `~/.claude/plugins/data/<id>/`. Claude Code creates it on first reference and keeps it across plugin updates. Claude Code deletes it when you uninstall the plugin from the last place, unless you pass `--keep-data`. Hook commands can reference it. A status line command cannot, because it is not a hook. Source: plugins-reference.md, "Environment variables".
-- A marketplace is a repository with `.claude-plugin/marketplace.json`. Install from GitHub with `claude plugin marketplace add <owner>/<repo>`, then `claude plugin install <plugin>@<marketplace>`. Inside a session, `/plugin marketplace add` and `/plugin install` do the same. Source: https://code.claude.com/docs/en/plugin-marketplaces.md.
+- A marketplace is a repository with `.claude-plugin/marketplace.json`. Install from GitHub with `claude plugin marketplace add <owner>/<repo>`, then `claude plugin install <plugin>@<marketplace>`. Inside a session, `/plugin marketplace add` and `/plugin install` do the same. Source: <https://code.claude.com/docs/en/plugin-marketplaces.md>.
 - `${user_config.KEY}` is substituted in skill and agent content, MCP and LSP server config, and exec-form hook `args`. Only non-sensitive values are substituted in skill and agent content. Hook processes get every option as `CLAUDE_PLUGIN_OPTION_<KEY>`. Non-sensitive values are saved under `pluginConfigs` in the user `settings.json`. Source: plugins-reference.md, "User configuration".
 
 ## Background sessions (agent view)
 
-Source for all items in this section: https://code.claude.com/docs/en/agent-view.md.
+Source for all items in this section: <https://code.claude.com/docs/en/agent-view.md>.
 
 - `claude --bg "<prompt>"` (long form `--background`) starts a background session in the current directory. `--name <name>` sets its display name. `--agent <name>` runs a defined subagent as the main agent of the session. `--bg` cannot be combined with `-p`.
 - In a directory that is not trusted, a script gets the error `Workspace not trusted` and no session starts.
@@ -71,14 +71,14 @@ Source for all items in this section: https://code.claude.com/docs/en/agent-view
 
 ## Permissions and launch
 
-- Writes to protected paths are never approved automatically, except in `bypassPermissions` mode. The mode decides: `default` and `acceptEdits` prompt, `auto` sends the write to the classifier, `dontAsk` denies. Allow rules do not pre-approve these writes. Protected directories include `.claude`, except `.claude/worktrees`, and `.git`. Source: https://code.claude.com/docs/en/permission-modes.md, "Protected paths".
+- Writes to protected paths are never approved automatically, except in `bypassPermissions` mode. The mode decides: `default` and `acceptEdits` prompt, `auto` sends the write to the classifier, `dontAsk` denies. Allow rules do not pre-approve these writes. Protected directories include `.claude`, except `.claude/worktrees`, and `.git`. Source: <https://code.claude.com/docs/en/permission-modes.md>, "Protected paths".
 - The allow rule `Workflow` approves every workflow launch. `Workflow(<name>)` approves one saved workflow. Without a rule, Claude Code asks before a workflow runs. Source: workflows.md, "Approve the plan before it runs".
-- `--settings <file-or-json>` overrides settings keys for one session. `--agent <name>` sets the agent of the session. Source: https://code.claude.com/docs/en/cli-reference.md.
-- After compaction, the system prompt reloads, and Claude Code injects the body of each skill that the session invoked again. Source: https://code.claude.com/docs/en/context-window.md.
-- Claude Code sets `CLAUDE_CODE_CHILD_SESSION=1` in the processes that its Bash tool starts. `CLAUDE_CODE_FORCE_SESSION_PERSISTENCE=1` forces the transcript and the `claude agents` registration for a `claude` started from inside another session. Source: https://code.claude.com/docs/en/env-vars.md.
+- `--settings <file-or-json>` overrides settings keys for one session. `--agent <name>` sets the agent of the session. Source: <https://code.claude.com/docs/en/cli-reference.md>.
+- After compaction, the system prompt reloads, and Claude Code injects the body of each skill that the session invoked again. Source: <https://code.claude.com/docs/en/context-window.md>.
+- Claude Code sets `CLAUDE_CODE_CHILD_SESSION=1` in the processes that its Bash tool starts. `CLAUDE_CODE_FORCE_SESSION_PERSISTENCE=1` forces the transcript and the `claude agents` registration for a `claude` started from inside another session. Source: <https://code.claude.com/docs/en/env-vars.md>.
 - The Workflow script API has `agent()`, `pipeline()`, `parallel()`, `log()`, `phase()`, `workflow()`, the `args` global, and `budget`. The script has no input call and no filesystem access. Source: the bundled `/workflow-authoring` skill.
 - A relaunch with `resumeFromRunId` returns the cached results of the completed `agent()` calls whose prompt and options did not change. Source: the bundled `/workflow-authoring` skill, "Resume".
-- A subagent that runs in the background keeps these built-in tools: `Read`, `Grep`, `Glob`, `LSP`, `Bash`, `PowerShell`, `Edit`, `Write`, `NotebookEdit`, `WebFetch`, `WebSearch`, `TodoWrite`, `Skill`, `ToolSearch`, `EnterWorktree`, `ExitWorktree`, `Monitor`, `TaskStop`, `SendMessage`, and `Artifact`. No subagent gets `AskUserQuestion` or `Workflow`. A background subagent does not keep `ListAgents`. Source: https://code.claude.com/docs/en/sub-agents.md, "Available tools".
+- A subagent that runs in the background keeps these built-in tools: `Read`, `Grep`, `Glob`, `LSP`, `Bash`, `PowerShell`, `Edit`, `Write`, `NotebookEdit`, `WebFetch`, `WebSearch`, `TodoWrite`, `Skill`, `ToolSearch`, `EnterWorktree`, `ExitWorktree`, `Monitor`, `TaskStop`, `SendMessage`, and `Artifact`. No subagent gets `AskUserQuestion` or `Workflow`. A background subagent does not keep `ListAgents`. Source: <https://code.claude.com/docs/en/sub-agents.md>, "Available tools".
 - A subagent with `SendMessage` gets a roster of `main` and the other named agents of the session as valid `to` values. Source: sub-agents.md.
 
 ## Probe results (2026-09-27, Claude Code 2.1.280)
@@ -131,18 +131,18 @@ Lessons from a retrospective of a 4-day multi-agent Claude Code run (a coordinat
 - Configuration flags of the launch carry through to a background session: `--settings`, `--mcp-config`, `--strict-mcp-config`, `--setting-sources`, `--add-dir`, `--plugin-dir`, `--fallback-model`. Source: agent-view.md, "What carries over when you background".
 - A background session reads settings from its folder and the carried flags. From the dispatching shell it keeps only `PATH` and the cloud provider variables. Source: agent-view.md, "Settings and provider".
 - With `CLAUDE_CONFIG_DIR` set, the supervisor runs as a separate instance with its own sessions. Source: agent-view.md, "Where state is stored".
-- Plugin subagents ignore the `hooks`, `mcpServers`, and `permissionMode` frontmatter fields. Source: https://code.claude.com/docs/en/sub-agents.md.
+- Plugin subagents ignore the `hooks`, `mcpServers`, and `permissionMode` frontmatter fields. Source: <https://code.claude.com/docs/en/sub-agents.md>.
 - After a shutdown, a background session shows as failed within 48 hours and as stopped after 48 hours. An attach or a reply restarts it. Source: agent-view.md, troubleshooting.
-- `ScheduleWakeup` reschedules the next iteration of a self-paced `/loop`. `CronCreate` tasks are restored on `--resume` or `--continue` if they did not expire. A recurring task expires 7 days after creation. Source: https://code.claude.com/docs/en/scheduled-tasks.md and https://code.claude.com/docs/en/tools-reference.md.
+- `ScheduleWakeup` reschedules the next iteration of a self-paced `/loop`. `CronCreate` tasks are restored on `--resume` or `--continue` if they did not expire. A recurring task expires 7 days after creation. Source: <https://code.claude.com/docs/en/scheduled-tasks.md> and <https://code.claude.com/docs/en/tools-reference.md>.
 - A workflow run pauses at a usage limit only in an interactive session with a claude.ai subscription and `autoContinueAtUsageLimit` on. In a background session, the agents that hit the limit fail. Source: workflows.md, "When a run hits your usage limit".
-- `CLAUDE_CODE_WORKFLOW_MAX_CONCURRENT_AGENTS` sets how many agents one workflow run executes at once, from 1 to 256. The default is 16. Source: https://code.claude.com/docs/en/env-vars.md.
-- An MCP tool call that gets no response and no progress notification for the idle window aborts. A per-server `timeout` in `.mcp.json` is a hard wall-clock limit, and a value of at least 1000 is also a floor for the idle timeout. Without it, the wall-clock default is about 28 hours. Source: https://code.claude.com/docs/en/mcp.md.
-- A Bash permission rule matches the command text after Claude Code splits compound commands and strips wrappers. It does not match the same program invoked in a different form. Source: https://code.claude.com/docs/en/permissions.md.
+- `CLAUDE_CODE_WORKFLOW_MAX_CONCURRENT_AGENTS` sets how many agents one workflow run executes at once, from 1 to 256. The default is 16. Source: <https://code.claude.com/docs/en/env-vars.md>.
+- An MCP tool call that gets no response and no progress notification for the idle window aborts. A per-server `timeout` in `.mcp.json` is a hard wall-clock limit, and a value of at least 1000 is also a floor for the idle timeout. Without it, the wall-clock default is about 28 hours. Source: <https://code.claude.com/docs/en/mcp.md>.
+- A Bash permission rule matches the command text after Claude Code splits compound commands and strips wrappers. It does not match the same program invoked in a different form. Source: <https://code.claude.com/docs/en/permissions.md>.
 - No channel runs until a user opts it in for the session with `--channels`. Source: channels.md.
 
 ## Probe results (plan 1, 2026-09-29, Claude Code 2.1.284)
 
-`probes/run.sh` runs P1 to P3; set `PROBE_WORKDIR` to point it at an existing folder instead of a fresh `mktemp -d`. P4 to P7 were run by hand as `probes/README.md` describes, each as `claude --bg` in a scratch folder inside a trusted folder, none attached to after it started. P8 needs the MCP server from Task 5.
+`probes/run.sh` runs P1 to P3; set `PROBE_WORKDIR` to point it at an existing folder instead of a fresh `mktemp -d`. P4 to P7 were run by hand as `probes/README.md` describes, each as `claude --bg` in a scratch folder inside a trusted folder, none attached to after it started.
 
 Fact, confirmed both ways: `claude --bg` refuses to start in a folder whose trust dialog nobody has accepted interactively (a first pass at P2 to P7, each in a fresh, never-trusted folder, failed this way before the session did anything — `claude --help` documents no flag for it, and `-p` only skips the dialog for that one run, it does not persist trust). Workspace trust is inherited by a subfolder of an already-trusted folder, so a scratch folder inside a folder the user trusted in an interactive session works without touching `~/.claude.json`. The one catch: `git init` inside that scratch folder makes it a repository root of its own, a new trust boundary that blocks the inheritance again — so `probes/run.sh` now runs `git init` only for its own fresh `mktemp` folder, never for a caller-supplied `PROBE_WORKDIR`. With a trusted-and-uninitialized scratch folder, P1 through P7 all reached and passed the behavior each is meant to test.
 
@@ -159,4 +159,3 @@ Fact, confirmed both ways: `claude --bg` refuses to start in a folder whose trus
 | E2E | PASS (2026-09-30) | In a scratch folder inside a trusted folder (no `git init`), with a settings file `{"env":{"BRUH_ROLE_KEY":"clanker-e2e"}}`: `claude -p --plugin-dir <repo>/plugins/bruh --settings <that file> --permission-mode auto "Call the bruh MCP tool report_write with kind status and text e2e-ok. Then call report_read with role_key clanker-e2e and print the text of the first line."` compiled the server with `go run` on first use, then printed "The first line's text is `e2e-ok`. Both calls worked", confirming `report_write` and `report_read` round-tripped through the MCP server with `BRUH_ROLE_KEY` reaching it from `--settings`. |
 
 Every background session above (`probe-p2`, `probe-p4`, `probe-p5`, `probe-p6`, `probe-p7`) was stopped with `claude stop <id>` and confirmed absent a `pid` in `claude agents --json --all` afterward.
-

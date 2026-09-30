@@ -68,7 +68,7 @@ Each role has a stable role key: `bigm`, `clanker-<project>`, `clerk-<project>-<
 
 - The owner starts bigm in the folder of the private ledger repository:
 
-  ```
+  ```bash
   claude --agent bruh:bigm --name bigm --permission-mode auto \
     --settings <plugin data folder>/roles/bigm.json \
     --channels plugin:telegram@claude-plugins-official
@@ -123,7 +123,7 @@ Owner decision 2026-09-27: local sessions talk through Claude Code itself, not t
 - The setup of the owner used `claude --bg` only twice. Its sessions were tabs that a person opened. So this mechanism needs a load test. Verify: 8 background sessions that exchange messages for one hour.
 - Launch: the parent writes the start message to the mailbox and the role settings file, then runs this command in the project folder:
 
-  ```
+  ```bash
   CLAUDE_CODE_FORCE_SESSION_PERSISTENCE=1 claude --bg --agent bruh:<role> \
     --name <role key> --permission-mode auto \
     --settings <plugin data folder>/roles/<role key>.json \
@@ -224,7 +224,7 @@ Owner decision 2026-09-27: every role stays below about 55 percent of its contex
 
 Owner decision 2026-09-27: the ledger is Markdown in a separate private repository, and it describes all other repositories. The layout below is agent-derived, accepted 2026-09-30.
 
-```
+```text
 README.md
 mode.md               human or autonomous, and the runtime settings (section 11)
 priorities.md         P-level definitions, delegated P1 classes, and the never-without-the-owner list
@@ -412,7 +412,7 @@ Verify: the plugin options can be set from the init skill, or they must be decla
 
 Owner decision 2026-09-27: `oter/bruh` is a plugin marketplace with one plugin, `bruh`, installed at user scope. The layout is agent-derived, accepted 2026-09-30.
 
-```
+```text
 .claude-plugin/marketplace.json
 plugins/bruh/.claude-plugin/plugin.json
 plugins/bruh/.mcp.json

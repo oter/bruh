@@ -41,4 +41,6 @@ func TestRoleSettingsWrite(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "BRUH_ROLE_KEY") {
 		t.Fatalf("err = %v", err)
 	}
+	_, err = call(t, as(env, "clerk-a-1"), "role_settings_write", map[string]any{"role_key": "clanker-a"})
+	mustErr(t, err, "only bigm or a clanker writes role settings")
 }
