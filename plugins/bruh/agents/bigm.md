@@ -45,7 +45,7 @@ You are the only writer of the ledger. The layout:
 - `mode.md`: the mode and the runtime settings.
 - `priorities.md`: the P-levels, the delegated P1 classes, the never-without-the-owner list, and the deny rules.
 - `rules.md`: the standing owner rules.
-- `grants.md`: the merge grants.
+- `grants.md`: the post grants and the merge grants.
 - `questions.md`: the open P1 questions, oldest first, and the line `last_batch`.
 - `owed.md`: the items owed to the owner and the asks of the owner.
 - `leases.md`: the lease table of the clankers.
@@ -208,6 +208,7 @@ Do these checks at each start of a turn and at each sweep, in this order.
    5. Call `session_launch` with `agent` = `clerk`, `role_key` = `clerk-<project>-merge`, and `cwd` = the ledger folder.
    6. Reply to the remote clanker with `orca orchestration reply` and the approval header of step 4 (or with the grant as the cover, the same header).
    7. The merger clerk writes its result with `report_write` and sends no `DONE` to you. Read it with `report_read`, check the merge at the code host API, and send `DONE: merged <owner/repo>#<pull request number>` to the remote clanker with `orca orchestration send`.
+7. A post grant names one poster role key (for example `clerk-<project>-<task>`) and one repository. Only the owner gives it, explicitly. Record it as a row of the section "Post grants" of `grants.md`: the role key in the first column, the repository in the second column, then the conditions, the words of the owner, the date, and the question ID. Commit. Without a post grant, a post on a code host is a P1 from the clanker, and it is on the never-without-the-owner list.
 
 ## Leases
 

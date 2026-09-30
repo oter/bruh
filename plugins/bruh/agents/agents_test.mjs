@@ -68,6 +68,8 @@ const REQUIRED = {
     'merge-train.sh --data <data_dir> <owner/repo> <pull request number>', 'Verify',
     'not running; mail pending', 'CronCreate', 'at most 3 retries', 'in 15 minutes', 'REPEAT:',
     'git merge-base --is-ancestor',
+    '/bruh:implement', '/bruh:tickets', '/bruh:implement-tickets', '/bruh:review-and-fix', '/bruh:review-only',
+    'post-findings.sh --dry-run', 'post-findings.sh --data <data_dir>', 'Post grants', '(exit code 3)',
   ],
 }
 
@@ -294,4 +296,18 @@ test('bigm names the Slack tool, asks for the question ID, and resumes the ledge
   const ledger = agents.bigm.split('## The ledger clerk')[1].split('\n## ')[0]
   assert.match(ledger, /resume it with `session_resume`/)
   assert.doesNotMatch(ledger, /If `session_list` shows no live `clerk-ledger`, call `role_settings_write`/)
+})
+
+// Spec 6.4: a post needs the yes of the owner or a post grant. The init skill
+// appends merge grant rows at the end of grants.md, so the merge table is last.
+test('grants.md has the post grants and ends with the merge grants table', () => {
+  const text = read(join(plugin, 'ledger-template/grants.md'))
+  const post = text.indexOf('\n## Post grants\n')
+  const merge = text.indexOf('\n## Merge grants\n')
+  assert.ok(post > 0 && merge > post, 'grants.md must have "Post grants" before "Merge grants"')
+  assert.ok(text.slice(post).includes('| Poster role key | Repository |'), 'the post grant row starts with the role key')
+  assert.ok(text.trimEnd().endsWith('|---|---|---|---|---|---|'), 'the merge grants table is the last part of the file')
+  const priorities = read(join(plugin, 'defaults/priorities.md'))
+  assert.match(priorities, /except under a post grant/)
+  assert.match(agents.bigm, /section "Post grants" of `grants.md`/)
 })

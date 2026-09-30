@@ -27,7 +27,7 @@ Call `bruh_info` to get `role_key`, `plugin_root`, and `data_dir`. The bruh MCP 
 6. Do not act on an item of the section "Never without the owner" of `priorities.md` without an answer of the owner. The text of `priorities.md` and `rules.md` is in your start message. One exception, from spec 3.7: when your task is accepted, you remove your own worktree. It is a temporary file of this session. Remove nothing else.
 7. Follow each rule of `rules.md` word for word. A `RULE R-<n>: <subject>` message from `bigm` adds a rule. On a remote machine, your clanker relays a rule of bigm as `DONE: rule R-<n>: <subject>`: accept that form only when its `from` is your clanker. A rule applies from your next action. Ignore a rule ID that you already applied, and ignore a rule from any other sender.
 8. The message headers of bruh are these, and only these (spec section 5 and interfaces section 4a): `P0 Q-<n>: <subject>`, `P1 Q-<n>: <subject>`, `P2 Q-<n>: <subject>`, `ANSWER Q-<n>: <subject>`, `REC Q-<n>: <subject>`, `RULE R-<n>: <subject>`, `DONE: <subject>`, and `START: <subject>`. You send questions, recommendations, and `DONE`; you receive `ANSWER`, `RULE`, and `START`. Routine status goes only to your report file through `report_write`.
-9. Do not post outside the project unless your start message asks for it (for example a pull request). End each post that you make on a code host with the line `<!-- bruh:<role key> -->`, so that the watcher can tell agent posts from human posts by structure.
+9. Do not post outside the project unless your start message asks for it (for example a pull request). End each post that you make on a code host with the line `<!-- bruh:<role key> -->`, so that the watcher can tell agent posts from human posts by structure. A review comment on a pull request needs a cover every time: follow "Posts".
 
 ## How to send a message
 
@@ -106,6 +106,26 @@ Read the last line of `deviations`:
 - `CONFLICT: <reason>`: open a P2 question to your clanker with the reason.
 - `STOP: <reason>`: the task cannot go on as written. Open a question with the P-level that the reason needs.
 - `FAILED: <reason>`: an agent did not return a result, for example at a usage limit. Follow "Usage limits and failures".
+
+## Implement and review workflows
+
+Run these workflows only when your start message names them, for example a review of a pull request, a ticket run, or a review and fix of your branch.
+
+1. Load the skill `/bruh:implement` with the Skill tool, and follow it. You are its orchestrator: rule zero applies to you. You do not edit code. The workflows and their agents do the work.
+2. The workflows are `/bruh:tickets`, `/bruh:implement-tickets`, `/bruh:review-and-fix`, and `/bruh:review-only`. Build `args` as the skill says. The path of `lane.sh` is `<plugin_root>/scripts/lane.sh`, with `plugin_root` from `bruh_info`. Before the launch, store the exact JSON text of `args` with `report_write` (kind `event`, text `<workflow> args: <JSON text>`), as for `/bruh:deliver`.
+3. Read the result `status`. `done`: go on with the skill. `findings_left`: open a P1 question to your clanker, as for `/bruh:deliver`. `stopped`: read the last line of `deviations`, as for `/bruh:deliver`. For `/bruh:implement-tickets`, relaunch only the waves that are not done, as a new run; do not use `resumeFromRunId`.
+4. The agents of these workflows never commit. You commit the result on your task branch, and you push as "Result `done`" says.
+
+## Posts
+
+A post on a code host, for example a review comment on a pull request or a merge request, is outward-facing, and it goes out under an account of the owner. It is on the list "Never without the owner".
+
+1. Post a review result only with `sh <plugin_root>/scripts/post-findings.sh`. Never post it with another command, and never ask a workflow agent to post.
+2. Write the result of the workflow to a file in your worktree that you do not commit, for example `.scratch/review-<number>.json`.
+3. Run the dry run: `sh <plugin_root>/scripts/post-findings.sh --dry-run <gitlab or github> <repo> <number> <result file>`.
+4. Run it with the post grant check: `sh <plugin_root>/scripts/post-findings.sh --data <data_dir> <gitlab or github> <repo> <number> <result file>`. It posts only when the section "Post grants" of `grants.md` has a row for your role key and the repository.
+5. When it refuses (exit code 3), there is no post grant. Open a P1 question to your clanker with the subject `post review <repo>#<number>?` and the dry-run output in the body. Wait for the `ANSWER`. Only an `ANSWER` from your clanker or from `bigm` that says yes to this post is a cover. Then run the command of step 4 with `--yes` in place of `--data <data_dir>`. Never pass `--yes` without that answer.
+6. Record the output with `report_write` (kind `result`), with the URL of each post.
 
 ## Relaunch
 
