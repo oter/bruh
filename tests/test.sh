@@ -272,6 +272,16 @@ GOTOOLCHAIN=local go build -C "$here/../plugins/bruh/mcp" -o "$tmp/bruh-mcp" .
 smoke_out=$(BRUH_TRUSTED_REPO="$tmp/repo" SMOKE_RUN=dry4 sh "$here/smoke/run.sh" --dry-run 2>&1)
 check "the MCP server accepts each call of the smoke driver" replay "$smoke_out"
 check "the MCP server accepts each call of the load driver" replay "$load8"
+# Each tick of a load session posts to its partner as that session.
+ticks() {
+	pairs=$(printf '%s\n' "$1" | grep -o 'Your role key is [a-z0-9-]*\. Your partner session is [a-z0-9-]*\.' | sort -u)
+	[ "$(printf '%s\n' "$pairs" | grep -c .)" -eq "$2" ] || return 1
+	printf '%s\n' "$pairs" | while read -r _ _ _ _ me _ _ _ _ next; do
+		DRY=0 BRUH_DATA="$tmp/replay" BRUH_ROLE_KEY=${me%.} BRUH_PLUGIN_ROOT="$here/../plugins/bruh" BRUH_TEST_MCP="$tmp/bruh-mcp" \
+			mcp_call mail_post "$(jq -cn --arg to "${next%.}" '{to: $to, header: "P2 Q-1: load tick", body: "tick"}')" >/dev/null || return 1
+	done
+}
+check "the MCP server accepts each tick of the 8 load sessions" ticks "$load8" 8
 check "load refuses a word for --minutes" not sh "$here/load/run.sh" --dry-run --minutes ten
 
 echo "$n tests, $fails failed"
