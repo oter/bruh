@@ -119,3 +119,30 @@ func TestInitSkill(t *testing.T) {
 		}
 	}
 }
+
+func TestSlackChannelWiring(t *testing.T) {
+	var c struct {
+		MCPServers map[string]struct {
+			Command string            `json:"command"`
+			Args    []string          `json:"args"`
+			Env     map[string]string `json:"env"`
+		} `json:"mcpServers"`
+	}
+	readJSON(t, "../.mcp.json", &c)
+	s := c.MCPServers["slack"]
+	if s.Command != "go" || !slices.Equal(s.Args, []string{"run", "-C", "${CLAUDE_PLUGIN_ROOT}/channels/slack", "."}) ||
+		s.Env["SLACK_BOT_TOKEN"] != "${user_config.slack_bot_token}" || s.Env["GOTOOLCHAIN"] != "local" || s.Env["BRUH_DATA"] != "${CLAUDE_PLUGIN_DATA}" {
+		t.Fatalf("slack server = %+v", s)
+	}
+	var p struct {
+		UserConfig map[string]map[string]any `json:"userConfig"`
+		Channels   []map[string]any          `json:"channels"`
+	}
+	readJSON(t, "../.claude-plugin/plugin.json", &p)
+	if len(p.Channels) != 1 || p.Channels[0]["server"] != "slack" || p.UserConfig["slack_bot_token"]["sensitive"] != true {
+		t.Fatalf("plugin = %+v", p)
+	}
+	if _, err := os.Stat("../channels/slack/go.mod"); err != nil {
+		t.Fatal(err)
+	}
+}

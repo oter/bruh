@@ -2,13 +2,34 @@
   "mcpServers": {
     "bruh": {
       "command": "go",
-      "args": ["run", "-C", "${CLAUDE_PLUGIN_ROOT}/mcp", "."],
+      "args": [
+        "run",
+        "-C",
+        "${CLAUDE_PLUGIN_ROOT}/mcp",
+        "."
+      ],
       "env": {
         "BRUH_DATA": "${CLAUDE_PLUGIN_DATA}",
         "BRUH_PLUGIN_ROOT": "${CLAUDE_PLUGIN_ROOT}",
         "GOTOOLCHAIN": "local"
       },
       "timeout": 86400000
+    },
+    "slack": {
+      "command": "go",
+      "args": [
+        "run",
+        "-C",
+        "${CLAUDE_PLUGIN_ROOT}/channels/slack",
+        "."
+      ],
+      "env": {
+        "BRUH_DATA": "${CLAUDE_PLUGIN_DATA}",
+        "GOTOOLCHAIN": "local",
+        "SLACK_BOT_TOKEN": "${user_config.slack_bot_token}",
+        "SLACK_CHANNEL_ID": "${user_config.slack_channel_id}",
+        "SLACK_ALLOWED_USERS": "${user_config.slack_owner_user_id}"
+      }
     }
   }
 }

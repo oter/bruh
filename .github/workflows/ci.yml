@@ -10,15 +10,16 @@ jobs:
     strategy:
       matrix:
         os: [ubuntu-latest, macos-latest]
+        module: [plugins/bruh/mcp, plugins/bruh/channels/slack]
     runs-on: ${{ matrix.os }}
     defaults:
       run:
-        working-directory: plugins/bruh/mcp
+        working-directory: ${{ matrix.module }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
         with:
-          go-version-file: plugins/bruh/mcp/go.mod
+          go-version-file: ${{ matrix.module }}/go.mod
           cache: false
       - run: test -z "$(gofmt -l .)"
       - run: go vet ./...
