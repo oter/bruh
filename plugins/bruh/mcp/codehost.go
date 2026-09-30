@@ -73,6 +73,11 @@ func loadReposFile(file string) (reposConfig, error) {
 		}
 		r.Project = cmp.Or(r.Project, path.Base(r.Repo))
 		r.MergeMethod = cmp.Or(r.MergeMethod, "merge")
+		// Gitea "manually-merged" marks a pull request merged without a merge, so it is not accepted.
+		methods := map[string][]string{"github": {"merge", "squash", "rebase"}, "gitea": {"merge", "rebase", "rebase-merge", "squash", "fast-forward-only"}}
+		if !slices.Contains(methods[r.Host], r.MergeMethod) {
+			return cfg, fmt.Errorf("%s: %s: merge_method %q is not one of %v", file, r.Repo, r.MergeMethod, methods[r.Host])
+		}
 	}
 	return cfg, nil
 }
@@ -102,9 +107,11 @@ type hostPull struct {
 	MergedAt  string `json:"merged_at"`
 	Draft     bool   `json:"draft"`
 	Mergeable *bool  `json:"mergeable"`
-	MergeSHA  string `json:"merge_commit_sha"`
-	URL       string `json:"html_url"`
-	Head      struct {
+	// MergeableState is GitHub only: "blocked" means that a required check or review is missing.
+	MergeableState string `json:"mergeable_state"`
+	MergeSHA       string `json:"merge_commit_sha"`
+	URL            string `json:"html_url"`
+	Head           struct {
 		SHA string `json:"sha"`
 	} `json:"head"`
 }
@@ -233,24 +240,36 @@ func (g *github) Checks(ctx context.Context, sha string) (string, error) {
 	if err := g.do(ctx, "GET", "/commits/"+url.PathEscape(sha)+"/status", nil, &st); err != nil {
 		return "", err
 	}
-	var runs struct {
-		TotalCount int `json:"total_count"`
-		CheckRuns  []struct {
-			Status     string  `json:"status"`
-			Conclusion *string `json:"conclusion"`
-		} `json:"check_runs"`
+	type checkRun struct {
+		Status     string  `json:"status"`
+		Conclusion *string `json:"conclusion"`
 	}
-	if err := g.do(ctx, "GET", "/commits/"+url.PathEscape(sha)+"/check-runs?per_page=100", nil, &runs); err != nil {
-		return "", err
+	var all []checkRun
+	total := 0
+	for page := 1; ; page++ {
+		var runs struct {
+			TotalCount int        `json:"total_count"`
+			CheckRuns  []checkRun `json:"check_runs"`
+		}
+		if err := g.do(ctx, "GET", fmt.Sprintf("/commits/%s/check-runs?per_page=100&page=%d", url.PathEscape(sha), page), nil, &runs); err != nil {
+			return "", err
+		}
+		all, total = append(all, runs.CheckRuns...), runs.TotalCount
+		if len(all) >= total || len(runs.CheckRuns) == 0 || page == 50 {
+			break
+		}
 	}
-	if st.TotalCount == 0 && len(runs.CheckRuns) == 0 {
+	if st.TotalCount == 0 && len(all) == 0 && total == 0 {
 		return "none", nil
 	}
 	pending := st.TotalCount > 0 && st.State == "pending"
 	if st.TotalCount > 0 && st.State == "failure" {
 		return "failure", nil
 	}
-	for _, r := range runs.CheckRuns {
+	if len(all) < total {
+		pending = true // runs that could not be read are never green
+	}
+	for _, r := range all {
 		switch {
 		case r.Status != "completed" || r.Conclusion == nil:
 			pending = true

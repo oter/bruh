@@ -138,14 +138,18 @@ func (f *fakeForge) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		send(map[string]any{"state": st.State, "total_count": st.Total})
 	case len(parts) == 3 && parts[0] == "commits" && parts[2] == "check-runs":
 		runs := []map[string]any{}
-		for _, run := range f.runs[parts[1]] {
+		all := f.runs[parts[1]]
+		page, _ := strconv.Atoi(r.URL.Query().Get("page"))
+		per, _ := strconv.Atoi(r.URL.Query().Get("per_page"))
+		page, per = max(page, 1), max(per, 30)
+		for _, run := range all[min(len(all), (page-1)*per):min(len(all), page*per)] {
 			m := map[string]any{"status": run.Status, "conclusion": nil}
 			if run.Conclusion != "" {
 				m["conclusion"] = run.Conclusion
 			}
 			runs = append(runs, m)
 		}
-		send(map[string]any{"total_count": len(runs), "check_runs": runs})
+		send(map[string]any{"total_count": len(all), "check_runs": runs})
 	default:
 		http.NotFound(w, r)
 	}
@@ -156,6 +160,9 @@ func (f *fakeForge) addPull(n int, sha string) {
 	defer f.mu.Unlock()
 	f.pulls[n] = &hostPull{Number: n, State: "open", Mergeable: new(true), URL: fmt.Sprintf("https://example.com/owner/repo/pull/%d", n)}
 	f.pulls[n].Head.SHA = sha
+	if f.kind == "github" {
+		f.pulls[n].MergeableState = "clean"
+	}
 }
 
 func (f *fakeForge) green(sha string) {
@@ -189,7 +196,9 @@ func TestLoadRepos(t *testing.T) {
 	for _, bad := range []string{`{"repos":[{"repo":"x","host":"github"}]}`, `{"repos":[{"repo":"o/x","host":"gitea"}]}`, `{"repos":[{"repo":"o/x","host":"gitlab"}]}`, `{"repo":[]}`,
 		`{"repos":[{"repo":"o/x","host":"github","api_url":"http://attacker.example.com"}]}`,
 		`{"repos":[{"repo":"o/x","host":"gitea","api_url":"https://u:p@git.example.com/api/v1"}]}`,
-		`{"repos":[{"repo":"o/x","host":"github","token_env":"GITHUB_TOKEN"}]}`} {
+		`{"repos":[{"repo":"o/x","host":"github","token_env":"GITHUB_TOKEN"}]}`,
+		`{"repos":[{"repo":"o/x","host":"gitea","api_url":"https://git.example.com/api/v1","merge_method":"manually-merged"}]}`,
+		`{"repos":[{"repo":"o/x","host":"github","merge_method":"fast-forward-only"}]}`} {
 		if err := write(bad); err == nil {
 			t.Errorf("%s: no error", bad)
 		}
@@ -339,5 +348,23 @@ func TestReposSet(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(env.DataDir, "repos.json.check")); err == nil {
 		t.Fatal("check file left")
+	}
+}
+
+func TestCodeHostChecksReadEveryPage(t *testing.T) {
+	f, r := newFakeForge(t, "github")
+	h, _ := newHost(r)
+	runs := make([]fakeRun, 250)
+	for i := range runs {
+		runs[i] = fakeRun{"completed", "success"}
+	}
+	runs[220] = fakeRun{"completed", "failure"}
+	f.runs["big"] = runs
+	if got, err := h.Checks(context.Background(), "big"); err != nil || got != "failure" {
+		t.Fatalf("Checks = %q, %v; a red run on page 3 was missed", got, err)
+	}
+	runs[220] = fakeRun{"completed", "success"}
+	if got, _ := h.Checks(context.Background(), "big"); got != "success" {
+		t.Fatalf("Checks = %q", got)
 	}
 }

@@ -28,7 +28,7 @@ Commands:
   role-settings <role key> write <data>/roles/<role key>.json with the defaults (never overwrites)
   watch [--data <dir>] [--once]
                            poll the code hosts of <data>/repos.json; one JSON line for each event
-  merge-train [--data <dir>] [--wait-minutes <n>] <owner/repo> <number>...
+  merge-train [--data <dir>] [--wait-minutes <n>] [--answer Q-<n>] <owner/repo> <number>...
                            merge the pull requests in order, each only with green checks,
                            and confirm each merge by reading the code host API
 `
@@ -107,6 +107,7 @@ func runCLI(args []string, env Env, stdout, stderr io.Writer) int {
 		fs.SetOutput(stderr)
 		data := fs.String("data", env.DataDir, "plugin data folder")
 		waitMin := fs.Int("wait-minutes", 30, "how long to wait for pending checks of each pull request")
+		answer := fs.String("answer", "", "question ID of a P1 answer of bigm that allows these merges, when grants.md has no grant")
 		if err := fs.Parse(args[1:]); err != nil {
 			return 2
 		}
@@ -130,6 +131,9 @@ func runCLI(args []string, env Env, stdout, stderr io.Writer) int {
 		i := slices.IndexFunc(cfg.Repos, func(r repoConfig) bool { return r.Repo == fs.Arg(0) })
 		if i < 0 {
 			return fail(fmt.Errorf("%s is not in repos.json", fs.Arg(0)))
+		}
+		if err := mergeGate(env, cfg.Repos[i], *answer); err != nil {
+			return fail(err)
 		}
 		h, err := newHost(cfg.Repos[i])
 		if err != nil {
