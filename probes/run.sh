@@ -4,7 +4,7 @@ set -eu
 here=$(cd "$(dirname "$0")" && pwd)
 export PROBE_OUT="${PROBE_OUT:-/tmp/bruh-probes}"
 rm -rf "$PROBE_OUT"; mkdir -p "$PROBE_OUT"
-work="${PROBE_WORKDIR:-$(mktemp -d)}"; mkdir -p "$work"; cd "$work"
+work="${PROBE_WORKDIR:-$(mktemp -d)}"; mkdir -p "$work"; cd "$work" || exit 1
 [ -n "${PROBE_WORKDIR:-}" ] || git init -q .
 settings="$PROBE_OUT/role.json"
 printf '{"env":{"BRUH_ROLE_KEY":"clerk-probe-p3"}}' > "$settings"
@@ -19,5 +19,5 @@ sleep 60
 if claude agents --json --all | jq -e '.[] | select(.name=="probe-p2")' >/dev/null; then echo "P2 PASS"; else echo "P2 FAIL"; fi
 if grep -q 'clerk-probe-p3' "$PROBE_OUT/hooks.tsv" 2>/dev/null; then echo "P3 PASS (hooks get BRUH_ROLE_KEY)"; else echo "P3 FAIL"; fi
 id=$(claude agents --json --all | jq -r '.[] | select(.name=="probe-p2") | .id' | head -1)
-[ -n "$id" ] && claude stop "$id" >/dev/null 2>&1 || true
+if [ -n "$id" ]; then claude stop "$id" >/dev/null 2>&1 || true; fi
 echo "Evidence: $PROBE_OUT"
