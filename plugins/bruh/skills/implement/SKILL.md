@@ -76,7 +76,7 @@ Check before the run: each ticket that edits a file names a file that exists, an
 
 Run `/bruh:implement-tickets` with `args = {root, spec, guides, issues, lane, waves, gates}`. `lane` is `${CLAUDE_PLUGIN_ROOT}/scripts/lane.sh`. `waves` is a list of lists of ticket file names, in order. `gates` is the list of the gate commands of the project (format check, vet, build, lint, tidy and then `git status --short` of the module files, the full tests, the coverage floor). Optional: `test_gates` (the gates of `gates` that are test suites; each must run at least one test), `fix_cap` (default 3), `deadline_seconds`, and `answers`. For each ticket:
 
-1. **Implement** (high effort). In the shared tree for a wave of one. In a private lane copy (`lane.sh start <id>`) for a wave of more than one. A lane is an `rsync` copy with the baseline staged, so `git diff refs/lane/base` in the lane is exactly the work of this ticket.
+1. **Implement** (high effort). In the shared tree for a wave of one. In a private lane copy (`lane.sh start <id>`) for a wave of more than one, and for a leftover ticket of `lane_tickets`. A lane is an `rsync` copy with the baseline staged, so `git diff refs/lane/base` in the lane is exactly the work of this ticket. The lanes of a run are under `${TMPDIR:-/tmp}/bruh-lanes/<hash of root and spec>`. `start` keeps an existing lane only when it was made for the same repository, the same commit, and the same run; else it makes the lane again. `apply` applies a patch once.
 2. **Review** (low effort). The reviewer runs the verify commands itself, checks the signatures byte for byte against the ticket, applies the MUST rules of the guides, and checks the layers and the spec. On a pass, it changes the ticket to `Status: done`.
 3. **Fix loop**, at most `fix_cap` rounds. The findings of a failed review go to a fixer at high effort, then the reviewer checks again.
 4. **Merge the lanes** back in wave order with `lane.sh patch`, `apply`, and `clean`. A rejected hunk stops the run. A failed lane stays for a look.
@@ -84,7 +84,7 @@ Run `/bruh:implement-tickets` with `args = {root, spec, guides, issues, lane, wa
 
 `lane.sh apply` is a plain `git apply`, not `--3way`: a three-way apply needs a clean index, and the shared tree is dirty on purpose.
 
-The result has `status` (`done`, `question`, `findings_left`, or `stopped`), each ticket with its state, the gate result with the test counts, and `deviations`. A wave with an open question is not merged, so after `question` a relaunch with `resumeFromRunId` is safe. After a `FAILED:` stop, relaunch as a new run with only the tickets that are not done. Do not use `resumeFromRunId` then: a merge step of an applied wave runs again and fails (see the lessons).
+The result has `status` (`done`, `question`, `findings_left`, or `stopped`), each ticket with its state, the gate result with the test counts, and `deviations`. A wave with an open question is not merged, so after `question` a relaunch with `resumeFromRunId` is safe. After a `FAILED:` stop, relaunch as a new run with `waves` = the `remaining_waves` of the result (the tickets that are not merged) and `lane_tickets` = its `lane_tickets`. When the gate agent died, the result has `gate_only` = true: relaunch with `waves` = `[]` and `gate_only` = `true`. Do not use `resumeFromRunId` then: a merge step of an applied wave runs again and fails (see the lessons).
 
 ## Phase 4: Commit, rebase, and review
 

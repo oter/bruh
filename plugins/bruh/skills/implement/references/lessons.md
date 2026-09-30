@@ -5,7 +5,7 @@ The lessons come from the field runs of the owner: large runs with many tickets 
 ## Workflow mechanics
 
 - **A resume replays stale merge steps.** `resumeFromRunId` returns the cached result of each unchanged agent. A merge agent whose lanes are already applied and cleaned is not cached, because its prompt contains the list of the tickets that passed, and that list changes. It runs again against lane folders that do not exist, and it fails, and the run stops there. After a pause, relaunch as a new run with only the remaining waves in `args`.
-- **The prompts of the implementers change with the lane path**, so a wave that ran in part has no cache to recover. A lane is an unchanged `rsync` copy until the agent writes, so `lane.sh start` loses nothing when it replaces it.
+- **The prompts of the implementers change with the lane path**, so a wave that ran in part has no cache to recover. `lane.sh start` keeps a lane of the same repository, commit, and run with its work, and makes the lane again for another one, so a stale lane of another feature never lands in the tree.
 - **Spend limits stop the reviewers first**, when the reviewer model is the expensive one. Keep review prompts short and at low effort. The fix cap of three stops a bad ticket before it uses ten rounds.
 - **The deduplication key `file:line` is sufficient.** Two reviewers that flag the same line give one finding with both problems appended.
 - **Refuters remove about one finding in five**, mostly style rules that did not apply and deliberate spec choices reported as bugs. Tell the refuters what the spec chose on purpose (for example a fixed cache lifetime, one retry for each call to an external service, no pagination on an admin list), so that they do not argue it again.
