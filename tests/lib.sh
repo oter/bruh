@@ -127,10 +127,29 @@ check_trusted_repo() {
 		echo "$1 has no commit; make one commit first"
 		return 1
 	fi
-	if [ -n "$(git -C "$1" remote)" ]; then
-		echo "$1 has a git remote; a test clerk could push to it; use a local repository with no remote"
+	if [ -n "$(git -C "$1" remote)" ] && [ "${SMOKE_ALLOW_REMOTE:-0}" != 1 ]; then
+		echo "$1 has a git remote; a test clerk could push to it; use a local repository with no remote, or set SMOKE_ALLOW_REMOTE=1"
 		return 1
 	fi
+}
+
+# push_block_env prints a JSON object of GIT_CONFIG_* variables that set the
+# push URL of every remote of the repository $1 to a path that does not exist,
+# so that no git push of a session with these variables reaches a remote.
+push_block_env() {
+	git -C "$1" remote | jq -R . | jq -s '
+		to_entries
+		| map({("GIT_CONFIG_KEY_\(.key)"): "remote.\(.value).pushurl",
+		       ("GIT_CONFIG_VALUE_\(.key)"): "/nonexistent/bruh-smoke-no-push"})
+		| add // {}
+		| . + {GIT_CONFIG_COUNT: ((length / 2) | tostring)}'
+}
+
+# add_push_block adds the push_block_env variables of the repository $2 to the
+# "env" object of the settings file $1.
+add_push_block() {
+	_env=$(push_block_env "$2") || return 1
+	jq --argjson e "$_env" '.env = ((.env // {}) + $e)' "$1" >"$1.new" && mv "$1.new" "$1"
 }
 
 # count_missed prints the count of unread messages in the mailbox folder $1

@@ -20,6 +20,8 @@ claude
 
 Accept the trust dialog, then exit Claude Code. Do not use this repository for other work.
 
+If you cannot make a new trusted repository, you can use a trusted repository that has a remote. Set `SMOKE_ALLOW_REMOTE=1`. The driver then puts `GIT_CONFIG_*` variables into the `env` of the scratch project settings and the scratch ledger settings. These variables set the push URL of each remote to a path that does not exist, so a `git push` of a session of the run fails. The run branches are local branches of that repository until the cleanup deletes them.
+
 ## Run
 
 Run the driver from the root of the bruh checkout. It uses the plugin of the checkout (`--plugin-dir plugins/bruh`), not an installed copy.
@@ -47,6 +49,7 @@ Before the run:
 | `SMOKE_STEP_MINUTES` | 30 | The timeout of each step |
 | `SMOKE_SWEEP_MINUTES` | 15 | The time that the P0 step allows for one sweep, plus 5 minutes. The sweep of bigm runs every 15 minutes, and this value does not change it. Do not set a lower value. |
 | `SMOKE_IDLE_MINUTES` | 0 | 0: the driver stops the clanker with `claude stop`. A value above 60, for example 65: the driver waits for the idle stop of the supervisor. |
+| `SMOKE_ALLOW_REMOTE` | 0 | 1: accept a trusted repository that has a remote, and block pushes with `GIT_CONFIG_*` variables in the scratch settings |
 | `SMOKE_RUN` | random | The run ID: 1 to 12 lowercase letters and digits. It is part of each role key, folder, and branch of the run. |
 | `SMOKE_ORCA_ENV` | none | A paired Orca environment for the remote step |
 | `SMOKE_ORCA_REPO` | none | The Orca repository selector on the remote machine for the remote step, for example `name:<repository>`. Use a repository with no remote. |

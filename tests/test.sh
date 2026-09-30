@@ -94,6 +94,13 @@ check "check_trusted_repo refuses a missing folder" not check_trusted_repo "$tmp
 check "check_trusted_repo refuses a folder that is not a repository" not check_trusted_repo "$tmp/plain"
 check "check_trusted_repo refuses a repository with no commit" not check_trusted_repo "$tmp/empty"
 check "check_trusted_repo refuses a repository with a remote" not check_trusted_repo "$tmp/remote"
+# shellcheck disable=SC2016 # the inner shell expands $1 and $2
+check "check_trusted_repo accepts a remote with SMOKE_ALLOW_REMOTE=1" env SMOKE_ALLOW_REMOTE=1 sh -c '. "$1" && check_trusted_repo "$2"' _ "$here/lib.sh" "$tmp/remote"
+printf '{"permissions":{}}' >"$tmp/push.json"
+add_push_block "$tmp/push.json" "$tmp/remote"
+# shellcheck disable=SC2016 # the inner shell expands $1 and $2
+check "add_push_block sets the push URL of each remote to a missing path" \
+	sh -c 'cd "$1" && env $(jq -r ".env | to_entries[] | \"\(.key)=\(.value)\"" "$2") git config remote.origin.pushurl | grep -qx /nonexistent/bruh-smoke-no-push' _ "$tmp/remote" "$tmp/push.json"
 check "check_trusted_repo names the remote problem" contains "$(check_trusted_repo "$tmp/remote")" "remote"
 
 # count_missed

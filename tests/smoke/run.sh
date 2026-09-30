@@ -399,6 +399,7 @@ write_file "$proj/.claude/settings.json" <<'EOF'
   }
 }
 EOF
+[ "$DRY" = 1 ] || add_push_block "$proj/.claude/settings.json" "$BRUH_TRUSTED_REPO" || die "setup: cannot block pushes in the project settings"
 commit_all "$proj" "Add the smoke test tasks"
 
 run cp -R "$plugin/ledger-template/." "$ledger/"
@@ -416,6 +417,7 @@ write_file "$ledger/.claude/settings.json" <<'EOF'
   }
 }
 EOF
+[ "$DRY" = 1 ] || add_push_block "$ledger/.claude/settings.json" "$BRUH_TRUSTED_REPO" || die "setup: cannot block pushes in the ledger settings"
 commit_all "$ledger" "Create the smoke test ledger"
 
 # --- steps ------------------------------------------------------------------
