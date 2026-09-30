@@ -271,3 +271,12 @@ test('bigm keys a question by its asker and its ID', () => {
   assert.ok(questions.includes('`<orca environment>/Q-<n>`'))
   assert.doesNotMatch(questions, /If you already answered this question ID, ignore it/)
 })
+
+// Final review M5: bigm registers the repositories of a project with repos_set and its project.
+test('bigm calls repos_set with the project of the clanker key', () => {
+  const start = agents.bigm.split('### Start a local clanker')[1].split('\n## ')[0]
+  assert.match(start, /call `repos_set` with `repo` = `<owner\/repo>`, `host` = `github` or `gitea`, `api_url`/)
+  assert.match(start, /`project` = the `<project>` part of the clanker key `clanker-<project>`/)
+  const remote = agents.bigm.split('## Remote clankers')[1].split('\n## ')[0]
+  assert.match(remote, /call `repos_set`/)
+})

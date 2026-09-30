@@ -69,9 +69,10 @@ Rules for the ledger:
 
 1. Call `role_settings_write` with `role_key` = `clanker-<project>`, `env` = the tool account variables of the project (for example `CODEX_HOME`), and `deny` = the deny rules of the section "Deny rules" of `priorities.md`. Never set `CLAUDE_CONFIG_DIR`.
 2. Write the start message with `mail_post` to `clanker-<project>`, with the header `START: work for <project>`. The body has: the project, the work, the mode, the text of `priorities.md` and `rules.md`, the path of the ledger folder, the review-round cap, the merge grants of the repositories of the project (each grant names the merger clerk `clerk-<project>-merge`), the leases that you granted to it, the tool account variables for its clerks, and the line `remote: no`.
-3. Call `session_launch` with `agent` = `clanker`, `role_key` = `clanker-<project>`, and `cwd` = the project folder.
-4. If the launch fails with `Workspace not trusted`, the owner must trust the folder once in an interactive session. Send a P0 with the folder path.
-5. Record the session in "Sessions" of the project file, with the source `session_list`, and commit.
+3. For each code host repository of the project, call `repos_set` with `repo` = `<owner/repo>`, `host` = `github` or `gitea`, `api_url` (for Gitea the `https` API root of the server; for GitHub it defaults to `https://api.github.com`), and `project` = the `<project>` part of the clanker key `clanker-<project>`. Without it, the watcher reports nothing for the repository, and the merge train refuses it. Without `project`, the project defaults to the name of the repository, and the merge train then refuses the merger clerk `clerk-<project>-merge`. Do this also for a remote clanker, because the watcher and the merger clerk run on your machine. Record each repository in the project file.
+4. Call `session_launch` with `agent` = `clanker`, `role_key` = `clanker-<project>`, and `cwd` = the project folder.
+5. If the launch fails with `Workspace not trusted`, the owner must trust the folder once in an interactive session. Send a P0 with the folder path.
+6. Record the session in "Sessions" of the project file, with the source `session_list`, and commit.
 
 ## Messages
 
@@ -160,7 +161,7 @@ All traffic between you and a remote clanker goes through Orca, because the mail
 3. Launch: `orca orchestration worker-start --on <environment> --worktree new-top-level --repo <selector> --agent claude --spec "<spec text>"`. The mailbox of the remote machine is not yours, so the start message travels in the spec text. The spec text has two parts:
    - The launch steps for the worker session: run `go run -C <plugin root>/mcp . role-settings clanker-<project>` on the remote machine, where `<plugin root>` is the root of the bruh plugin there; it writes the role settings file and prints its path. Then start the clanker in the project folder with `claude --agent bruh:clanker --name clanker-<project> --permission-mode auto --settings <that path>`, and give it the second part as its first message.
    - The start message for the clanker, with the same items as for a local clanker, and the line `remote: yes`.
-   Pass the spec text with a quoted here-document, so that the shell does not change it. Verify (plan 5 and the smoke test of spec 20): the `--worktree` and `--repo` values for a remote environment, and how the worker gives the start message to the clanker.
+   Pass the spec text with a quoted here-document, so that the shell does not change it. Before the launch, call `repos_set` for each code host repository of the project, as step 3 of "Start a local clanker" says. Verify (plan 5 and the smoke test of spec 20): the `--worktree` and `--repo` values for a remote environment, and how the worker gives the start message to the clanker.
 4. The remote clanker sends P0 and P1 with `orca orchestration ask`. Answer with `orca orchestration reply --id <message ID> --body "<ANSWER header and text>"`.
 5. Reports and `DONE` come with `orca orchestration send`, because you cannot read the report file of a remote machine. Move the facts into the ledger.
 6. To send a message to a remote clanker: `orca orchestration send --to dispatch:<dispatch ID> --subject "<header>" --type status --body "<text>"`. Pass a multi-line body with a quoted here-document.

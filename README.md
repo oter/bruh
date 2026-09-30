@@ -178,7 +178,7 @@ claude --agent bruh:bigm --name bigm --permission-mode auto \
 
 Remove the `--channels` line when you use no channel. `~/.claude/plugins/data/bruh-bruh/` is the plugin data folder of the plugin `bruh@bruh`. bigm stays an interactive session. Do not start it with `--bg`.
 
-bigm starts a clanker for each project that has work. Tell bigm what to do.
+bigm starts a clanker for each project that has work. Tell bigm what to do. For each project, tell bigm its code host repositories (`owner/name` and the host, GitHub or Gitea). bigm records them with the `repos_set` tool of bruh, so that the watcher and the merge train know them.
 
 ### 8. Check the requirements
 
