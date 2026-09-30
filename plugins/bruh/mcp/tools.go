@@ -5,5 +5,6 @@ func AllTools() []Tool {
 	var tools []Tool
 	tools = append(tools, mailTools()...)
 	tools = append(tools, handoffTools()...)
+	tools = append(tools, answerTools()...)
 	return tools
 }
