@@ -46,3 +46,20 @@ func TestMailRefusesBadInput(t *testing.T) {
 		t.Fatalf("err = %v", err)
 	}
 }
+
+func TestMailHeaderGrammar(t *testing.T) {
+	for h, ok := range map[string]bool{
+		"START: fix the login bug":           true,
+		"DONE: fixed":                        true,
+		"P1 Q-7: merge?":                     true,
+		"START:":                             false,
+		"START: ":                            false,
+		"START: " + strings.Repeat("s", 200): true,
+		"START: " + strings.Repeat("s", 201): false,
+		"START Q-1: x":                       false,
+	} {
+		if headerRE.MatchString(h) != ok {
+			t.Errorf("%q: match = %v, want %v", h, !ok, ok)
+		}
+	}
+}

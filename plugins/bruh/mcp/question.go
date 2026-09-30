@@ -19,7 +19,7 @@ type Question struct {
 	Body     string `json:"body"`
 	Blocks   string `json:"blocks"`
 	Asker    string `json:"asker"`
-	At       string `json:"at"`
+	OpenedAt string `json:"opened_at"`
 }
 
 func questionTools() []Tool {
@@ -62,7 +62,7 @@ func questionTools() []Tool {
 					} else if !errors.Is(err, fs.ErrNotExist) {
 						return err
 					}
-					q = Question{ID: fmt.Sprintf("Q-%d", n), Priority: a.Priority, Subject: a.Subject, Body: a.Body, Blocks: a.Blocks, Asker: me, At: c.Env.Stamp()}
+					q = Question{ID: fmt.Sprintf("Q-%d", n), Priority: a.Priority, Subject: a.Subject, Body: a.Body, Blocks: a.Blocks, Asker: me, OpenedAt: c.Env.Stamp()}
 					if !headerRE.MatchString(q.header()) {
 						return fmt.Errorf("invalid subject: %q (one line, 1 to 200 characters)", a.Subject)
 					}

@@ -13,7 +13,7 @@ import (
 	"time"
 )
 
-var headerRE = regexp.MustCompile(`^(P[012] Q-\d+|ANSWER Q-\d+|REC Q-\d+|RULE R-\d+|DONE): \S.{0,199}$`)
+var headerRE = regexp.MustCompile(`^(P[012] Q-\d+|ANSWER Q-\d+|REC Q-\d+|RULE R-\d+|DONE|START): \S.{0,199}$`)
 
 var mailSeq atomic.Int64
 

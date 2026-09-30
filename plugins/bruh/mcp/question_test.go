@@ -37,7 +37,7 @@ func TestQuestionOpenNumbersInOrder(t *testing.T) {
 	if err := json.Unmarshal(data, &q); err != nil {
 		t.Fatal(err)
 	}
-	if q.Asker != "clerk-a-1" || q.Blocks != "stage 2" || !strings.HasSuffix(q.At, "Z") {
+	if q.Asker != "clerk-a-1" || q.Blocks != "stage 2" || !strings.HasSuffix(q.OpenedAt, "Z") {
 		t.Fatalf("question = %+v", q)
 	}
 }
