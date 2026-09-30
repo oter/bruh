@@ -18,7 +18,7 @@ The first release, `v0.1.0`, contains all parts of the [specification](docs/spec
 - The `deliver` workflow `/bruh:deliver`: plan, implement, review with three checks, and fix, with questions during a run (spec 6).
 - The sweep, the code host watcher, and the merge train (spec 8.3 and 9).
 - The remote transport through the Orca remote runtime (spec 4.2).
-- Channels: Telegram through the official channel plugin (spec 12).
+- Channels: Telegram through the official channel plugin, and a Slack channel of bruh that polls the Slack Web API (spec 12).
 - Default `priorities.md`, `house-rules.md`, role settings, and a ledger template (spec 8, 13, and 14).
 - Tests: Go tests for the MCP server and the hook scripts, a smoke test runbook and driver (`tests/smoke/`), and a load test runbook and driver (`tests/load/`) (spec 20).
 - Repository files: CI (the Go checks, the shell tests, and the Node tests on macOS and Linux; lint, the link check, and plugin validation on Linux), OpenSSF Scorecard, Dependabot, issue forms, a pull request template, `SECURITY.md`, `CONTRIBUTING.md`, and the Apache-2.0 license (spec 19).

@@ -127,6 +127,16 @@ Start bigm with `--channels plugin:telegram@claude-plugins-official` (step 7). S
 /telegram:access policy allowlist
 ```
 
+Slack is a channel of bruh itself. During the channels research preview, a channel that is not on the Anthropic allowlist loads only with a development flag.
+
+1. Create a Slack app for your own workspace at <https://api.slack.com/apps>. Do not distribute it: Slack gives an app that is distributed outside the Slack Marketplace only 1 read request each minute.
+2. Add the bot token scopes `chat:write`, and `channels:history` for a public channel or `groups:history` for a private channel. Install the app, and copy the bot token (`xoxb-...`).
+3. Create a channel for bruh, invite the app to it, and copy the channel ID. Copy your own Slack member ID from your profile.
+4. Run `/plugin configure bruh` and set `slack_bot_token`, `slack_channel_id`, and `slack_owner_user_id`. Only messages from `slack_owner_user_id` reach bigm.
+5. Start bigm with `--dangerously-load-development-channels plugin:bruh@bruh` instead of `--channels` (step 7).
+
+The details are in [plugins/bruh/channels/slack/README.md](plugins/bruh/channels/slack/README.md).
+
 The bot allows only one reader. Each session that loads the Telegram plugin starts its server, and that server takes the bot from the session before it, also without `--channels`. The role settings of bruh turn the plugin off for every role except bigm. Your own other Claude Code sessions load it too: while bigm runs, turn the plugin off in them, for example with `--settings '{"enabledPlugins": {"telegram@claude-plugins-official": false}}'`.
 
 ### 5. Add a remote machine (optional)
@@ -176,7 +186,7 @@ claude --agent bruh:bigm --name bigm --permission-mode auto \
   --channels plugin:telegram@claude-plugins-official
 ```
 
-Remove the `--channels` line when you use no channel. `~/.claude/plugins/data/bruh-bruh/` is the plugin data folder of the plugin `bruh@bruh`. bigm stays an interactive session. Do not start it with `--bg`.
+For Slack, use `--dangerously-load-development-channels plugin:bruh@bruh` in place of the `--channels` line. Remove the line when you use no channel. `~/.claude/plugins/data/bruh-bruh/` is the plugin data folder of the plugin `bruh@bruh`. bigm stays an interactive session. Do not start it with `--bg`.
 
 bigm starts a clanker for each project that has work. Tell bigm what to do. For each project, tell bigm its code host repositories (`owner/name` and the host, GitHub or Gitea). bigm records them with the `repos_set` tool of bruh, so that the watcher and the merge train know them.
 
