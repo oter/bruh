@@ -133,6 +133,13 @@ func TestInitApplyWritesPlannedContent(t *testing.T) {
 		!slices.Contains(allow, any("mcp__plugin_bruh_slack__post_question")) {
 		t.Fatalf("settings = %v", s)
 	}
+	// The settings that init writes allow each implement workflow and result_save (fix round 2).
+	for _, want := range []string{"Workflow(bruh:deliver)", "Workflow(bruh:tickets)", "Workflow(bruh:implement-tickets)",
+		"Workflow(bruh:review-and-fix)", "Workflow(bruh:review-only)", "mcp__plugin_bruh_bruh__result_save"} {
+		if !slices.Contains(allow, any(want)) {
+			t.Errorf("the written settings do not allow %s", want)
+		}
+	}
 	opts := s["pluginConfigs"].(map[string]any)["bruh@bruh"].(map[string]any)["options"].(map[string]any)
 	if opts["user_name"] != "Sam" || opts["handoff_percent"] != 50.0 || opts["max_busy_clerks"] != 8.0 {
 		t.Fatalf("options = %v", opts)

@@ -75,3 +75,16 @@ func TestInitAllowsResultSaveAndTheImplementWorkflows(t *testing.T) {
 		}
 	}
 }
+
+// A manual session of the owner has no role key: its results go to results/owner/,
+// so they are in the data folder too (principle 3).
+func TestResultSaveWithoutRoleKeyUsesOwner(t *testing.T) {
+	env := testEnv(t, "")
+	out, err := call(t, env, "result_save", map[string]any{"name": "review-3", "result": map[string]any{"status": "done"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := filepath.Join(env.DataDir, "results", "owner", "review-3.json"); out.(map[string]any)["path"] != want {
+		t.Fatalf("path = %v, want %s", out, want)
+	}
+}

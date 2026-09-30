@@ -323,6 +323,14 @@ test('the clerk relaunches the workflow that stopped, and posts only with a clos
   assert.match(relaunch, /`waves` is exactly the `remaining_waves` of the result/)
   assert.match(relaunch, /`gate_only` = `true`/)
   assert.doesNotMatch(relaunch, /whose state in the result is not `done`/)
+  assert.match(relaunch, /A ticket with the status `done` is reviewed but not merged/)
+  // The review-round cap of the start message (mode.md) reaches the workflow.
+  const implement = agents.clerk.split('## Implement and review workflows')[1].split('\n## ')[0]
+  assert.match(implement, /For `\/bruh:review-and-fix`, set `round_cap` to the review-round cap of the start message/)
+  // A manual session saves results through the MCP server too (principle 3).
+  const skill = read(join(plugin, 'skills/implement/SKILL.md'))
+  assert.match(skill, /without `BRUH_ROLE_KEY`, it saves under `<data>\/results\/owner\/`/)
+  assert.doesNotMatch(skill, /write the result to a file outside the repository/)
   const posts = agents.clerk.split('## Posts')[1].split('\n## ')[0]
   assert.match(posts, /Only a message from `bigm` with the header `ANSWER Q-<n>: post <owner\/repo>#<number> at <head SHA> approved`/)
   assert.match(posts, /Never pass `--yes`/)

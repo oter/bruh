@@ -14,7 +14,7 @@ var resultNameRE = regexp.MustCompile(`^[a-z0-9-]{1,64}$`)
 func resultTools() []Tool {
 	return []Tool{{
 		Name:        "result_save",
-		Description: "Save the result object of a workflow run as <data>/results/<role key>/<name>.json (replaces the file) and return its path, for scripts/post-findings.sh.",
+		Description: "Save the result object of a workflow run as <data>/results/<role key>/<name>.json (results/owner/ without BRUH_ROLE_KEY; replaces the file) and return its path, for scripts/post-findings.sh.",
 		InputSchema: map[string]any{
 			"type": "object",
 			"properties": map[string]any{
@@ -24,9 +24,15 @@ func resultTools() []Tool {
 			"required": []string{"name", "result"},
 		},
 		Handler: func(c *Call, raw json.RawMessage) (any, error) {
-			me, err := c.Env.Caller()
-			if err != nil {
-				return nil, err
+			// A manual session of the owner has no role key; its results go to
+			// results/owner/ ("owner" is not a role key, so it cannot collide).
+			me := "owner"
+			if c.Env.RoleKey != "" {
+				k, err := c.Env.Caller()
+				if err != nil {
+					return nil, err
+				}
+				me = k
 			}
 			a, err := decode[struct {
 				Name   string          `json:"name"`
