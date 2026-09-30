@@ -322,7 +322,7 @@ cleanup() {
 			git -C "$trusted" worktree remove --force --force "$wt" >/dev/null 2>&1 || fail cleanup "remove the clerk worktree $wt by hand"
 		done
 	rmdir "$trusted_real/.claude/worktrees" "$trusted_real/.claude" 2>/dev/null || true
-	if ! remove_scratch "$trusted" "$base" "$evidence"; then
+	if ! remove_scratch "$trusted" "$base" "$evidence" "$project-"; then
 		fail cleanup "no list of the branches before the run; no branch deleted"
 	fi
 	# shellcheck disable=SC2086 # keys is a list of role keys

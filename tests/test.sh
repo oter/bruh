@@ -154,6 +154,14 @@ check "remove_scratch deletes the new orphan branch of the run" not git -C "$tmp
 check "remove_scratch keeps a new branch that another person made from HEAD" git -C "$tmp/rs" rev-parse --verify -q refs/heads/owner-new
 check "remove_scratch keeps the old branches" git -C "$tmp/rs" rev-parse --verify -q refs/heads/keep
 check "remove_scratch removes the scratch folder" not test -e "$tmp/rs/.bruh-test/x"
+mkdir -p "$tmp/rs/.bruh-test/x"
+git -C "$tmp/rs" branch worktree-smoke-r1-gate
+git -C "$tmp/rs" branch worktree-smoke-r1-work
+git -C "$tmp/rs" checkout -q worktree-smoke-r1-work && git -C "$tmp/rs" -c user.name=t -c user.email=t@example.com commit -q --allow-empty -m work && git -C "$tmp/rs" checkout -q keep
+remove_scratch "$tmp/rs" "$tmp/rs/.bruh-test/x" "$tmp/rs-ev" "smoke-r1-"
+check "remove_scratch deletes an empty EnterWorktree branch with the run name" not git -C "$tmp/rs" rev-parse --verify -q refs/heads/worktree-smoke-r1-gate
+check "remove_scratch keeps a run-named branch that has commits" git -C "$tmp/rs" rev-parse --verify -q refs/heads/worktree-smoke-r1-work
+check "remove_scratch keeps a branch from HEAD without the run name" git -C "$tmp/rs" rev-parse --verify -q refs/heads/owner-new
 : >"$tmp/rs-ev/branches-before.txt"
 check "remove_scratch refuses an empty list of branches" not remove_scratch "$tmp/rs" "$tmp/rs/.bruh-test/x" "$tmp/rs-ev"
 check "remove_scratch with an empty list deletes no branch" git -C "$tmp/rs" rev-parse --verify -q refs/heads/keep

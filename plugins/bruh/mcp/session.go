@@ -102,8 +102,8 @@ func childKey(env Env, key string) (RoleKey, string, error) {
 	if err != nil {
 		return RoleKey{}, "", err
 	}
-	if k.Parent() != me && me != "bigm" {
-		return RoleKey{}, "", fmt.Errorf("%s cannot start %s; only its parent %q or bigm can", me, key, k.Parent())
+	if k.Parent() != me && (me != "bigm" || !bigmActsFor(k)) {
+		return RoleKey{}, "", fmt.Errorf("%s cannot start %s; only its parent %q can (bigm too for a merger clerk)", me, key, k.Parent())
 	}
 	agent := map[string]string{"clanker": "clanker", "clerk": "clerk", "ledger": "clerk"}[k.Role]
 	return k, agent, nil

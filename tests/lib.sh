@@ -290,8 +290,10 @@ record_branches() {
 # record_branches. A branch of the run is new and does not contain the HEAD
 # commit of the trusted repository, because each run branch starts from an
 # orphan commit. A new branch that contains that commit was made by somebody
-# else, and it stays. It returns 1 when the records are missing; then it
-# deletes no branch.
+# else, and it stays, except when $4 is set, its name contains $4, and it has
+# no commit of its own: EnterWorktree of a clerk makes such a branch from HEAD
+# (worktree-<name>), and it holds no work. It returns 1 when the records are
+# missing; then it deletes no branch.
 remove_scratch() {
 	rm -rf "$2"
 	git -C "$1" worktree prune
@@ -300,6 +302,9 @@ remove_scratch() {
 	head=$(cat "$3/trusted-head.txt")
 	grep -vxF -f "$3/branches-before.txt" "$3/branches-after.txt" | while read -r b; do
 		if ! git -C "$1" merge-base --is-ancestor "$head" "refs/heads/$b" 2>/dev/null; then
+			git -C "$1" branch -D -q "$b" || true
+		elif [ -n "${4:-}" ] && case $b in *"$4"*) true ;; *) false ;; esac &&
+			[ "$(git -C "$1" rev-list --count "$head..refs/heads/$b")" = 0 ]; then
 			git -C "$1" branch -D -q "$b" || true
 		fi
 	done

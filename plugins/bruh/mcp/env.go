@@ -196,3 +196,11 @@ func (e Env) WithLock(name string, fn func() error) error {
 	defer syscall.Flock(int(f.Fd()), syscall.LOCK_UN)
 	return fn()
 }
+
+// bigmActsFor reports whether bigm may write the role settings of k, start it, or resume it
+// without being its parent: its own key, and the merger clerk of any project, which runs on
+// the machine of bigm also for a remote project. Every other key belongs to its parent, so
+// bigm does not get past the busy-clerk cap or the leases of a clanker.
+func bigmActsFor(k RoleKey) bool {
+	return k.Role == "bigm" || (k.Role == "clerk" && k.Task == "merge")
+}

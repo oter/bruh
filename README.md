@@ -133,7 +133,7 @@ Slack is a channel of bruh itself. During the channels research preview, a chann
 2. Add the bot token scopes `chat:write`, and `channels:history` for a public channel or `groups:history` for a private channel. Install the app, and copy the bot token (`xoxb-...`).
 3. Create a channel for bruh, invite the app to it, and copy the channel ID. Copy your own Slack member ID from your profile.
 4. Run `/plugin configure bruh` and set `slack_bot_token`, `slack_channel_id`, and `slack_owner_user_id`. Only messages from `slack_owner_user_id` reach bigm.
-5. Start bigm with `--dangerously-load-development-channels plugin:bruh@bruh` instead of `--channels` (step 7).
+5. Start bigm with `--dangerously-load-development-channels plugin:bruh@bruh` (step 7). When you also use Telegram, keep the `--channels` flag too.
 
 The details are in [plugins/bruh/channels/slack/README.md](plugins/bruh/channels/slack/README.md).
 
@@ -186,7 +186,7 @@ claude --agent bruh:bigm --name bigm --permission-mode auto \
   --channels plugin:telegram@claude-plugins-official
 ```
 
-For Slack, use `--dangerously-load-development-channels plugin:bruh@bruh` in place of the `--channels` line. Remove the line when you use no channel. `~/.claude/plugins/data/bruh-bruh/` is the plugin data folder of the plugin `bruh@bruh`. bigm stays an interactive session. Do not start it with `--bg`.
+For Slack, add `--dangerously-load-development-channels plugin:bruh@bruh`. Without Telegram, remove the `--channels` line. `~/.claude/plugins/data/bruh-bruh/` is the plugin data folder of the plugin `bruh@bruh`. bigm stays an interactive session. Do not start it with `--bg`.
 
 bigm starts a clanker for each project that has work. Tell bigm what to do. For each project, tell bigm its code host repositories (`owner/name` and the host, GitHub or Gitea). bigm records them with the `repos_set` tool of bruh, so that the watcher and the merge train know them.
 

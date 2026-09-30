@@ -186,8 +186,9 @@ func TestSessionList(t *testing.T) {
 	}
 }
 
-// Final review M3: bigm may start and resume any role key, so that it runs the merger clerk of a
-// remote project on its own machine. Every other caller must be the parent of the key.
+// Final review M3: bigm may start and resume the merger clerk of any project, so that it runs the
+// merger of a remote project on its own machine. Every other caller must be the parent of the key,
+// and bigm is not the parent of a task clerk.
 func TestSessionLaunchAndResumeByBigm(t *testing.T) {
 	env := testEnv(t, "bigm")
 	cwd, _ := filepath.EvalSymlinks(t.TempDir())
@@ -203,6 +204,8 @@ func TestSessionLaunchAndResumeByBigm(t *testing.T) {
 	if _, err := call(t, env, "session_resume", map[string]any{"role_key": "clerk-remote-app-merge"}); err != nil {
 		t.Fatal(err)
 	}
+	_, err := call(t, env, "session_launch", map[string]any{"agent": "clerk", "role_key": "clerk-remote-app-t1", "cwd": cwd})
+	mustErr(t, err, "only its parent")
 	for _, caller := range []string{"clanker-other", "clerk-remote-app-x", "clerk-ledger"} {
 		_, err := call(t, as(env, caller), "session_launch", map[string]any{"agent": "clerk", "role_key": "clerk-remote-app-merge", "cwd": cwd})
 		mustErr(t, err, "only its parent")
