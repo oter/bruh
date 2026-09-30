@@ -88,3 +88,41 @@ func TestLeaseParallelGrantsKeepCount(t *testing.T) {
 		t.Fatalf("state has %d grants", n)
 	}
 }
+
+func TestLeaseGrantUsesParent(t *testing.T) {
+	bigm := testEnv(t, "bigm")
+	my := as(bigm, "clanker-my")
+	g := func(env Env, to string) error {
+		_, err := call(t, env, "lease_grant", map[string]any{"resource": "staging", "to": to, "minutes": 30})
+		return err
+	}
+	if _, err := call(t, bigm, "lease_define", map[string]any{"resource": "staging", "capacity": 2}); err != nil {
+		t.Fatal(err)
+	}
+	if err := g(bigm, "clanker-my"); err != nil {
+		t.Fatal(err)
+	}
+	mustErr(t, g(my, "clerk-my-app-t1"), "own clerks")
+	mustErr(t, g(bigm, "clerk-my-t1"), "only to clankers")
+	mustErr(t, g(bigm, "clerk-ledger"), "only to clankers")
+	if err := g(my, "clerk-my-t1"); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestLeaseRequestStoresGrantor(t *testing.T) {
+	bigm := testEnv(t, "bigm")
+	if _, err := call(t, bigm, "lease_define", map[string]any{"resource": "db", "capacity": 1}); err != nil {
+		t.Fatal(err)
+	}
+	_, err := call(t, bigm, "lease_request", map[string]any{"resource": "db"})
+	mustErr(t, err, "no grantor")
+	if _, err := call(t, as(bigm, "clerk-my-app-t1"), "lease_request", map[string]any{"resource": "db"}); err != nil {
+		t.Fatal(err)
+	}
+	st, _ := call(t, bigm, "lease_list", map[string]any{})
+	req := st.(map[string]any)["requests"].([]any)[0].(map[string]any)
+	if req["grantor"] != "clanker-my-app" || req["requester"] != "clerk-my-app-t1" {
+		t.Fatalf("request = %v", req)
+	}
+}

@@ -8,12 +8,71 @@ import (
 	"path/filepath"
 	"regexp"
 	"strconv"
+	"strings"
 	"time"
 )
 
 const stampLayout = "2006-01-02T15:04:05.000Z"
 
-var keyRE = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{0,63}$`)
+var (
+	projectRE = regexp.MustCompile(`^[a-z0-9]+(-[a-z0-9]+)*$`)
+	taskRE    = regexp.MustCompile(`^[a-z0-9]+$`)
+)
+
+// RoleKey is a parsed role key: bigm, clerk-ledger, clanker-<project>, or clerk-<project>-<task>.
+type RoleKey struct {
+	Role    string // "bigm", "clanker", "clerk", or "ledger"
+	Project string // empty for bigm and ledger
+	Task    string // empty except for clerk
+}
+
+// ParseRoleKey parses a role key. The last hyphen of a clerk key separates the project from the task.
+func ParseRoleKey(s string) (RoleKey, error) {
+	bad := fmt.Errorf("invalid role key: %q", s)
+	if len(s) > 64 {
+		return RoleKey{}, bad
+	}
+	switch s {
+	case "bigm":
+		return RoleKey{Role: "bigm"}, nil
+	case "clerk-ledger":
+		return RoleKey{Role: "ledger"}, nil
+	}
+	if p, ok := strings.CutPrefix(s, "clanker-"); ok && projectRE.MatchString(p) {
+		return RoleKey{Role: "clanker", Project: p}, nil
+	}
+	if rest, ok := strings.CutPrefix(s, "clerk-"); ok {
+		if i := strings.LastIndexByte(rest, '-'); i > 0 && projectRE.MatchString(rest[:i]) && taskRE.MatchString(rest[i+1:]) {
+			return RoleKey{Role: "clerk", Project: rest[:i], Task: rest[i+1:]}, nil
+		}
+	}
+	return RoleKey{}, bad
+}
+
+func (k RoleKey) String() string {
+	switch k.Role {
+	case "bigm":
+		return "bigm"
+	case "ledger":
+		return "clerk-ledger"
+	case "clanker":
+		return "clanker-" + k.Project
+	case "clerk":
+		return "clerk-" + k.Project + "-" + k.Task
+	}
+	return ""
+}
+
+// Parent is the role key that starts, and grants leases to, this role. bigm has none.
+func (k RoleKey) Parent() string {
+	switch k.Role {
+	case "clerk":
+		return "clanker-" + k.Project
+	case "clanker", "ledger":
+		return "bigm"
+	}
+	return ""
+}
 
 // Env is everything a tool handler needs from its process.
 type Env struct {
@@ -53,7 +112,10 @@ func (e Env) Caller() (string, error) {
 }
 
 func checkKey(s, what string) (string, error) {
-	return checkID(s, keyRE, what)
+	if _, err := ParseRoleKey(s); err != nil {
+		return "", fmt.Errorf("invalid %s: %q", what, s)
+	}
+	return s, nil
 }
 
 func checkID(s string, re *regexp.Regexp, what string) (string, error) {

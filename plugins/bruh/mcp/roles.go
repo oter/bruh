@@ -3,10 +3,10 @@ package main
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"slices"
-	"strings"
 )
 
 func rolesTools() []Tool {
@@ -28,9 +28,6 @@ func rolesTools() []Tool {
 				if err != nil {
 					return nil, err
 				}
-				if me != "bigm" && !strings.HasPrefix(me, "clanker-") {
-					return nil, errors.New("only bigm or a clanker writes role settings")
-				}
 				a, err := decode[struct {
 					RoleKey string            `json:"role_key"`
 					Env     map[string]string `json:"env"`
@@ -39,9 +36,13 @@ func rolesTools() []Tool {
 				if err != nil {
 					return nil, err
 				}
-				key, err := checkKey(a.RoleKey, "role key")
+				target, err := ParseRoleKey(a.RoleKey)
 				if err != nil {
 					return nil, err
+				}
+				key := target.String()
+				if target.Parent() != me && (me != "bigm" || key != "bigm") {
+					return nil, fmt.Errorf("%s cannot write the role settings of %s; only its parent %q can", me, key, target.Parent())
 				}
 				if _, ok := a.Env["BRUH_ROLE_KEY"]; ok {
 					return nil, errors.New("env must not set BRUH_ROLE_KEY; role_key sets it")
