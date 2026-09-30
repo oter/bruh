@@ -1,6 +1,7 @@
 package main
 
 import (
+	"cmp"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -79,16 +80,23 @@ type Env struct {
 	DataDir          string
 	RoleKey          string
 	PluginRoot       string
+	Home             string // home folder of the user
+	SettingsFile     string // user settings.json that init writes
+	ClaudeBin        string // the claude binary; tests use a fake script
 	PollInterval     time.Duration
 	ProgressInterval time.Duration
 	Now              func() time.Time
 }
 
 func EnvFromOS() Env {
+	home, _ := os.UserHomeDir()
 	return Env{
 		DataDir:          os.Getenv("BRUH_DATA"),
 		RoleKey:          os.Getenv("BRUH_ROLE_KEY"),
 		PluginRoot:       os.Getenv("BRUH_PLUGIN_ROOT"),
+		Home:             home,
+		SettingsFile:     cmp.Or(os.Getenv("BRUH_SETTINGS_FILE"), filepath.Join(home, ".claude", "settings.json")),
+		ClaudeBin:        cmp.Or(os.Getenv("BRUH_CLAUDE_BIN"), "claude"),
 		PollInterval:     durationEnv("BRUH_POLL_MS", 2*time.Second),
 		ProgressInterval: durationEnv("BRUH_PROGRESS_MS", time.Minute),
 		Now:              time.Now,
