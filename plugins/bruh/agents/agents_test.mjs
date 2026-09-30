@@ -48,17 +48,22 @@ const REQUIRED = {
     'lease_list', 'bruh_info', 'SendMessage', 'CronCreate', 'Monitor', 'watcher.sh', 'mode.md',
     'owed.md', 'rules.md', 'grants.md', 'questions.md', 'leases.md', 'priorities.md', 'clerk-ledger',
     'orca orchestration check --wait', 'orca orchestration worker-start', '${user_config.user_name}',
+    'START: ', 'role-settings clanker-<project>', 'mcp__plugin_telegram_telegram__reply', 'chat_id',
+    'clerk-<project>-merge', '## Never without the owner',
   ],
   clanker: [
     'session_launch', 'session_resume', 'session_list', 'mail_post', 'mail_read', 'role_settings_write',
     'report_write', 'question_open', 'lease_request', 'lease_grant', 'lease_release', 'lease_list',
     'handoff_write', 'bruh_info', 'SendMessage', 'priorities.md', 'rules.md', 'house-rules.md',
     '${user_config.max_busy_clerks}', 'CLAUDE_CODE_WORKFLOW_MAX_CONCURRENT_AGENTS', 'orca orchestration ask',
+    'START: ', 'accepted: <head SHA>', 'clerk-<project>-merge', 'orca orchestration send',
   ],
   clerk: [
     'mail_read', 'mail_post', 'answer_write', 'report_write', 'question_open', 'handoff_write',
     'bruh_info', 'lease_request', 'lease_release', 'SendMessage', '/bruh:deliver', 'resumeFromRunId',
     'merge-train.sh', 'base_sha', 'round_cap', 'deadline_seconds', 'answers',
+    'START: ', 'accepted: <head SHA>', 'FAILED:', 'clerk-<project>-merge', 'session_list',
+    'merge-train.sh <owner/repo> <pull request number>', 'Verify',
   ],
 }
 
@@ -106,9 +111,9 @@ for (const role of ROLES) {
 
   test(`${role}: every message header has the grammar of spec 5`, () => {
     assert.ok(agents[role], `agents/${role}.md is missing`)
-    const header = /^((P[012]|ANSWER|REC) Q-(\d+|<n>|<id>)|RULE R-(\d+|<n>)|DONE): \S/
-    for (const m of agents[role].matchAll(/`((?:P[012]|ANSWER|REC|RULE|DONE)\b[^`]*)`/g)) {
-      if (/^(P[012]|ANSWER|REC|RULE|DONE)$/.test(m[1])) continue // the bare word, not a header
+    const header = /^((P[012]|ANSWER|REC) Q-(\d+|<n>|<id>)|RULE R-(\d+|<n>)|DONE|START): \S/
+    for (const m of agents[role].matchAll(/`((?:P[012]|ANSWER|REC|RULE|DONE|START)\b[^`]*)`/g)) {
+      if (/^(P[012]|ANSWER|REC|RULE|DONE|START):?$/.test(m[1])) continue // the bare word, not a header
       assert.match(m[1], header, `bad header in agents/${role}.md`)
     }
   })
@@ -151,4 +156,42 @@ test('the ledger template has the layout of spec 8', () => {
   for (const s of ['Summary', 'In progress', 'Merged', 'Live', 'Decisions', 'Questions and answers', 'Sessions', 'Identities', 'Shared resources and clerk leases', 'Waiting on others']) {
     assert.ok(project.includes(`\n## ${s}\n`), `projects/_template.md has no section ${s}`)
   }
+})
+
+// Interfaces section 4a: the start header, the post marker, and the remote role settings command.
+test('the agents follow interfaces section 4a', () => {
+  const text = read(join(repo, 'docs/superpowers/plans/2026-09-30-v0.1-interfaces.md'))
+  const section = text.split('## 4a. Messages and posts')[1].split('\n## 5.')[0]
+  const marker = section.match(/`(<!-- bruh:<role key> -->)`/)[1]
+  assert.ok(agents.clerk.includes(marker), 'clerk.md does not use the post marker of the contract')
+  assert.ok(section.includes('`START: <subject>`'))
+  assert.ok(section.includes('. role-settings <role key>'))
+  assert.ok(agents.bigm.includes('. role-settings clanker-<project>'), 'bigm.md does not start a remote clanker with the role-settings command')
+  for (const role of ROLES) {
+    assert.ok(!/DONE: start message/.test(agents[role]), `agents/${role}.md still sends a start message with DONE`)
+  }
+})
+
+test('the clanker and the clerk agree on the acceptance message', () => {
+  for (const role of ['clanker', 'clerk']) {
+    assert.ok(agents[role].includes('`DONE: result accepted for <task>`'), `${role}: acceptance header`)
+    assert.ok(agents[role].includes('`accepted: <head SHA>`'), `${role}: acceptance body line`)
+  }
+})
+
+test('the busy-clerk cap counts live clerks, not busy status', () => {
+  assert.doesNotMatch(agents.clanker, /`status` equal to `busy`/)
+  assert.match(agents.clanker, /`state` is not `done`, `failed`, or `stopped`/)
+})
+
+test('the ledger clerk skips the task start and has no worktree', () => {
+  const ledger = agents.clerk.split('## The ledger clerk')[1].split('\n## ')[0]
+  assert.match(ledger, /Do not run `EnterWorktree`/)
+  assert.match(agents.clerk.split('## Start')[1].split('\n## ')[0], /`clerk-ledger`.*skip/)
+})
+
+test('the ledger template priorities placeholder has no hard-stop list, and bigm checks for it', () => {
+  const placeholder = read(join(plugin, 'ledger-template/priorities.md'))
+  assert.ok(!placeholder.includes('## Never without the owner'))
+  assert.match(agents.bigm, /has no section "Never without the owner"/)
 })
