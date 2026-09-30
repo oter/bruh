@@ -322,6 +322,9 @@ test('the clerk relaunches the workflow that stopped, and posts only with a clos
   // Fix round 2, N1: the relaunch set is exactly the tickets that are not merged, or only the gate.
   assert.match(relaunch, /`waves` is exactly the `remaining_waves` of the result/)
   assert.match(relaunch, /`gate_only` = `true`/)
+  // Fix round 3: a leftover lane ticket keeps its lane, and gate_only follows only a dead gate.
+  assert.match(relaunch, /`lane_tickets` is exactly the `lane_tickets` of the result/)
+  assert.match(relaunch, /the gate agent died/)
   assert.doesNotMatch(relaunch, /whose state in the result is not `done`/)
   assert.match(relaunch, /A ticket with the status `done` is reviewed but not merged/)
   // The review-round cap of the start message (mode.md) reaches the workflow.

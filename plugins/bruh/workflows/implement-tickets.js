@@ -1,7 +1,7 @@
 export const meta = {
   name: 'implement-tickets',
   description: 'Implement tickets wave by wave: one implementer for each ticket, in parallel lanes inside a wave, one reviewer, a fix loop, the merge of the lanes, and a whole-branch gate. No commits and no posts.',
-  whenToUse: 'Implement the tickets of a settled spec that /bruh:tickets wrote. Pass the waves of issues/INDEX.md. After a FAILED stop, relaunch as a new run with the remaining_waves of the result, or with gate_only when only the gate is left; do not resume.',
+  whenToUse: 'Implement the tickets of a settled spec that /bruh:tickets wrote. Pass the waves of issues/INDEX.md. After a FAILED stop, relaunch as a new run with the remaining_waves and lane_tickets of the result, or with gate_only when the gate died; do not resume.',
   phases: [
     { title: 'Implement', detail: 'one implementer, one reviewer, and a fix loop for each ticket; parallel inside a wave' },
     { title: 'Merge', detail: 'patch the lanes of a wave back onto the shared tree, in wave order' },
@@ -18,8 +18,12 @@ export const meta = {
 // with the remaining_waves of the result (the resume lesson of the skill). A
 // ticket is merged only after its lane merge returned ok (a wave of one works in
 // the shared tree, so its pass merges it); remaining_waves holds every ticket that
-// is not merged. When every ticket is merged and only the gate is left, the result
-// has gate_only = true, and the relaunch runs only the gate.
+// is not merged, and lane_tickets names each of them that has a lane, so that a
+// relaunch keeps working in that lane, also when the ticket is alone in its wave.
+// When the whole-branch gate agent died, the result has gate_only = true, and the
+// relaunch runs only the gate. The lanes of a run are under a folder named by a
+// hash of args.root and args.spec, never by time or chance, so each prompt stays
+// the same between a run and its relaunch.
 
 const A = (typeof args === 'object' && args) || {}
 const list = (v) => (Array.isArray(v) ? v.filter((x) => typeof x === 'string') : [])
@@ -37,12 +41,15 @@ const deviations = []
 const tickets = []
 let gate = null
 let tests = { ran: 0, passed: 0, failed: 0, skipped: 0 }
+let gateDied = false
+const hadLane = new Set() // ticket file names that ran in a lane in this run
 
 function result(status, question = null) {
   const merged = new Set(tickets.filter((t) => t.status === 'merged').map((t) => t.file.slice(t.file.lastIndexOf('/') + 1)))
   const remaining = waves.map((w) => w.filter((file) => !merged.has(file))).filter((w) => w.length)
-  const gateLeft = !remaining.length && status !== 'done'
-  return { status, tickets, remaining_waves: remaining, gate_only: gateLeft, gate, tests, question, deviations }
+  const withLane = new Set([...laneTickets, ...hadLane])
+  const laneLeft = remaining.flat().filter((file) => withLane.has(file))
+  return { status, tickets, remaining_waves: remaining, lane_tickets: laneLeft, gate_only: gateDied, gate, tests, question, deviations }
 }
 function stop(reason) {
   deviations.push(`STOP: ${reason}`)
@@ -64,6 +71,7 @@ if (A.deadline_seconds !== undefined && !(typeof A.deadline_seconds === 'number'
 if (A.answers !== undefined && answers !== A.answers) problems.push('args.answers is not an object')
 if (A.fix_cap !== undefined && !(Number.isInteger(A.fix_cap) && A.fix_cap >= 0)) problems.push('args.fix_cap is not an integer of 0 or more')
 const gateOnly = A.gate_only === true
+const laneTickets = new Set(list(A.lane_tickets))
 const waves = Array.isArray(A.waves) && A.waves.every((w) => Array.isArray(w)) ? A.waves : []
 if (A.gate_only !== undefined && typeof A.gate_only !== 'boolean') problems.push('args.gate_only is not a boolean')
 if (gateOnly) {
@@ -77,10 +85,14 @@ else {
     else seen.add(file)
   }
 }
+if (A.lane_tickets !== undefined && !(Array.isArray(A.lane_tickets) && A.lane_tickets.every((f) => typeof f === 'string' && waves.flat().includes(f)))) problems.push('args.lane_tickets is not a list of ticket file names of args.waves')
 if (problems.length) return stop(problems.join('; '))
 
 const bullets = (xs) => (xs.length ? xs.map((x) => `- ${x}`).join('\n') : '(none)')
-const LANE = `ROOT='${root}' sh '${A.lane}'`
+// The lanes of this run: a folder per args.root and args.spec, and LANE_RUN, so
+// that lane.sh never keeps a lane of another repository or feature.
+const RUN = hash(`${root}\n${A.spec}`)
+const LANE = `ROOT='${root}' LANES="\${TMPDIR:-/tmp}/bruh-lanes/${RUN}" LANE_RUN='${RUN}' sh '${A.lane}'`
 
 const COMMON = `Ground rules of this run (binding):
 - Never run git commit, git push, git stash, git checkout, git switch, git reset, or git rebase. Do not change the index or the history of the shared tree ${root}. The owner or the clerk commits later.
@@ -322,15 +334,17 @@ async function runTicket(t, useLane) {
 
 for (let w = 0; w < (gateOnly ? 0 : waves.length); w++) {
   const n = w + 1
-  const wave = waves[w].map((file) => ({ id: file.slice(0, -3), file: `${issues}/${file}` }))
-  const useLane = wave.length > 1
+  // A ticket of a wave of more than one works in a lane, and so does a leftover
+  // ticket of args.lane_tickets, also alone in its wave: its lane holds its work.
+  const wave = waves[w].map((file) => ({ id: file.slice(0, -3), file: `${issues}/${file}`, name: file, lane: waves[w].length > 1 || laneTickets.has(file) }))
   phase('Implement')
-  log(`Wave ${n}: ${wave.map((t) => t.id).join(', ')}${useLane ? ' (parallel lanes)' : ''}`)
-  const out = (await parallel(wave.map((t) => () => runTicket(t, useLane)))).map((r, i) => r || entry(wave[i], 'error', { deviations: 'the ticket run threw' }))
+  log(`Wave ${n}: ${wave.map((t) => `${t.id}${t.lane ? ' (lane)' : ''}`).join(', ')}`)
+  for (const t of wave) if (t.lane) hadLane.add(t.name)
+  const out = (await parallel(wave.map((t) => () => runTicket(t, t.lane)))).map((r, i) => r || entry(wave[i], 'error', { deviations: 'the ticket run threw' }))
   tickets.push(...out)
-  // A wave of one works in the shared tree: its pass merges it.
-  if (!useLane) for (const r of out) if (r.status === 'done') r.status = 'merged'
-  const good = out.filter((r) => r.status === 'done' || r.status === 'merged')
+  // A ticket in the shared tree is merged by its pass; a lane ticket by its merge.
+  out.forEach((r, i) => { if (!wave[i].lane && r.status === 'done') r.status = 'merged' })
+  const good = out.filter((r, i) => wave[i].lane && r.status === 'done')
   const bad = out.filter((r) => r.status !== 'done' && r.status !== 'merged')
   const errors = bad.filter((r) => r.status === 'error')
   const questions = bad.filter((r) => r.status === 'question')
@@ -344,7 +358,7 @@ for (let w = 0; w < (gateOnly ? 0 : waves.length); w++) {
   }
 
   // Merge the done lanes one at a time, in wave order. A failed lane stays for a look.
-  if (useLane && good.length) {
+  if (good.length) {
     phase('Merge')
     const merge = await agent(`Merge the finished lanes of wave ${n} back onto the shared tree ${root}, one at a time, in this order. Run each command and paste its output:
 ${good.map((r) => `- ${LANE} patch ${r.id}\n- ${LANE} apply ${r.id}\n- ${LANE} clean ${r.id}`).join('\n')}
@@ -381,7 +395,10 @@ ${bullets(testGates)}
 A gate that is not a test suite (for example lint or build) returns 0 for each count when its output has no test count. Return exactly one result for each gate command above, with the command text unchanged, and run no other gate. For each gate, return its exit code and how many tests ran, passed, failed, and were skipped. Read the counts from the output; do not estimate. For each failed or skipped test, give the file and the line of the test, a summary, and the kind (failed or skipped). When a gate fails or skips a test, return the last 40 lines of its output in output_tail; otherwise return an empty output_tail.
 
 ${COMMON}`, { label: 'gate', phase: 'Gate', effort: 'low', schema: GATES })
-if (!g) return fail('the gate agent did not return a result')
+if (!g) {
+  gateDied = true
+  return fail('the gate agent did not return a result')
+}
 tests = { ran: sum(g, 'ran'), passed: sum(g, 'passed'), failed: sum(g, 'failed'), skipped: sum(g, 'skipped') }
 const findings = gateFindings(g)
 gate = { ok: findings.length === 0, gates: g.gates || [], findings }

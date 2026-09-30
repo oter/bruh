@@ -317,7 +317,7 @@ test('implement-tickets: lanes merge in wave order and skip failed lanes', async
     impl: (p) => work({ workdir: `/lanes/${p.match(/start (\S+)/)[1]}` }),
     review: (p) => ({ pass: !p.includes('t-02-b'), findings: [{ file: 'b.go', problem: 'x', fix: 'y' }], verify_output: '', summary: '' }),
   }), IT({ waves: [['t-03-c.md', 't-02-b.md', 't-01-a.md']], fix_cap: 0 }))
-  for (const c of byWord('impl')) assert.match(c.prompt, /ROOT='\/r' sh '\/p\/scripts\/lane\.sh' start t-0\d-\w/)
+  for (const c of byWord('impl')) assert.match(c.prompt, /ROOT='\/r' LANES="\$\{TMPDIR:-\/tmp\}\/bruh-lanes\/[0-9a-f]+" LANE_RUN='[0-9a-f]+' sh '\/p\/scripts\/lane\.sh' start t-0\d-\w/)
   assert.equal(byWord('merge').length, 1)
   const m = byWord('merge')[0].prompt
   const order = [...m.matchAll(/lane\.sh' (patch|apply|clean) (\S+)/g)].map((x) => `${x[1]} ${x[2]}`)
@@ -399,12 +399,60 @@ test('implement-tickets: a merge that stops at a hunk merges only the applied ti
   assert.deepEqual(result.remaining_waves, [['t-02-b.md']])
 })
 
+// Fix round 3, R1: the lanes of a run are named by args.root and args.spec only.
+test('implement-tickets: the lane folder and run key come from args.root and args.spec, the same in each run', async () => {
+  const lanes = (p) => work({ workdir: `/lanes/${p.match(/start (\S+)/)[1]}` })
+  const a = IT({ waves: [['t-01-a.md', 't-02-b.md']] })
+  const key = (r) => r.byWord('impl')[0].prompt.match(/LANES="[^"]*\/bruh-lanes\/([0-9a-f]+)" LANE_RUN='([0-9a-f]+)'/).slice(1)
+  const one = await run('implement-tickets', itHandlers({ impl: lanes }), a)
+  const two = await run('implement-tickets', itHandlers({ impl: lanes }), a)
+  assert.deepEqual(key(one), key(two))
+  assert.equal(key(one)[0], key(one)[1])
+  const otherRoot = await run('implement-tickets', itHandlers({ impl: lanes }), { ...a, root: '/other' })
+  const otherSpec = await run('implement-tickets', itHandlers({ impl: lanes }), { ...a, spec: '/r/.scratch/g/spec.md' })
+  assert.notDeepEqual(key(otherRoot), key(one))
+  assert.notDeepEqual(key(otherSpec), key(one))
+  for (const c of one.byWord('merge')) assert.match(c.prompt, /LANE_RUN='[0-9a-f]+' sh '\/p\/scripts\/lane\.sh' patch/)
+})
+
+// Fix round 3: a leftover ticket with a lane keeps working in its lane on relaunch, also alone.
+test('implement-tickets: a leftover lane ticket keeps its lane when it is alone in its wave', async () => {
+  const lanes = (p) => work({ workdir: `/lanes/${p.match(/start (\S+)/)[1]}` })
+  const a = IT({ waves: [['t-01-a.md', 't-02-b.md']], fix_cap: 0 })
+  const first = await run('implement-tickets', itHandlers({
+    impl: lanes,
+    review: (p) => ({ pass: !p.includes('t-02-b'), findings: [], verify_output: '', summary: '' }),
+  }), a)
+  assert.deepEqual(first.result.remaining_waves, [['t-02-b.md']])
+  assert.deepEqual(first.result.lane_tickets, ['t-02-b.md'])
+  const again = await run('implement-tickets', itHandlers({ impl: lanes }), { ...a, waves: first.result.remaining_waves, lane_tickets: first.result.lane_tickets })
+  assert.equal(again.result.status, 'done')
+  assert.match(again.byWord('impl')[0].prompt, /lane\.sh' start t-02-b/)
+  assert.equal(again.byWord('merge').length, 1, 'the lane is merged and cleaned, not orphaned')
+  assert.match(again.byWord('merge')[0].prompt, /clean t-02-b/)
+  assert.deepEqual(again.result.lane_tickets, [])
+  const alone = await run('implement-tickets', itHandlers({ impl: () => work({ workdir: '/r' }) }), { ...a, waves: [['t-02-b.md']] })
+  assert.doesNotMatch(alone.byWord('impl')[0].prompt, /lane\.sh' start/, 'without lane_tickets a wave of one works in the shared tree')
+  const bad = await run('implement-tickets', itHandlers(), { ...a, lane_tickets: ['t-09-z.md'] })
+  assert.equal(bad.result.status, 'stopped')
+  assert.equal(bad.calls.length, 0)
+})
+
 // Fix round 2: when only the gate is left, the result says so, and the relaunch runs only the gate.
 test('implement-tickets: a dead gate agent gives gate_only, and a gate_only run runs only the gate', async () => {
   const dead = await run('implement-tickets', itHandlers({ gate: () => null }), IT())
   assert.equal(dead.result.status, 'stopped')
   assert.deepEqual(dead.result.remaining_waves, [])
   assert.equal(dead.result.gate_only, true)
+  // Fix round 3: gate_only only when the gate agent died, not for findings_left or a validation stop.
+  const red = await run('implement-tickets', itHandlers({ gate: () => ({ gates: [gateResult('make test', { exit_code: 1, failed: 1 })] }) }), IT())
+  assert.equal(red.result.status, 'findings_left')
+  assert.equal(red.result.gate_only, false)
+  const invalid = await run('implement-tickets', itHandlers(), IT({ waves: [] }))
+  assert.equal(invalid.result.status, 'stopped')
+  assert.equal(invalid.result.gate_only, false)
+  const deadTicket = await run('implement-tickets', itHandlers({ review: () => null }), IT())
+  assert.equal(deadTicket.result.gate_only, false)
   const only = await run('implement-tickets', itHandlers(), IT({ waves: [], gate_only: true }))
   assert.equal(only.result.status, 'done')
   assert.deepEqual(only.calls.map((c) => c.word), ['gate'])
