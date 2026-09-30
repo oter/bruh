@@ -11,23 +11,14 @@ import (
 	"testing"
 )
 
-// initEnv returns an environment with a temporary plugin root that has the real scripts and
-// defaults, the ledger template fixture (a copy of the template of lane roles), and the default
-// priorities fixture. It also returns the ledger folder.
+// initEnv returns an environment with a temporary plugin root that has copies of the real
+// scripts, defaults, manifest, and ledger template of the plugin. It also returns the ledger folder.
 func initEnv(t *testing.T) (Env, string) {
 	t.Helper()
 	env := testEnv(t, "")
 	root := t.TempDir()
-	copyTree(t, "../scripts", filepath.Join(root, "scripts"))
-	copyTree(t, "../defaults", filepath.Join(root, "defaults"))
-	copyTree(t, "../.claude-plugin", filepath.Join(root, ".claude-plugin"))
-	copyTree(t, "testdata/ledger-template", filepath.Join(root, "ledger-template"))
-	b, err := os.ReadFile("testdata/priorities.md")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(root, "defaults", "priorities.md"), b, 0o600); err != nil {
-		t.Fatal(err)
+	for _, d := range []string{"scripts", "defaults", ".claude-plugin", "ledger-template"} {
+		copyTree(t, filepath.Join("..", d), filepath.Join(root, d))
 	}
 	env.PluginRoot = root
 	return env, filepath.Join(t.TempDir(), "ledger")
