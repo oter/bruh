@@ -132,7 +132,8 @@ refresh() { agents_json "$(ev agents.json)"; }
 sess() {
 	[ "$DRY" = 1 ] && return 0
 	jq -r --arg n "$1" --arg p "$base_real" \
-		"[.[] | select(.name == \$n and ((.cwd // \"\") as \$c | \$c == \$p or (\$c | startswith(\$p + \"/\"))))][0] | $2 // empty" "$ag"
+		--arg w "$trusted_real/.claude/worktrees/" --arg k "clerk-$project-" \
+		"[.[] | select(.name == \$n and ((.cwd // \"\") as \$c | \$c == \$p or (\$c | startswith(\$p + \"/\")) or ((\$n | startswith(\$k)) and (\$c | startswith(\$w)))))][0] | $2 // empty" "$ag"
 }
 has_live() {
 	refresh
@@ -277,7 +278,8 @@ cleanup() {
 	trap - EXIT HUP INT TERM
 	echo "cleanup"
 	if [ "$DRY" = 1 ]; then
-		show claude stop '<each session in the run folder>'
+		show claude stop '<each session in the run folder or in the clerk worktrees of the trusted repository>'
+		show git -C "$trusted" worktree remove --force --force '<each clerk worktree whose branch this run created>'
 		show rm -rf "$base"
 		show git -C "$trusted" worktree prune
 		show git -C "$trusted" branch -D '<each branch that this run created>'
@@ -293,7 +295,7 @@ cleanup() {
 	if ! refresh; then
 		fail cleanup "claude agents --json --all failed; stop the sessions of this run by hand"
 	fi
-	ids=$(own_sessions "$ag" "$base_real" "")
+	ids="$(own_sessions "$ag" "$base_real" "") $(own_sessions "$ag" "$trusted_real/.claude/worktrees" "clerk-$project-" "$clanker")"
 	# shellcheck disable=SC2086 # ids is a list of short session IDs
 	keys=$(jq -r --args '.[] | select(.id as $i | $ARGS.positional | index($i)) | .name // empty' $ids <"$ag" 2>/dev/null)
 	for id in $ids; do
@@ -311,6 +313,15 @@ cleanup() {
 		orca worktree rm --environment "$SMOKE_ORCA_ENV" --worktree "name:$remote_worktree" --force >/dev/null 2>&1 ||
 			fail cleanup "remove the remote Orca worktree $remote_worktree by hand"
 	fi
+	# The clerk worktrees under .claude/worktrees/ of the trusted repository whose
+	# branch this run created.
+	git -C "$trusted" worktree list --porcelain | awk '/^worktree /{w=substr($0,10)} /^branch refs\/heads\//{print w "\t" substr($0,19)}' |
+		while IFS='	' read -r wt br; do
+			case $wt in "$trusted_real"/.claude/worktrees/*) ;; *) continue ;; esac
+			grep -qxF "$br" "$evidence/branches-before.txt" 2>/dev/null && continue
+			git -C "$trusted" worktree remove --force --force "$wt" >/dev/null 2>&1 || fail cleanup "remove the clerk worktree $wt by hand"
+		done
+	rmdir "$trusted_real/.claude/worktrees" "$trusted_real/.claude" 2>/dev/null || true
 	if ! remove_scratch "$trusted" "$base" "$evidence"; then
 		fail cleanup "no list of the branches before the run; no branch deleted"
 	fi
@@ -359,6 +370,9 @@ build_mcp "$plugin" "$BRUH_TEST_MCP"
 add_scratch_worktree "$trusted" "$proj" "bruh-$project"
 add_scratch_worktree "$trusted" "$ledger" "bruh-$project-ledger"
 if [ "$DRY" = 1 ]; then base_real=$base; else base_real=$(cd "$base" && pwd -P); fi
+# EnterWorktree of a clerk puts its worktree under .claude/worktrees/ of the main
+# repository, which is the trusted repository, not the run folder.
+if [ "$DRY" = 1 ]; then trusted_real=$trusted; else trusted_real=$(cd "$trusted" && pwd -P); fi
 
 write_file "$proj/TASK.md" <<'EOF'
 # Smoke test tasks
