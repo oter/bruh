@@ -134,8 +134,8 @@ func leaseTools() []Tool {
 					return nil, err
 				}
 				for _, p := range a.Patterns {
-					if strings.TrimSpace(p) == "" || len(p) > 200 || strings.ContainsAny(p, "\n\r") {
-						return nil, fmt.Errorf("invalid pattern: %q (one line, 1 to 200 characters)", p)
+					if strings.TrimSpace(p) != p || p == "" || len(p) > 200 || strings.ContainsAny(p, "\n\r\t") {
+						return nil, fmt.Errorf("invalid pattern: %q (one line, 1 to 200 characters, no white space at the start or the end)", p)
 					}
 				}
 				if _, err := checkID(a.Resource, resourceRE, "resource"); err != nil {

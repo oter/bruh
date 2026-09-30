@@ -406,3 +406,35 @@ func TestHooksJSON(t *testing.T) {
 		}
 	}
 }
+
+func TestLeaseGuardMatchesWholeWords(t *testing.T) {
+	data := t.TempDir()
+	leaseState(t, data, nil)
+	key := "BRUH_ROLE_KEY=clerk-a-1"
+	for _, cmd := range []string{
+		"psql -h test-db2 -c 1",
+		"make integration-lint",
+		`git commit -m "wip; make integration tests faster"`,
+		`echo "x|make integration"`,
+		`echo 'a; psql -h test-db'`,
+		`printf "%s \" ; make integration" x`,
+	} {
+		if denied(t, guard(t, data, cmd, key)) {
+			t.Errorf("denied %q", cmd)
+		}
+	}
+	for _, cmd := range []string{"psql -h test-db", "psql -h test-db\t-c 1", `git commit -m "x" && make integration`, "make integration FOO=1"} {
+		if !denied(t, guard(t, data, cmd, key)) {
+			t.Errorf("allowed %q", cmd)
+		}
+	}
+}
+
+func TestLeaseGuardTellsBigm(t *testing.T) {
+	data := t.TempDir()
+	leaseState(t, data, nil)
+	out := guard(t, data, "psql -h test-db", "BRUH_ROLE_KEY=bigm")
+	if !denied(t, out) || !strings.Contains(out, "bigm does not run commands") || strings.Contains(out, "lease_request") {
+		t.Fatalf("output = %q", out)
+	}
+}

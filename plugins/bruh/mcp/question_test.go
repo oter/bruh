@@ -110,6 +110,7 @@ func TestLeaseDefinePatterns(t *testing.T) {
 	}
 	mustErr(t, def(map[string]any{"resource": "db", "capacity": 1, "patterns": []string{"a\nb"}}), "pattern")
 	mustErr(t, def(map[string]any{"resource": "db", "capacity": 1, "patterns": []string{" "}}), "pattern")
+	mustErr(t, def(map[string]any{"resource": "db", "capacity": 1, "patterns": []string{"  psql"}}), "pattern")
 	st, _ := call(t, bigm, "lease_list", map[string]any{})
 	r := st.(map[string]any)["resources"].(map[string]any)["db"].(map[string]any)
 	if r["capacity"] != 2.0 || len(r["patterns"].([]any)) != 2 {
