@@ -4,5 +4,27 @@
   "description": "Coordinate Claude Code sessions across projects and machines: bigm, clankers, clerks, and workflows.",
   "author": { "name": "oter" },
   "license": "Apache-2.0",
-  "repository": "https://github.com/oter/bruh"
+  "repository": "https://github.com/oter/bruh",
+  "userConfig": {
+    "user_name": {
+      "type": "string",
+      "title": "Your name",
+      "description": "How bruh addresses you. /bruh:init sets it."
+    },
+    "handoff_percent": {
+      "type": "number",
+      "title": "Handoff threshold (percent)",
+      "description": "At this context use, a role session updates its handoff.",
+      "default": 50,
+      "min": 1,
+      "max": 99
+    },
+    "max_busy_clerks": {
+      "type": "number",
+      "title": "Busy clerk cap",
+      "description": "The maximum number of clerks that work at the same time.",
+      "default": 8,
+      "min": 1
+    }
+  }
 }

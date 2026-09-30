@@ -79,3 +79,20 @@ func TestLicenseIsApache(t *testing.T) {
 		t.Fatal("LICENSE is not Apache-2.0")
 	}
 }
+
+func TestUserConfig(t *testing.T) {
+	var p struct {
+		UserConfig map[string]map[string]any `json:"userConfig"`
+	}
+	readJSON(t, "../.claude-plugin/plugin.json", &p)
+	want := map[string]string{"user_name": "string", "handoff_percent": "number", "max_busy_clerks": "number"}
+	for k, typ := range want {
+		o := p.UserConfig[k]
+		if o["type"] != typ || o["title"] == nil || o["description"] == nil {
+			t.Errorf("%s = %v", k, o)
+		}
+	}
+	if p.UserConfig["handoff_percent"]["default"] != 50.0 || p.UserConfig["max_busy_clerks"]["default"] != 8.0 {
+		t.Fatalf("defaults = %v", p.UserConfig)
+	}
+}
