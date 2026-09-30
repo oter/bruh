@@ -1,6 +1,6 @@
 # bruh specification
 
-Status: approved by the owner on 2026-09-30. Version 0.4.
+Status: approved by the owner on 2026-09-30. Version 0.5 (section 24 lists the changes from version 0.4).
 
 This specification is the input for the implementation plan. The decision log is in [design.md](design.md). The verified facts and the field lessons are in [knowledge.md](knowledge.md). The process is shown as diagrams in [flow.md](flow.md). Each decision in this file has one tag:
 
@@ -202,6 +202,17 @@ Inputs in `args`: the task, the acceptance criteria, the base SHA, the gate comm
 - The review-round cap is a runtime setting with default 2. If findings are left after the last round, the run stops and the clerk raises a P1. Owner decision 2026-09-27 (two rounds) and 2026-09-29 (runtime setting).
 - A failed step that costs money or cannot be undone is never retried automatically.
 - The init skill adds the allow rule `Workflow(bruh:deliver)`.
+
+### 6.4 The implement skillset
+
+Owner decision 2026-09-30: the plugin includes the bruh-implement skillset of the setup of the owner, as the skill `/bruh:implement` and its workflows. The owner used it for every code change and every review in the field run. The details below are agent-derived, needs owner decision, except where tagged.
+
+- The skill is the procedure of rule zero: the orchestrating session never edits code. Each change is a brief to an implementer agent and a review by a separate agent with the review guides, in a fix loop. For a settled spec with many changes, the pipeline is: review guides, function-sized TDD tickets, execution waves, lanes, a whole-branch gate, and a multi-lens review whose findings are refuted before they count.
+- Workflows: `/bruh:tickets` (ticket breakdown), `/bruh:implement-tickets` (waves and lanes), `/bruh:review-and-fix` (review, refute, and fix of the own change), and `/bruh:review-only` (review and refute of a change that bruh did not write). Each takes its paths in `args`.
+- Scripts: `scripts/lane.sh` (a private lane copy of the tree for a ticket, its patch, and its merge back) and `scripts/post-findings.sh` (posts a saved review result on the pull request or merge request).
+- No workflow posts outside the project (section 6.1). A workflow returns its findings. A session posts them with `post-findings.sh` after the owner said yes to the post, or under a post grant in `grants.md`. A post goes out under an account of the owner, so it is on the never-without-the-owner list (section 13). Each post opens with the structural marker of section 9.2.
+- In a role session, `/bruh:implement` runs inside a clerk. In a manual session of the owner, the owner is the orchestrator and answers each ask in the terminal.
+- The published files contain no project names, account names, host names, or ticket names of the setup of the owner.
 
 ## 7. Context budget and compaction
 
@@ -431,6 +442,14 @@ plugins/bruh/scripts/lease-guard.sh
 plugins/bruh/scripts/watcher.sh
 plugins/bruh/scripts/merge-train.sh
 plugins/bruh/workflows/deliver.js
+plugins/bruh/workflows/tickets.js
+plugins/bruh/workflows/implement-tickets.js
+plugins/bruh/workflows/review-and-fix.js
+plugins/bruh/workflows/review-only.js
+plugins/bruh/skills/implement/SKILL.md
+plugins/bruh/skills/implement/references/
+plugins/bruh/scripts/lane.sh
+plugins/bruh/scripts/post-findings.sh
 plugins/bruh/defaults/priorities.md
 plugins/bruh/defaults/house-rules.md
 plugins/bruh/defaults/role-settings.json
@@ -483,7 +502,6 @@ Agent-derived, accepted 2026-09-30.
 Agent-derived, accepted 2026-09-30.
 
 - Native Windows.
-- Review of pull requests that bruh did not write (the `review-only` workflow of the setup of the owner).
 - Per-agent identities and several Claude accounts. Owner decision 2026-09-29: later.
 
 ## 22. Open questions for the owner
@@ -506,3 +524,8 @@ All numbered questions of version 0.3 are decided. Their answers are in design.m
 - The channel flag at launch, and permission relay only for bigm (section 12).
 - The owner answers of 2026-09-29 and 2026-09-30: delegated P1 classes, review cap as a setting, merge grants, credential rules, identities later, hierarchical leases, hard stop in both modes, usage limit P1, mailbox transport, Apache-2.0, clerks push, `auto` mode, autonomous bigm decides P1, local and container, all parts in version 0.1.
 - Field claims corrected: `claude --bg` was used twice, the concurrency numbers were a judgment, the message count was an estimate, the swallowed nudges were terminal sends, and the layer that dropped a duplicate is not known.
+
+## 24. Changes from version 0.4
+
+- Owner decision 2026-09-30: the implement skillset of the setup of the owner is part of the plugin (section 6.4). The review of pull requests that bruh did not write moves from section 21 into version 0.1, as `/bruh:review-only`.
+- Premise changed: section 21 excluded `review-only`. Dependent decisions re-decided: the plugin layout of section 17 lists the new files; the posting rule of section 6.1 stays and now also covers the review workflows, so the posting step of the setup of the owner moves out of the workflows into a session step with the owner yes or a post grant.
