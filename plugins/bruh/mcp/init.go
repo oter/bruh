@@ -16,13 +16,13 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 )
 
 // pluginID is the ID of the marketplace install (spec 18): the key of pluginConfigs.
 const pluginID = "bruh@bruh"
 
 var (
-	planIDRE  = regexp.MustCompile(`^[a-z2-7]{16}$`)
 	repoRE    = regexp.MustCompile(`^[A-Za-z0-9._-]+/[A-Za-z0-9._-]+$`)
 	envNameRE = regexp.MustCompile(`^[A-Za-z0-9._-]+$`)
 )
@@ -74,7 +74,7 @@ func (a *InitAnswers) normalize() error {
 		}
 	}
 	check(oneLine(a.UserName), "user_name is required (one line)")
-	check(filepath.IsAbs(a.LedgerPath), "ledger_path must be an absolute path: %q", a.LedgerPath)
+	check(ledgerPathOK(a.LedgerPath), "ledger_path must be a clean absolute path with no .., in a folder that exists or can be created: %q", a.LedgerPath)
 	check(a.Mode == "human" || a.Mode == "autonomous", "mode must be human or autonomous: %q", a.Mode)
 	check(a.P1BatchMinutes > 0 && a.P1BatchSize > 0 && a.ReviewRoundCap > 0, "p1_batch_minutes, p1_batch_size, and review_round_cap must be 1 or more")
 	check(a.AutoCompactWindow >= 100000 && a.AutoCompactWindow <= 1000000, "auto_compact_window must be 100000 to 1000000: %d", a.AutoCompactWindow)
@@ -105,10 +105,62 @@ type plannedFile struct {
 	Content string `json:"content"`
 }
 
-type initPlan struct {
-	ID    string        `json:"id"`
-	At    string        `json:"at"`
-	Files []plannedFile `json:"files"`
+// storedPlan is a plan of init_plan. It lives only in the memory of this server process: the
+// same session calls init_plan and init_apply, and a plan file on disk could be forged.
+type storedPlan struct {
+	answers InitAnswers
+	files   []plannedFile
+	diffSHA string
+}
+
+var plans = struct {
+	sync.Mutex
+	m map[string]*storedPlan
+}{m: map[string]*storedPlan{}}
+
+func sha256Hex(s string) string {
+	sum := sha256.Sum256([]byte(s))
+	return hex.EncodeToString(sum[:])
+}
+
+// ledgerPathOK accepts an absolute path with no .. element whose nearest existing ancestor is a folder.
+func ledgerPathOK(p string) bool {
+	if !filepath.IsAbs(p) || slices.Contains(strings.Split(filepath.ToSlash(p), "/"), "..") {
+		return false
+	}
+	for cur := filepath.Clean(p); ; cur = filepath.Dir(cur) {
+		if fi, err := os.Stat(cur); err == nil {
+			return fi.IsDir()
+		}
+		if filepath.Dir(cur) == cur {
+			return false
+		}
+	}
+}
+
+// resolveExisting resolves the symbolic links of the longest existing prefix of p.
+func resolveExisting(p string) string {
+	var rest []string
+	for cur := filepath.Clean(p); ; cur = filepath.Dir(cur) {
+		if r, err := filepath.EvalSymlinks(cur); err == nil {
+			return filepath.Join(append([]string{r}, rest...)...)
+		}
+		if filepath.Dir(cur) == cur {
+			return filepath.Clean(p)
+		}
+		rest = append([]string{filepath.Base(cur)}, rest...)
+	}
+}
+
+func inside(base, p string) bool {
+	rel, err := filepath.Rel(resolveExisting(base), resolveExisting(p))
+	return err == nil && rel != "." && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator))
+}
+
+// targetAllowed is the closed list of init targets: the settings file (after its symbolic link),
+// files under the data folder, and files under the ledger folder.
+func targetAllowed(env Env, a InitAnswers, p string) bool {
+	return resolveExisting(p) == resolveExisting(env.SettingsFile) || inside(env.DataDir, p) || inside(a.LedgerPath, p)
 }
 
 func fileHash(path string) (string, []byte, error) {
@@ -263,6 +315,9 @@ func planInit(env Env, a InitAnswers) ([]plannedFile, error) {
 				return err
 			}
 		}
+		if !targetAllowed(env, a, path) {
+			return fmt.Errorf("init refuses to write %s: it is not the settings file, and not under the data folder or the ledger folder", path)
+		}
 		before, old, err := fileHash(path)
 		if err != nil {
 			return err
@@ -303,6 +358,10 @@ func planInit(env Env, a InitAnswers) ([]plannedFile, error) {
 		if err := add(bigm, 0o600, content); err != nil {
 			return nil, err
 		}
+	}
+	cfg, _ := json.MarshalIndent(initConfig{LedgerPath: a.LedgerPath}, "", "  ")
+	if err := add(filepath.Join(data, "init", "config.json"), 0o600, append(cfg, '\n')); err != nil {
+		return nil, err
 	}
 	now := env.Now().UTC().Format("2006-01-02T15:04:05Z") // the time format of the ledger
 	tmpl := filepath.Join(root, "ledger-template")
@@ -362,7 +421,12 @@ func launchCommand(data string, a InitAnswers) string {
 	return cmd
 }
 
-// initPlanRun plans init, stores the plan, and returns the tool result.
+// initConfig is <data>/init/config.json: the init answers that other commands read.
+type initConfig struct {
+	LedgerPath string `json:"ledger_path"`
+}
+
+// initPlanRun plans init, keeps the plan in memory, and returns the tool result. It writes nothing.
 func initPlanRun(env Env, a InitAnswers) (map[string]any, error) {
 	if err := a.normalize(); err != nil {
 		return nil, err
@@ -375,57 +439,60 @@ func initPlanRun(env Env, a InitAnswers) (map[string]any, error) {
 	if err != nil {
 		return nil, err
 	}
-	plan := initPlan{ID: strings.ToLower(rand.Text()[:16]), At: env.Stamp(), Files: files}
-	dir, err := env.Dir("init", "plans")
-	if err != nil {
-		return nil, err
-	}
-	raw, _ := json.MarshalIndent(plan, "", "  ")
-	if err := atomicWrite(filepath.Join(dir, plan.ID+".json"), raw); err != nil {
-		return nil, err
-	}
+	id := strings.ToLower(rand.Text()[:16])
+	plans.Lock()
+	plans.m[id] = &storedPlan{answers: a, files: files, diffSHA: sha256Hex(diff)}
+	plans.Unlock()
 	data, _ := filepath.Abs(env.DataDir)
 	paths := []string{}
 	for _, f := range files {
 		paths = append(paths, f.Path)
 	}
 	return map[string]any{
-		"plan_id":        plan.ID,
+		"plan_id":        id,
 		"diff":           diff,
+		"diff_sha256":    sha256Hex(diff),
 		"files":          paths,
 		"launch_command": launchCommand(data, a),
 		"trust":          []string{a.LedgerPath},
 	}, nil
 }
 
-// initApplyRun writes the files of a plan. It refuses the whole plan when a target changed.
-func initApplyRun(env Env, id string) ([]string, error) {
-	if !planIDRE.MatchString(id) {
-		return nil, fmt.Errorf("invalid plan_id: %q", id)
+// initApplyRun writes the files of a plan of this process. It refuses the plan when diffSHA is
+// not the hash of the diff that init_plan returned, when a target changed since init_plan (it
+// plans again and compares), or when a target is outside the closed list.
+func initApplyRun(env Env, id, diffSHA string) ([]string, error) {
+	plans.Lock()
+	p := plans.m[id]
+	plans.Unlock()
+	if p == nil {
+		return nil, fmt.Errorf("no plan %q in this session; run init_plan again", id)
 	}
-	if env.DataDir == "" {
-		return nil, errors.New("BRUH_DATA is not set")
+	if diffSHA != p.diffSHA {
+		return nil, errors.New("diff_sha256 is not the hash of the diff of this plan; show the diff of init_plan to the user and pass its diff_sha256")
 	}
-	file := filepath.Join(env.DataDir, "init", "plans", id+".json")
-	raw, err := os.ReadFile(file)
+	now, err := planInit(env, p.answers)
 	if err != nil {
-		return nil, fmt.Errorf("no plan %s; run init_plan again: %w", id, err)
-	}
-	var plan initPlan
-	if err := json.Unmarshal(raw, &plan); err != nil {
 		return nil, err
 	}
-	for _, f := range plan.Files {
-		now, _, err := fileHash(f.Path)
-		if err != nil {
-			return nil, err
-		}
-		if now != f.Before {
-			return nil, fmt.Errorf("%s changed after init_plan; nothing was written; run init_plan again", f.Path)
-		}
+	diff, err := planDiff(now)
+	if err != nil {
+		return nil, err
 	}
+	if sha256Hex(diff) != p.diffSHA || !slices.Equal(now, p.files) {
+		return nil, errors.New("a target changed after init_plan; nothing was written; run init_plan again")
+	}
+	// The settings file goes last, so a failed write never leaves statusLine pointing at a missing tap.
+	settings := resolveExisting(env.SettingsFile)
+	files := slices.Clone(p.files)
+	slices.SortStableFunc(files, func(x, y plannedFile) int {
+		return cmp.Compare(boolInt(resolveExisting(x.Path) == settings), boolInt(resolveExisting(y.Path) == settings))
+	})
 	applied := []string{}
-	for _, f := range plan.Files {
+	for _, f := range files {
+		if !targetAllowed(env, p.answers, f.Path) {
+			return applied, fmt.Errorf("init refuses to write %s", f.Path)
+		}
 		dirMode := os.FileMode(0o700)
 		if f.Mode == 0o644 {
 			dirMode = 0o755
@@ -441,7 +508,17 @@ func initApplyRun(env Env, id string) ([]string, error) {
 		}
 		applied = append(applied, f.Path)
 	}
-	return applied, os.Remove(file)
+	plans.Lock()
+	delete(plans.m, id)
+	plans.Unlock()
+	return applied, nil
+}
+
+func boolInt(b bool) int {
+	if b {
+		return 1
+	}
+	return 0
 }
 
 func initTools() []Tool {
@@ -474,16 +551,19 @@ func initTools() []Tool {
 		},
 		{
 			Name:        "init_apply",
-			Description: "Apply a plan of init_plan. Call it only after the user said yes to the diff. Refuses a plan whose targets changed.",
-			InputSchema: objectSchema(map[string]any{"plan_id": str}, "plan_id"),
+			Description: "Apply a plan of init_plan of this session. Call it only after the user said yes to the diff. Pass the diff_sha256 of the init_plan result. Refuses a plan whose targets changed.",
+			InputSchema: objectSchema(map[string]any{"plan_id": str, "diff_sha256": str}, "plan_id", "diff_sha256"),
+			// Claude Code prompts a person for every call, in every permission mode (mcp.md).
+			Meta: map[string]any{"anthropic/requiresUserInteraction": true},
 			Handler: func(c *Call, raw json.RawMessage) (any, error) {
 				a, err := decode[struct {
-					PlanID string `json:"plan_id"`
+					PlanID     string `json:"plan_id"`
+					DiffSHA256 string `json:"diff_sha256"`
 				}](raw)
 				if err != nil {
 					return nil, err
 				}
-				applied, err := initApplyRun(c.Env, a.PlanID)
+				applied, err := initApplyRun(c.Env, a.PlanID, a.DiffSHA256)
 				if err != nil {
 					return nil, err
 				}

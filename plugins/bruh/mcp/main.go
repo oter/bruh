@@ -78,7 +78,7 @@ func runCLI(args []string, env Env, stdout, stderr io.Writer) int {
 			return fail(err)
 		}
 		fmt.Fprint(stdout, res["diff"])
-		applied, err := initApplyRun(env, res["plan_id"].(string))
+		applied, err := initApplyRun(env, res["plan_id"].(string), res["diff_sha256"].(string))
 		for _, p := range applied {
 			fmt.Fprintln(stdout, "applied:", p)
 		}

@@ -36,7 +36,7 @@ You set up bruh for the user. You ask questions, then the bruh MCP server writes
 1. Call the tool `init_plan` (`mcp__plugin_bruh_bruh__init_plan`) with `answers`, one object with these keys: `user_name`, `ledger_path`, `mode`, `p1_batch_minutes`, `p1_batch_size`, `review_round_cap`, `auto_compact_window`, `handoff_percent`, `max_busy_clerks`, `wrap_statusline` (true or false), `channels` (list), `delegated_p1_classes` (list), `merge_grants` (list of objects with `repo`, `merger`, and `conditions`), and `remote_environments` (list). Leave out a key to use its default.
 2. If `init_plan` returns an error, tell the user the error and ask the question of that answer again.
 3. Show the full `diff` of the result in one code block with the language `diff`. Do not shorten it. Then ask: "Apply these changes?"
-4. Only after a yes, call the tool `init_apply` (`mcp__plugin_bruh_bruh__init_apply`) with the `plan_id` of the result.
+4. Only after a yes, call the tool `init_apply` (`mcp__plugin_bruh_bruh__init_apply`) with the `plan_id` and the `diff_sha256` of the result. Claude Code then asks the user to approve the call, in every permission mode. The plan exists only in this session, so call `init_plan` and `init_apply` in the same session.
 5. If `init_apply` says that a file changed after `init_plan`, call `init_plan` again with the same answers, and show the new diff.
 6. Tell the user the list of files that `init_apply` wrote.
 

@@ -64,7 +64,7 @@ func plan(t *testing.T, env Env, a map[string]any) map[string]any {
 
 func apply(t *testing.T, env Env, p map[string]any) []string {
 	t.Helper()
-	out, err := call(t, env, "init_apply", map[string]any{"plan_id": p["plan_id"]})
+	out, err := call(t, env, "init_apply", map[string]any{"plan_id": p["plan_id"], "diff_sha256": p["diff_sha256"]})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -99,8 +99,7 @@ func TestInitPlanWritesNothingOutsidePlans(t *testing.T) {
 	if p["plan_id"] == "" || !strings.Contains(p["diff"].(string), "+  \"autoCompactWindow\": 550000,") {
 		t.Fatalf("plan = %v", p)
 	}
-	entries, _ := os.ReadDir(env.DataDir)
-	if len(entries) != 1 || entries[0].Name() != "init" {
+	if entries, _ := os.ReadDir(env.DataDir); len(entries) != 0 {
 		t.Fatalf("data folder = %v", entries)
 	}
 	if _, err := os.Stat(ledger); err == nil {
@@ -164,8 +163,12 @@ func TestInitApplyWritesPlannedContent(t *testing.T) {
 	if !strings.Contains(p["launch_command"].(string), "--settings '"+filepath.Join(data, "roles", "bigm.json")+"' --channels plugin:telegram@claude-plugins-official --dangerously-load-development-channels plugin:bruh@bruh") {
 		t.Fatalf("launch = %v", p["launch_command"])
 	}
-	if _, err := os.Stat(filepath.Join(data, "init", "plans", p["plan_id"].(string)+".json")); err == nil {
-		t.Fatal("the plan was not removed")
+	_, err := call(t, env, "init_apply", map[string]any{"plan_id": p["plan_id"], "diff_sha256": p["diff_sha256"]})
+	mustErr(t, err, "no plan")
+	var cfg initConfig
+	readJSON(t, filepath.Join(data, "init", "config.json"), &cfg)
+	if cfg.LedgerPath != ledger {
+		t.Fatalf("config = %+v", cfg)
 	}
 	// A second plan with the same answers changes nothing.
 	p2 := plan(t, env, answers(ledger, map[string]any{"mode": "autonomous", "p1_batch_minutes": 30, "channels": []string{"slack", "telegram"}}))
@@ -179,7 +182,7 @@ func TestInitApplyRefusesStalePlan(t *testing.T) {
 	writeSettings(t, env, `{}`)
 	p := plan(t, env, answers(ledger, nil))
 	writeSettings(t, env, `{"theme":"light"}`)
-	_, err := call(t, env, "init_apply", map[string]any{"plan_id": p["plan_id"]})
+	_, err := call(t, env, "init_apply", map[string]any{"plan_id": p["plan_id"], "diff_sha256": p["diff_sha256"]})
 	mustErr(t, err, "changed after init_plan")
 	if b, _ := os.ReadFile(env.SettingsFile); string(b) != `{"theme":"light"}` {
 		t.Fatalf("settings = %s", b)
@@ -187,8 +190,8 @@ func TestInitApplyRefusesStalePlan(t *testing.T) {
 	if _, err := os.Stat(ledger); err == nil {
 		t.Fatal("a stale plan wrote the ledger")
 	}
-	_, err = call(t, env, "init_apply", map[string]any{"plan_id": "../../x"})
-	mustErr(t, err, "invalid plan_id")
+	_, err = call(t, env, "init_apply", map[string]any{"plan_id": "../../x", "diff_sha256": ""})
+	mustErr(t, err, "no plan")
 }
 
 func TestInitPlanWrapsStatusLine(t *testing.T) {
@@ -308,5 +311,92 @@ func TestInitPlanValidates(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(env.DataDir, "init")); err == nil {
 		t.Fatal("a refused plan was stored")
+	}
+}
+
+func TestInitApplyIgnoresPlanFiles(t *testing.T) {
+	env, _ := initEnv(t)
+	outside := filepath.Join(t.TempDir(), "authorized_keys")
+	forged := `{"id":"aaaaaaaaaaaaaaaa","files":[{"path":"` + outside + `","mode":420,"before":"absent","content":"ssh-ed25519 ATTACKER\n"}]}`
+	dir, _ := env.Dir("init", "plans")
+	if err := os.WriteFile(filepath.Join(dir, "aaaaaaaaaaaaaaaa.json"), []byte(forged), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	_, err := call(t, env, "init_apply", map[string]any{"plan_id": "aaaaaaaaaaaaaaaa", "diff_sha256": ""})
+	mustErr(t, err, "no plan")
+	if _, err := os.Stat(outside); err == nil {
+		t.Fatal("a forged plan file was applied")
+	}
+}
+
+func TestInitApplyNeedsTheShownDiff(t *testing.T) {
+	env, ledger := initEnv(t)
+	p := plan(t, env, answers(ledger, nil))
+	if p["diff_sha256"] != sha256Hex(p["diff"].(string)) {
+		t.Fatalf("diff_sha256 = %v", p["diff_sha256"])
+	}
+	_, err := call(t, env, "init_apply", map[string]any{"plan_id": p["plan_id"], "diff_sha256": sha256Hex("other")})
+	mustErr(t, err, "diff_sha256")
+	if _, err := os.Stat(env.SettingsFile); err == nil {
+		t.Fatal("written with a wrong diff hash")
+	}
+	// A template file that appears after init_plan changes the target state.
+	if err := os.WriteFile(filepath.Join(env.PluginRoot, "ledger-template", "extra.md"), []byte("x\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	_, err = call(t, env, "init_apply", map[string]any{"plan_id": p["plan_id"], "diff_sha256": p["diff_sha256"]})
+	mustErr(t, err, "changed after init_plan")
+}
+
+func TestInitTargetsAreAClosedList(t *testing.T) {
+	env, ledger := initEnv(t)
+	for _, bad := range []string{"relative/ledger", ledger + "/../x", "/dev/null/ledger"} {
+		_, err := call(t, env, "init_plan", map[string]any{"answers": answers(bad, nil)})
+		mustErr(t, err, "ledger_path")
+	}
+	// A symbolic link inside the ledger that points outside is refused.
+	outside := t.TempDir()
+	if err := os.MkdirAll(ledger, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(outside, filepath.Join(ledger, "projects")); err != nil {
+		t.Fatal(err)
+	}
+	_, err := call(t, env, "init_plan", map[string]any{"answers": answers(ledger, nil)})
+	mustErr(t, err, "refuses to write")
+	if entries, _ := os.ReadDir(outside); len(entries) != 0 {
+		t.Fatalf("outside = %v", entries)
+	}
+}
+
+func TestInitApplyRequiresUserInteraction(t *testing.T) {
+	c := startRPC(t, testEnv(t, "bigm"), AllTools())
+	c.send(t, `{"jsonrpc":"2.0","id":1,"method":"tools/list"}`)
+	for _, tl := range c.next(t)["result"].(map[string]any)["tools"].([]any) {
+		m := tl.(map[string]any)
+		meta, _ := m["_meta"].(map[string]any)
+		if (m["name"] == "init_apply") != (meta["anthropic/requiresUserInteraction"] == true) {
+			t.Errorf("%s _meta = %v", m["name"], meta)
+		}
+	}
+}
+
+func TestInitApplyWritesSettingsLast(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("root ignores folder modes")
+	}
+	env, ledger := initEnv(t)
+	writeSettings(t, env, `{}`)
+	p := plan(t, env, answers(ledger, nil))
+	if err := os.Chmod(env.DataDir, 0o500); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.Chmod(env.DataDir, 0o700) })
+	_, err := call(t, env, "init_apply", map[string]any{"plan_id": p["plan_id"], "diff_sha256": p["diff_sha256"]})
+	if err == nil {
+		t.Fatal("no error")
+	}
+	if b, _ := os.ReadFile(env.SettingsFile); string(b) != `{}` {
+		t.Fatalf("settings were written before the tap: %s", b)
 	}
 }
