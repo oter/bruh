@@ -263,3 +263,11 @@ test('bigm runs the merger clerk of a remote project on its own machine', () => 
   assert.match(merger, /You always run on the machine of bigm/)
   assert.doesNotMatch(merger, /Orca reply/)
 })
+
+// Final review M4: question IDs are unique only on one machine.
+test('bigm keys a question by its asker and its ID', () => {
+  const questions = agents.bigm.split('## Questions')[1].split('\n## ')[0]
+  assert.match(questions, /Never match a question by its ID alone/)
+  assert.ok(questions.includes('`<orca environment>/Q-<n>`'))
+  assert.doesNotMatch(questions, /If you already answered this question ID, ignore it/)
+})

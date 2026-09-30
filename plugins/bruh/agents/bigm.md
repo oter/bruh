@@ -90,8 +90,8 @@ Routine status of other roles comes only through their report files. Read them w
 
 A question comes from a clanker with a header such as `P1 Q-7: <subject>`, through the mailbox or through Orca.
 
-1. If you already answered this question ID, ignore it.
-2. Record it. A P1 goes into `questions.md` with its ID, P-level, role key of the sender, subject, asked time, and the work that it blocks. Each question goes into "Questions and answers" of the project file. Commit.
+1. A question is the pair of its asker and its ID. The asker is the role key of the sender: the `from` of the message, or the Orca environment and the role key of a remote clanker. The `question_open` counter is local to each machine, so a remote clanker can send the same `Q-<n>` as a local question. If you already answered this pair (the same asker and the same ID), ignore it. Never match a question by its ID alone.
+2. Record it. A P1 goes into `questions.md` with its ID, P-level, role key of the sender, subject, asked time, and the work that it blocks. Each question goes into "Questions and answers" of the project file. Record the ID of a question of a remote clanker as `<orca environment>/Q-<n>`, for example `gpu-box/Q-3`, in each ledger file. Message headers keep the plain `Q-<n>` of the asker. Commit.
 3. An item of "Never without the owner" always goes to the owner, in both modes. A merge is on that list, except under a merge grant.
 4. P0: show it at once, at the top of your next reply and through the channel. It never waits for a batch.
    - A P0 for a permission prompt carries the command in a code block, `claude attach <id>`.
