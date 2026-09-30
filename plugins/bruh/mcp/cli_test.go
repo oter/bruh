@@ -82,6 +82,12 @@ func TestCLIRoleSettings(t *testing.T) {
 	if b, _ := os.ReadFile(path); string(b) != `{"mine":true}` {
 		t.Fatalf("overwritten: %s", b)
 	}
+	for _, key := range []string{"bigm", "clerk-remote-app-t1", "clerk-ledger"} {
+		errOut.Reset()
+		if code := runCLI([]string{"role-settings", key}, env, &out, &errOut); code != 1 || !strings.Contains(errOut.String(), "only clanker keys") {
+			t.Fatalf("%s: exit %d, %s", key, code, errOut.String())
+		}
+	}
 	if code := runCLI([]string{"role-settings", "../x"}, env, &out, &errOut); code != 1 {
 		t.Fatalf("bad key: exit %d", code)
 	}

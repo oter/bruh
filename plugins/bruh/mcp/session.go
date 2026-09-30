@@ -47,13 +47,24 @@ func str(m map[string]any, k string) string {
 
 func isLive(e map[string]any) bool { return e["pid"] != nil }
 
-// launchBackground runs claude with --bg and returns the agents entry of the new session.
-func launchBackground(env Env, dir string, args []string, wantID string) (map[string]any, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
-	defer cancel()
-	out, err := claudeCmd(ctx, env, dir, []string{"CLAUDE_CODE_FORCE_SESSION_PERSISTENCE=1"}, args...).CombinedOutput()
+// launchBackground runs check and then claude with --bg under the lock of the role key, so two
+// parallel calls cannot start two sessions of one role. It returns the agents entry of the new session.
+func launchBackground(env Env, key, dir string, args []string, wantID string, check func() error) (map[string]any, error) {
+	var out []byte
+	err := env.WithLock("session-"+key, func() error {
+		if err := check(); err != nil {
+			return err
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+		defer cancel()
+		var err error
+		if out, err = claudeCmd(ctx, env, dir, []string{"CLAUDE_CODE_FORCE_SESSION_PERSISTENCE=1"}, args...).CombinedOutput(); err != nil {
+			return fmt.Errorf("claude %s: %w: %s", args[0], err, out)
+		}
+		return nil
+	})
 	if err != nil {
-		return nil, fmt.Errorf("claude %s: %w: %s", args[0], err, out)
+		return nil, err
 	}
 	m := shortIDRE.FindSubmatch(out)
 	if m == nil {
@@ -163,20 +174,22 @@ func sessionTools() []Tool {
 				if _, err := os.Stat(settings); err != nil {
 					return nil, fmt.Errorf("no role settings for %s; write them with role_settings_write first", key)
 				}
-				entries, err := listAgents(c.Env)
-				if err != nil {
-					return nil, err
-				}
-				if slices.ContainsFunc(entries, func(e map[string]any) bool { return str(e, "name") == key && isLive(e) }) {
-					return nil, fmt.Errorf("a live session is already named %s", key)
-				}
 				pd, err := pluginDirArgs(c.Env)
 				if err != nil {
 					return nil, err
 				}
 				args := []string{"--bg", "--agent", "bruh:" + agent, "--name", key, "--permission-mode", "auto", "--settings", settings}
 				args = append(append(args, pd...), prompt)
-				e, err := launchBackground(c.Env, a.Cwd, args, "")
+				e, err := launchBackground(c.Env, key, a.Cwd, args, "", func() error {
+					entries, err := listAgents(c.Env)
+					if err != nil {
+						return err
+					}
+					if slices.ContainsFunc(entries, func(e map[string]any) bool { return str(e, "name") == key && isLive(e) }) {
+						return fmt.Errorf("a live session is already named %s", key)
+					}
+					return nil
+				})
 				if err != nil {
 					return nil, err
 				}
@@ -225,7 +238,7 @@ func sessionTools() []Tool {
 					return nil, fmt.Errorf("session %s of %s is live; send it a nudge instead", str(last, "id"), key)
 				}
 				// No other flags: a background session keeps its saved options, and extra flags start a copy.
-				e, err := launchBackground(c.Env, str(last, "cwd"), []string{"--resume", str(last, "sessionId"), "--bg", prompt}, str(last, "id"))
+				e, err := launchBackground(c.Env, key, str(last, "cwd"), []string{"--resume", str(last, "sessionId"), "--bg", prompt}, str(last, "id"), func() error { return nil })
 				if err != nil {
 					return nil, err
 				}

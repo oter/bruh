@@ -202,6 +202,11 @@ func writeNewRoleSettings(env Env, key string) (string, error) {
 	if err != nil {
 		return "", err
 	}
+	// Only a remote clanker needs this command; its clerks get their files from role_settings_write,
+	// and bigm gets its file from init.
+	if k.Role != "clanker" {
+		return "", fmt.Errorf("role-settings writes only clanker keys, not %s", key)
+	}
 	content, err := roleSettings(env.PluginRoot, k.String(), nil, nil)
 	if err != nil {
 		return "", err

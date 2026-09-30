@@ -4,12 +4,12 @@ import (
 	"cmp"
 	"errors"
 	"fmt"
-	"io/fs"
 	"os"
 	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
+	"syscall"
 	"time"
 )
 
@@ -166,32 +166,33 @@ func atomicWrite(file string, data []byte) error {
 	return os.Rename(tmp, file)
 }
 
-// WithLock runs fn while it holds a lock folder. Creating a folder is atomic.
+// WithLock runs fn while it holds an exclusive flock on <data>/locks/<name>.lock. The kernel
+// releases the lock when its holder exits, so a dead holder never leaves a stale lock behind.
+// flock exists on macOS and Linux, the platforms of bruh (spec 10.2).
 func (e Env) WithLock(name string, fn func() error) error {
 	locks, err := e.Dir("locks")
 	if err != nil {
 		return err
 	}
-	lock := filepath.Join(locks, name+".lock")
+	f, err := os.OpenFile(filepath.Join(locks, name+".lock"), os.O_RDWR|os.O_CREATE, 0o600)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
 	deadline := time.Now().Add(10 * time.Second)
 	for {
-		err := os.Mkdir(lock, 0o700)
+		err := syscall.Flock(int(f.Fd()), syscall.LOCK_EX|syscall.LOCK_NB)
 		if err == nil {
 			break
 		}
-		if !errors.Is(err, fs.ErrExist) {
+		if !errors.Is(err, syscall.EWOULDBLOCK) && !errors.Is(err, syscall.EINTR) {
 			return err
-		}
-		// ponytail: a lock older than 30s counts as stale; this assumes fn is a short read-modify-write. Add fencing if fn ever runs longer.
-		if fi, serr := os.Stat(lock); serr == nil && time.Since(fi.ModTime()) > 30*time.Second {
-			os.RemoveAll(lock)
-			continue
 		}
 		if time.Now().After(deadline) {
 			return fmt.Errorf("lock busy: %s", name)
 		}
-		time.Sleep(25 * time.Millisecond)
+		time.Sleep(10 * time.Millisecond)
 	}
-	defer os.RemoveAll(lock)
+	defer syscall.Flock(int(f.Fd()), syscall.LOCK_UN)
 	return fn()
 }

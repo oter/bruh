@@ -62,13 +62,27 @@ func questionTools() []Tool {
 					} else if !errors.Is(err, fs.ErrNotExist) {
 						return err
 					}
-					q = Question{ID: fmt.Sprintf("Q-%d", n), Priority: a.Priority, Subject: a.Subject, Body: a.Body, Blocks: a.Blocks, Asker: me, OpenedAt: c.Env.Stamp()}
-					if !headerRE.MatchString(q.header()) {
+					q = Question{Priority: a.Priority, Subject: a.Subject, Body: a.Body, Blocks: a.Blocks, Asker: me, OpenedAt: c.Env.Stamp()}
+					if !headerRE.MatchString(q.Priority + " Q-1: " + q.Subject) {
 						return fmt.Errorf("invalid subject: %q (one line, 1 to 200 characters)", a.Subject)
 					}
-					data, _ := json.MarshalIndent(q, "", "  ")
-					if err := atomicWrite(filepath.Join(dir, q.ID+".json"), data); err != nil {
-						return err
+					// Create the file first and never over an existing one: after a crash between the
+					// two writes, the number in next is used already, and the loop skips it.
+					for ; ; n++ {
+						q.ID = fmt.Sprintf("Q-%d", n)
+						data, _ := json.MarshalIndent(q, "", "  ")
+						f, err := os.OpenFile(filepath.Join(dir, q.ID+".json"), os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+						if errors.Is(err, fs.ErrExist) {
+							continue
+						}
+						if err != nil {
+							return err
+						}
+						_, werr := f.Write(data)
+						if err := errors.Join(werr, f.Close()); err != nil {
+							return err
+						}
+						break
 					}
 					return atomicWrite(filepath.Join(dir, "next"), []byte(strconv.Itoa(n+1)))
 				})
