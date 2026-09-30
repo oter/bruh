@@ -76,6 +76,7 @@ const waves = Array.isArray(A.waves) && A.waves.every((w) => Array.isArray(w)) ?
 if (A.gate_only !== undefined && typeof A.gate_only !== 'boolean') problems.push('args.gate_only is not a boolean')
 if (gateOnly) {
   if (A.waves !== undefined && !(Array.isArray(A.waves) && A.waves.length === 0)) problems.push('args.gate_only needs no waves: pass an empty list or none')
+  if (A.lane_tickets !== undefined && !(Array.isArray(A.lane_tickets) && A.lane_tickets.length === 0)) problems.push('args.gate_only needs no lane_tickets: pass an empty list or none')
 } else if (!waves.length || !waves.every((w) => w.length)) problems.push('args.waves is not a list of lists of ticket file names')
 else {
   const seen = new Set()
@@ -261,7 +262,7 @@ function implPrompt(t, useLane) {
 Ticket: ${t.file}. Read it in full. Read ${A.spec} for the intent. Read each existing file that the ticket lists under Files, and the files around them, before you write anything.
 
 Working folder: ${useLane
-    ? `run \`${LANE} start ${t.id}\` first. It prints the path of a private copy of the repository. When the lane exists already (an earlier attempt of this ticket, for example before a question), start keeps it with its work and never wipes it. Do all work and run all commands inside that copy. Do not touch ${root} in this ticket.`
+    ? `run \`${LANE} start ${t.id}\` first. It prints the path of a private copy of the repository. When the lane exists already (an earlier attempt of this ticket, for example before a question), start keeps it with its work only when it was made for the same root, the same HEAD, and the same run; else start makes the lane again from the shared tree. Do all work and run all commands inside that copy. Do not touch ${root} in this ticket.`
     : `${root}. Work there. You are the only agent that edits it now.`}
 
 Check first what is there already: an earlier run can have done part of the work, in the lane or in the shared tree. Do the work that the ticket describes and that is missing, and nothing more. For a ticket of Kind: test, the test must compile and fail against the stub (red); do not make it pass. For a ticket of Kind: implementation, make the paired test pass without an edit to the test. Format the files that you touched. Then run each verify command of the acceptance criteria and paste the real output.
