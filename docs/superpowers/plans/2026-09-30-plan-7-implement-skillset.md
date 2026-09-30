@@ -66,13 +66,13 @@ The harness of `deliver.test.mjs`: load a script, replace `export const meta` wi
 
 - `args`: `root`, `base` (40 hex), `head` (40 hex, the commit of `root` at the start), `spec` (optional), `guides`, `lenses` (`[{key, prompt}]`), `deliberate` (list), `house_rules` (optional text), `gates` (list), `round_cap` (default 2).
 - Flow per round: in parallel, one reviewer for each lens (`review <key>`) and one gate agent (`gate <n>`). Deduplicate the lens findings by `file:line`, drop refuted keys, and give each finding one refuter (`verify <file>:<line>`). A failed gate is an open finding without a refuter. No open finding: `done`. The round cap reached: `findings_left`. Otherwise fix the open findings by area, one fixer (`fix <area>`) at a time, and review again.
-- Result: `{status, base, head_sha, summaries: [{key, summary}], confirmed: [finding], refuted: [finding], deviations}`. A finding is `{file, line, lens, rule, severity, problem, fix, round, state, reason}`. In `confirmed`, `state` is `fixed` or `open`.
+- Result: `{status: done | findings_left | stopped, workflow: "review-and-fix", base, head_sha, summaries: [{key, summary}], confirmed: [finding], refuted: [finding], deviations}`. A finding is `{file, line, lens, rule, severity, problem, fix, round, state, reason}`. In `confirmed`, `state` is `fixed` or `open`.
 
 `/bruh:review-only` (`review-only.js`):
 
 - `args`: `root` (a detached, clean worktree at the head), `base`, `head` (40 hex), `spec` (optional), `guides`, `lenses`, `deliberate`, `house_rules` (optional).
 - Flow: one review round and one refuter for each unique finding. No edits, no gate, no fix.
-- Result: `{status: done | stopped, base, head_sha, summaries, confirmed, refuted, deviations}`. `confirmed` is sorted by severity: security, bug, guideline, nit.
+- Result: `{status: done | stopped, workflow: "review-only", base, head_sha, summaries, confirmed, refuted, deviations}`. `post-findings.sh` reads `workflow` to decide on the note of the fixes. `confirmed` is sorted by severity: security, bug, guideline, nit.
 
 - [ ] **Step 1:** Write `implement.test.mjs` with the Review Focus tests and: `meta.name` of each script and `meta` a literal; invalid `args` stop before any agent; every prompt has the git rule and the post rule and no prompt tells an agent to post; no script has a `Post` phase; efforts; round caps from `args` and their defaults; a dead agent of each stage stops the run; sequential fix batches; the waves stop after a failed wave.
 - [ ] **Step 2:** Run `node --test plugins/bruh/workflows/implement.test.mjs`. Expected: FAIL, because the scripts do not exist.
@@ -101,7 +101,7 @@ The harness of `deliver.test.mjs`: load a script, replace `export const meta` wi
 **Files:**
 
 - Create: `plugins/bruh/skills/implement/SKILL.md`, `references/lessons.md`, `references/ticket-template.md`, `references/example-args.md`, `references/guide-sources.md`
-- Modify: `plugins/bruh/agents/clerk.md`, `plugins/bruh/ledger-template/grants.md`, `plugins/bruh/agents/agents_test.mjs`
+- Modify: `plugins/bruh/agents/clerk.md`, `plugins/bruh/agents/bigm.md` (one item: how to record a post grant), `plugins/bruh/defaults/priorities.md` (a post is a P1 except under a post grant), `plugins/bruh/ledger-template/grants.md`, `plugins/bruh/ledger-template/README.md`, `plugins/bruh/agents/agents_test.mjs`
 
 - [ ] **Step 1:** Write the skill in ASD-STE100: rule zero, phases 0 to 5, the post step, the lessons, the single-change brief, and when not to use the full pipeline. The scripts are named with `${CLAUDE_PLUGIN_ROOT}/scripts/`.
 - [ ] **Step 2:** Add to `clerk.md` the rule for the implement workflows and for posts. Add the "Post grants" table to `grants.md`. Add a structural test that the clerk names `post-findings.sh` and the post grant, and that `grants.md` has the section.
@@ -123,6 +123,8 @@ The harness of `deliver.test.mjs`: load a script, replace `export const meta` wi
 3. **GitLab.** The watcher and `repos_set` know `github` and `gitea`. `post-findings.sh` supports `gitlab` (as the source) and `github`. It does not support `gitea` (decision 5).
 4. **No questions during a run in the four workflows.** Spec 6.2 gives workflows a question path, and `deliver` has it. The source workflows had none: the rule of the source is "a conflict is reported, not guessed", and the ticket pipeline starts only from a settled spec with no open questions. An agent of these workflows that needs a decision returns a `conflict`, and the run returns `stopped` with a `CONFLICT:` line (decision 3).
 
+5. **`grants.md` has two sections.** The file had one table of merge grants. It now has "Post grants" first and "Merge grants" last, because the init skill appends merge grant rows at the end of the file. A post grant row starts with the role key and a merge grant row starts with the repository, so neither gate can read a row of the other kind (`mergeGate` compares the first cell with the repository, and a role key has no `/`).
+
 ## Decisions
 
 Each decision is agent-derived, needs owner decision. The first option of each list is the chosen one.
@@ -134,10 +136,11 @@ Each decision is agent-derived, needs owner decision. The first option of each l
 5. **Code hosts of `post-findings.sh`.** Options, ranked: (a) GitLab through `glab` and GitHub through `gh`; (b) also Gitea, through its REST API with `curl` and a token (the Gitea API has issue comments and pull request reviews with inline comments, but no command-line tool that bruh already uses); (c) GitHub only.
 6. **The post gate.** Options, ranked: (a) `--yes` (the owner said yes) or a row in the section "Post grants" of `grants.md` that names the repository and the role key; a speed bump (principle 2) in `sh`, in the style of the merge gate; (b) the gate in the Go MCP server, as `merge-train`; (c) no gate, only agent text.
 7. **Inline comments after the first round.** The line numbers of a finding of round 2 or later of `review-and-fix` are in the fixed working tree, not in the pushed head. Options, ranked: (a) only findings of round 1 go inline; later findings are general comments that name `file:line`; (b) all inline.
-8. **Ticket ID.** Options, ranked: (a) the file name of the ticket without `.md`, because it is unique and safe for a lane path; (b) the first two parts of the file name, as the source (`mr2-63`).
+8. **Ticket ID.** Options, ranked: (a) the file name of the ticket without `.md`, because it is unique and safe for a lane path; (b) the first two parts of the file name, as the source (for example `mr1-01`).
 9. **Models.** Options, ranked: (a) no script sets a model; every agent inherits the model of the session (spec 3.3: a role never changes its model; the workflow-authoring guidance); stage efforts are fixed; (b) `impl` and `review` model overrides in `args`, as the source.
 10. **Allow rules.** The init skill adds `Workflow(bruh:deliver)` only (spec 6.3). Options, ranked: (a) no new allow rule; the clerk runs an implement workflow only when its start message names it, and a refusal is a P0; (b) init adds `Workflow(bruh:<name>)` for the four workflows.
 11. **Lane defaults.** Options, ranked: (a) `LANES` is `${TMPDIR:-/tmp}/bruh-lanes`, and `EXCLUDES` is `.scratch/`, anchored at the top of the tree; (b) the source defaults (`/tmp/lanes`, `.scratch/ .bin/ .reports/`, not anchored).
+12. **Where the clerk keeps a result file.** Options, ranked: (a) a file in its worktree that it does not commit, for example `.scratch/review-<number>.json`; (b) a file in the plugin data folder through a new MCP tool (principle 3), a Go change for one file.
 
 ## Verified facts
 
@@ -150,7 +153,10 @@ Each decision is agent-derived, needs owner decision. The first option of each l
 | The combined `description` and `when_to_use` is cut at 1,536 characters in the skill listing | Read the page | skills.md, "Frontmatter reference" |
 | The watcher reads the marker only from the last non-empty line of a body, and accepts only a valid role key | Read the code | `plugins/bruh/mcp/watch.go`, `agentMark` |
 | `merge-train` finds `grants.md` through `ledger_path` in `<data>/init/config.json` | Read the code | `plugins/bruh/mcp/mergetrain.go`, `mergeGate` |
+| The init skill appends merge grant rows at the end of `grants.md`, so the merge grants table must be the last section | Read the code | `plugins/bruh/mcp/init.go`, the case `grants.md` |
+| `lane.sh` works with GNU rsync 3 and with the openrsync of macOS, and under `dash` | Ran the lane tests with each | `sh tests/test.sh` on macOS (both rsync builds) and in `debian:stable-slim` |
+| Each URL of `references/guide-sources.md` answers | `lychee` on the new Markdown files: 47 OK, 0 errors | `docker run lycheeverse/lychee` |
 
 ## Probe
 
-Pending (Task 5).
+Probe P7 (2026-09-30, Claude Code 2.1.284): in a new scratch folder inside a trusted folder (no `git init`), with a settings file that allows `Workflow(bruh:tickets)`, `Workflow(bruh:implement-tickets)`, `Workflow(bruh:review-and-fix)`, and `Workflow(bruh:review-only)`, one run of `claude -p --plugin-dir <repo>/plugins/bruh --model haiku --settings <that file> --permission-mode auto 'Run the workflow /bruh:<name> with args {"root":"/probe","guides":"/probe/guides"} ...'` for each workflow. Each run returned `status` `stopped` with a `STOP:` line, and the Workflow tool reported 0 agents. For example `/bruh:review-only` returned `{"status":"stopped","workflow":"review-only","base":"","head_sha":"","summaries":[],"confirmed":[],"refuted":[],"deviations":["STOP: args.base is not a 40-character hex SHA; args.head is not a 40-character hex SHA; args.lenses is not a list of {key, prompt}"]}`. The STOP lines have no `args.root` and no `args.guides` item, and a first run with `{"root":"probe"}` had the `args.root` item. This proves that the runtime parses each script, that each runs as `/bruh:<meta.name>`, that `args` arrives as an object, and that invalid `args` stop the run before any agent. No background session was started (`claude agents --json --all` showed none in the scratch folder).

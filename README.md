@@ -45,6 +45,21 @@ flowchart LR
 
 The full process is in [docs/flow.md](docs/flow.md) as diagrams.
 
+## Implement and review
+
+The skill `/bruh:implement` is the procedure for each code change and each review. The orchestrating session does not edit code. An implementer agent writes the change from a brief, and a separate reviewer agent checks it with the review guides, in a fix loop. For a settled spec with many changes, the skill uses four workflows:
+
+| Workflow | What it does |
+|---|---|
+| `/bruh:tickets` | Breaks a settled spec into function-sized TDD tickets and execution waves, reviewed in a fix loop |
+| `/bruh:implement-tickets` | Implements the tickets wave by wave, in parallel lanes (`scripts/lane.sh`), with a reviewer for each ticket and a whole-branch gate |
+| `/bruh:review-and-fix` | Reviews an own change with several lenses and the gates, refutes each finding, and fixes the confirmed findings one area at a time |
+| `/bruh:review-only` | Reviews and refutes a pull request of another author, and changes nothing |
+
+No workflow posts on a pull request. A workflow returns its findings. You post them with `scripts/post-findings.sh` (GitLab through `glab`, GitHub through `gh`): run it with `--dry-run` first, then with `--yes`. In a role session, a clerk posts only after your yes, or under a post grant in `grants.md` of the ledger. Each post starts with "Agent review" and carries the marker line `<!-- bruh:<role key> -->`. A rerun posts only the comments that are not on the pull request yet.
+
+In a role session, a clerk runs the skill. In your own session, you are the orchestrator: start with `/bruh:implement` and answer the questions of the session.
+
 ## Install
 
 Steps 4, 5, and 6 are optional. Create the ledger repository (step 3) before you answer question 2 of the init skill.

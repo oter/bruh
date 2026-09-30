@@ -28,10 +28,10 @@ The values below have the shape of the first full run. Change the paths and the 
   "gates": ["test -z \"$(gofmt -l .)\"", "go vet ./...", "go build ./...", "golangci-lint run", "go mod tidy && git diff --exit-code go.mod go.sum", "go test -race -timeout 30m ./...", "task coverage-check"],
   "fix_cap": 3,
   "waves": [
-    ["mr2-63-test-create-user.md"],
-    ["mr2-64-impl-create-user.md"],
-    ["mr2-118-strict-server-struct.md", "mr2-136-env-example.md"],
-    ["mr2-123-integration-post-users.md", "mr2-124-integration-post-users-answers.md", "mr2-125-integration-auth-handoff.md"]
+    ["mr1-01-test-parse-config.md"],
+    ["mr1-02-impl-parse-config.md"],
+    ["mr1-03-server-struct.md", "mr1-04-env-example.md"],
+    ["mr1-05-integration-get-items.md", "mr1-06-integration-post-items.md", "mr1-07-integration-delete-item.md"]
   ]
 }
 ```
