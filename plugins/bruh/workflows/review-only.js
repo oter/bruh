@@ -119,8 +119,20 @@ const FINDINGS = {
 }
 const VERDICT = {
   type: 'object',
-  properties: { confirmed: { type: 'boolean' }, reason: { type: 'string' }, adjusted_fix: { type: 'string' } },
+  properties: {
+    confirmed: { type: 'boolean' }, reason: { type: 'string' }, adjusted_fix: { type: 'string' },
+    file: { type: 'string', description: 'the correct file, only when the finding names the wrong one' },
+    line: { type: 'integer', description: 'the correct 1-based line, only when the finding names the wrong one' },
+  },
   required: ['confirmed', 'reason', 'adjusted_fix'],
+}
+
+// A refuter that confirms a finding can correct its location. The corrected
+// file and line replace the ones of the reviewer, and the dedup runs after that.
+function located(x, v) {
+  const file = typeof v.file === 'string' && v.file.trim() ? norm(v.file.trim()) : x.file
+  const line = Number.isInteger(v.line) && v.line > 0 ? v.line : x.line
+  return { ...x, file, line }
 }
 
 // The answers of the session for one question ID: a string, or a list of
@@ -218,7 +230,7 @@ log(`${unique.length} unique findings, one refuter each`)
 
 phase('Verify')
 const verdicts = await parallel(unique.map((x) => () => agent(
-  `Try to refute this code review finding. Read the file at the line, the code around it, the spec when the finding is about behavior, and the cited guide rule under ${A.guides}/. When the finding is an empirical claim, test it with a read-only command or a throwaway program outside ${root}. Confirm it only when the problem is real in this code and the fix is correct and proportionate. Refute it when the rule does not apply, the code already complies, the spec chose this behavior on purpose, or it is taste. When you are not sure, return confirmed = false. When you confirm it and the fix needs a change, give the better fix in adjusted_fix; else return an empty adjusted_fix.
+  `Try to refute this code review finding. Read the file at the line, the code around it, the spec when the finding is about behavior, and the cited guide rule under ${A.guides}/. When the finding is an empirical claim, test it with a read-only command or a throwaway program outside ${root}. Confirm it only when the problem is real in this code and the fix is correct and proportionate. Refute it when the rule does not apply, the code already complies, the spec chose this behavior on purpose, or it is taste. When you are not sure, return confirmed = false. When you confirm it and the fix needs a change, give the better fix in adjusted_fix; else return an empty adjusted_fix. When you confirm it and the problem is at another line or in another file than the finding says, return the correct file and line; else leave them out.
 Finding: ${JSON.stringify(x)}
 
 ${COMMON}`,
@@ -228,11 +240,17 @@ ${COMMON}`,
 // A refuter that returned nothing gave no verdict. Its finding is neither
 // confirmed nor refuted, and the run stops, so the session relaunches it.
 let dead = 0
+const byLocation = new Map()
 unique.forEach((x, i) => {
   const v = verdicts[i]
   if (!v) dead++
-  else if (v.confirmed === true) confirmed.push({ ...x, fix: v.adjusted_fix || x.fix, reason: v.reason })
-  else refuted.push({ ...x, reason: v.reason })
+  else if (v.confirmed === true) {
+    const y = { ...located(x, v), fix: v.adjusted_fix || x.fix, reason: v.reason }
+    const k = key(y)
+    if (byLocation.has(k)) byLocation.get(k).problem += ` | also (${y.lens}): ${y.problem}`
+    else byLocation.set(k, y)
+  } else refuted.push({ ...x, reason: v.reason })
 })
+confirmed.push(...byLocation.values())
 if (dead) return fail(`${dead} refuter(s) did not return a result`)
 return result('done')

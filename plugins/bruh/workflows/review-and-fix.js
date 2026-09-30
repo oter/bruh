@@ -178,8 +178,20 @@ const GATES = {
 }
 const VERDICT = {
   type: 'object',
-  properties: { confirmed: { type: 'boolean' }, reason: { type: 'string' }, adjusted_fix: { type: 'string' } },
+  properties: {
+    confirmed: { type: 'boolean' }, reason: { type: 'string' }, adjusted_fix: { type: 'string' },
+    file: { type: 'string', description: 'the correct file, only when the finding names the wrong one' },
+    line: { type: 'integer', description: 'the correct 1-based line, only when the finding names the wrong one' },
+  },
   required: ['confirmed', 'reason', 'adjusted_fix'],
+}
+
+// A refuter that confirms a finding can correct its location. The corrected
+// file and line replace the ones of the reviewer, and the dedup runs after that.
+function located(x, v) {
+  const file = typeof v.file === 'string' && v.file.trim() ? norm(v.file.trim()) : x.file
+  const line = Number.isInteger(v.line) && v.line > 0 ? v.line : x.line
+  return { ...x, file, line }
 }
 const FIX = {
   type: 'object',
@@ -382,7 +394,7 @@ for (let round = 1; ; round++) {
 
   phase('Verify')
   const verdicts = await parallel(candidates.map((x) => () => agent(
-    `Try to refute this code review finding. Do not edit files. Read the file at the line, the code around it, the spec when the finding is about behavior, and the cited guide rule under ${A.guides}/. When the finding is an empirical claim, test it with a read-only command or a throwaway program outside ${root}. Confirm it only when the problem is real in this code and the fix is correct and proportionate. Refute it when the rule does not apply, the code already complies, the spec chose this behavior on purpose, the fix would break a test or the spec, or it is taste. When you are not sure, return confirmed = false. When you confirm it and the fix needs a change, give the better fix in adjusted_fix; else return an empty adjusted_fix.
+    `Try to refute this code review finding. Do not edit files. Read the file at the line, the code around it, the spec when the finding is about behavior, and the cited guide rule under ${A.guides}/. When the finding is an empirical claim, test it with a read-only command or a throwaway program outside ${root}. Confirm it only when the problem is real in this code and the fix is correct and proportionate. Refute it when the rule does not apply, the code already complies, the spec chose this behavior on purpose, the fix would break a test or the spec, or it is taste. When you are not sure, return confirmed = false. When you confirm it and the fix needs a change, give the better fix in adjusted_fix; else return an empty adjusted_fix. When you confirm it and the problem is at another line or in another file than the finding says, return the correct file and line; else leave them out.
 Finding: ${JSON.stringify(x)}
 
 ${COMMON}`,
@@ -392,17 +404,23 @@ ${COMMON}`,
   // A refuter that returned nothing gave no verdict: the run stops, and the
   // finding is neither confirmed nor refuted (deliver.js, final review B1).
   let dead = 0
+  const byLocation = new Map()
   candidates.forEach((x, i) => {
     const v = verdicts[i]
     const k = key(x)
     if (!v) dead++
-    else if (v.confirmed === true) found.set(k, { ...x, fix: v.adjusted_fix || x.fix, state: 'open', reason: v.reason })
-    else {
+    else if (v.confirmed === true) {
+      const y = { ...located(x, v), fix: v.adjusted_fix || x.fix, state: 'open', reason: v.reason }
+      const yk = key(y)
+      if (byLocation.has(yk)) byLocation.get(yk).problem += ` | also (${y.lens}): ${y.problem}`
+      else byLocation.set(yk, y)
+    } else {
       refutedKeys.add(k)
       // A fix of an earlier round stays on record when a new finding at its key is refuted.
       if (!(found.has(k) && found.get(k).state === 'fixed')) found.set(k, { ...x, state: 'refuted', reason: v.reason })
     }
   })
+  for (const [k, y] of byLocation) found.set(k, y)
   if (dead) return fail(`${dead} refuter(s) of round ${round} did not return a result`)
 
   const open = [...found.values()].filter((x) => x.state === 'open')

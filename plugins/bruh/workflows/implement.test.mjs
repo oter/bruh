@@ -26,6 +26,7 @@ async function run(name, h, args) {
   const calls = []
   const counts = {}
   const phases = []
+  const logs = []
   const agent = async (prompt, opts = {}) => {
     const word = (opts.label || '').split(' ')[0]
     const n = (counts[word] = (counts[word] || 0) + 1)
@@ -38,8 +39,8 @@ async function run(name, h, args) {
     throw new Error('pipeline is not used')
   }
   const budget = { total: null, spent: () => 0, remaining: () => Infinity }
-  const result = await loaded[name].script(agent, parallel, pipeline, (p) => phases.push(p), () => {}, args, budget)
-  return { result, calls, phases, byWord: (w) => calls.filter((c) => c.word === w) }
+  const result = await loaded[name].script(agent, parallel, pipeline, (p) => phases.push(p), (m) => logs.push(m), args, budget)
+  return { result, calls, phases, logs, byWord: (w) => calls.filter((c) => c.word === w) }
 }
 
 const SHA = 'a'.repeat(40)
@@ -544,6 +545,37 @@ test('review-and-fix: dedup by file:line, one refuter each, refuted stays refute
   assert.match(byWord('verify')[0].prompt, /throwaway program/)
 })
 
+// Fix round 2: a dropped refuted key is logged, not silent.
+test('review-and-fix: a finding at a refuted key is dropped with a log line', async () => {
+  const { logs } = await run('review-and-fix', rfHandlers({
+    review: () => ({ findings: [f('src/a.go', 1)], summary: '' }),
+    verify: () => ({ confirmed: false, reason: '', adjusted_fix: '' }),
+    gate: (p, o, n) => (n === 1 ? { gates: [gateResult('make test', { exit_code: 1, failed: 1 })] } : cleanGate()),
+    fix: () => ({ fixed: [], report: '' }),
+  }), RF())
+  assert.ok(logs.some((m) => /Round 2: 2 findings at refuted file:line keys dropped/.test(m)), logs.join('\n'))
+})
+
+// Fix round 2: the refuter can correct the location, and the dedup runs after it.
+for (const name of ['review-only', 'review-and-fix']) {
+  test(`${name}: a refuter corrects the line of a confirmed finding, then dedup merges it`, async () => {
+    const h = {
+      ...(name === 'review-only' ? { check: cleanCheck } : rfHandlers()),
+      review: (p, o, n) => (n > 2 ? { findings: [], summary: '' } : p.includes('handlers')
+        ? { findings: [f('src/a.go', 17, { problem: 'off by one' })], summary: '' }
+        : { findings: [f('src/a.go', 18, { problem: 'bound' })], summary: '' }),
+      verify: (p) => (p.includes('"line":17') ? { confirmed: true, reason: '', adjusted_fix: '', line: 18 } : { confirmed: true, reason: '', adjusted_fix: '' }),
+    }
+    const { result, byWord } = await run(name, h, BASE_ARGS[name]())
+    assert.match(byWord('verify')[0].prompt, /return the correct file and line/)
+    const locs = result.confirmed.map((x) => `${x.file}:${x.line}`)
+    assert.deepEqual(locs, ['src/a.go:18'], 'one finding at the corrected line')
+    assert.match(result.confirmed[0].problem, /off by one \| also \(security\): bound/)
+    const moved = await run(name, { ...h, verify: (p) => ({ confirmed: true, reason: '', adjusted_fix: '', ...(p.includes('"line":17') ? { file: './src/b.go', line: 3 } : {}) }) }, BASE_ARGS[name]())
+    assert.deepEqual(moved.result.confirmed.map((x) => `${x.file}:${x.line}`).sort(), ['src/a.go:18', 'src/b.go:3'])
+  })
+}
+
 test('review-and-fix: a dead refuter stops the run, never done', async () => {
   const { result, byWord } = await run('review-and-fix', rfHandlers({
     review: () => ({ findings: [f('src/a.go', 1)], summary: '' }),
@@ -654,6 +686,22 @@ test('review-and-fix: a red gate is an open finding without a refuter, fixed whe
   assert.equal(result.status, 'done')
   assert.deepEqual(result.confirmed.map((x) => `${x.file} ${x.state}`), ['gate: make test fixed'])
   assert.doesNotMatch(result.confirmed[0].problem, /secret/, 'the gate output is not in the posted problem')
+})
+
+// Fix round 2: a gate finding is fixed only when its gate is clean: exit 0, no failed and no skipped test.
+test('review-and-fix: a gate finding is not fixed while its gate is still red or skips a test', async () => {
+  for (const later of [
+    gateResult('make test', { exit_code: 1, failed: 1, output_tail: 'another failure' }),
+    gateResult('make test', { skipped: 1, problems: [{ file: 'a_test.go', line: 4, summary: 'TestY skipped', kind: 'skipped' }] }),
+  ]) {
+    const { result } = await run('review-and-fix', rfHandlers({
+      gate: (p, o, n) => (n === 1 ? { gates: [gateResult('make test', { exit_code: 2, failed: 1, output_tail: 'first failure' })] } : { gates: [later] }),
+      fix: () => ({ fixed: [], report: '' }),
+    }), RF())
+    assert.equal(result.status, 'findings_left')
+    assert.deepEqual(result.confirmed.filter((x) => x.state === 'fixed'), [], 'no gate finding is fixed while the gate is not clean')
+    assert.equal(result.confirmed.filter((x) => x.state === 'open').length, 1)
+  }
 })
 
 test('review-and-fix: the gates must cover exactly args.gates, with no skipped test', async () => {
