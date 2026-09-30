@@ -23,6 +23,7 @@ const SHA = /^[0-9a-f]{40}$/
 const norm = (file) => String(file || '').replace(/^(\.\/)+/, '')
 const key = (f) => (f.key ? f.key : `${norm(f.file)}:${f.line}`)
 const ORDER = { security: 0, bug: 1, guideline: 2, nit: 3 }
+const RANK = { open: 2, fixed: 1, refuted: 0 }
 const bySeverity = (a, b) => (ORDER[a.severity] ?? 4) - (ORDER[b.severity] ?? 4)
 
 const root = isPath(A.root) ? A.root : ''
@@ -420,7 +421,20 @@ ${COMMON}`,
       if (!(found.has(k) && found.get(k).state === 'fixed')) found.set(k, { ...x, state: 'refuted', reason: v.reason })
     }
   })
-  for (const [k, y] of byLocation) found.set(k, y)
+  // A confirmed finding at the key of an earlier finding (moved there by its
+  // refuter, or reported there again) merges with it: the stronger state wins
+  // (open, then fixed, then refuted), and both problems and reasons stay.
+  for (const [k, y] of byLocation) {
+    const prior = found.get(k)
+    if (!prior || prior.gate) {
+      found.set(k, y)
+      continue
+    }
+    const state = RANK[prior.state] > RANK[y.state] ? prior.state : y.state
+    const problem = prior.problem === y.problem ? y.problem : `${y.problem} | earlier (round ${prior.round}, ${prior.state}): ${prior.problem}`
+    const reason = [y.reason, prior.reason].filter((r) => r && r !== 'gate result').filter((r, i, a) => a.indexOf(r) === i).join(' | ')
+    found.set(k, { ...y, state, problem, reason })
+  }
   if (dead) return fail(`${dead} refuter(s) of round ${round} did not return a result`)
 
   const open = [...found.values()].filter((x) => x.state === 'open')

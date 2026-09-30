@@ -593,6 +593,24 @@ test('review-and-fix: dedup by file:line, one refuter each, refuted stays refute
   assert.match(byWord('verify')[0].prompt, /throwaway program/)
 })
 
+// Fix round 3: a finding at the key of an earlier finding merges with it, never replaces it.
+test('review-and-fix: a finding moved or reported at an earlier key merges with the earlier finding', async () => {
+  for (const moved of [true, false]) {
+    const { result } = await run('review-and-fix', rfHandlers({
+      review: (p, o, n) => (n === 1 ? { findings: [f('src/a.go', 5, { problem: 'first problem' })], summary: '' }
+        : n === 3 ? { findings: [f('src/a.go', moved ? 7 : 5, { problem: 'second problem' })], summary: '' }
+        : { findings: [], summary: '' }),
+      verify: (p) => ({ confirmed: true, reason: p.includes('first problem') ? 'reason one' : 'reason two', adjusted_fix: '', ...(p.includes('"line":7') ? { line: 5 } : {}) }),
+      confirm: (p) => ({ results: listed(p).map((l) => ({ ...l, fixed: false, reason: '' })) }),
+    }), RF())
+    assert.equal(result.confirmed.length, 1, `moved ${moved}`)
+    const x = result.confirmed[0]
+    assert.equal(`${x.file}:${x.line} ${x.state} ${x.round}`, 'src/a.go:5 open 2')
+    assert.match(x.problem, /second problem \| earlier \(round 1, open\): first problem/)
+    assert.equal(x.reason, 'reason two | reason one')
+  }
+})
+
 // Fix round 2: a dropped refuted key is logged, not silent.
 test('review-and-fix: a finding at a refuted key is dropped with a log line', async () => {
   const { logs } = await run('review-and-fix', rfHandlers({
