@@ -1,0 +1,83 @@
+name: Bug report
+description: Something in bruh does not work as the specification says.
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Do not include tokens, personal names, host names, or private repository names. Replace them with placeholders such as `owner/repo`.
+  - type: input
+    id: claude-version
+    attributes:
+      label: Claude Code version
+      description: The output of `claude --version`.
+    validations:
+      required: true
+  - type: input
+    id: bruh-version
+    attributes:
+      label: bruh version or commit
+      description: The release tag, or the commit SHA for a development install.
+    validations:
+      required: true
+  - type: input
+    id: go-version
+    attributes:
+      label: Go version
+      description: The output of `go version`.
+    validations:
+      required: true
+  - type: dropdown
+    id: os
+    attributes:
+      label: Operating system
+      options:
+        - macOS
+        - Linux
+        - Linux in a container
+    validations:
+      required: true
+  - type: dropdown
+    id: role
+    attributes:
+      label: Role
+      description: The role where the problem occurs.
+      options:
+        - bigm
+        - clanker
+        - clerk
+        - workflow (deliver)
+        - init skill
+        - hook or status line tap
+        - MCP server
+        - other
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Start bigm with ...
+        2. ...
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected result
+      description: Give the section of docs/spec.md if you know it.
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual result
+    validations:
+      required: true
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Evidence
+      description: The output of `claude agents --json --all`, the relevant lines of `claude logs <id>`, and the MCP tool result. Remove private data first.
+      render: text

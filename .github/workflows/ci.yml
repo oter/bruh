@@ -24,14 +24,16 @@ jobs:
       - run: test -z "$(gofmt -l .)"
       - run: go vet ./...
       - run: go test -race ./...
+      - name: script tests
+        working-directory: .
+        run: sh tests/test.sh
   lint:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - name: shellcheck
         run: |
-          files=$(git ls-files '*.sh')
-          if [ -n "$files" ]; then shellcheck $files; fi
+          git ls-files -z '*.sh' | xargs -0 -r shellcheck
       - uses: DavidAnson/markdownlint-cli2-action@v19
         with:
           globs: '**/*.md'
@@ -48,3 +50,14 @@ jobs:
       - run: npm install -g @anthropic-ai/claude-code
       - run: claude plugin validate ./plugins/bruh
       - run: claude plugin validate .
+  node:
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: node --test plugins/bruh/agents/agents_test.mjs plugins/bruh/workflows/deliver.test.mjs
