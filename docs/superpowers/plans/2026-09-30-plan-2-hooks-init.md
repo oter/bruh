@@ -72,7 +72,7 @@
   | `asker` | the role key of the caller (a workflow agent has the key of its clerk) |
   | `opened_at` | UTC time from the server, layout `2006-01-02T15:04:05.000Z` |
 
-- `mail_post` also accepts the header `START: <subject>` (same length rule as `DONE:`). The parent writes each start message with it. Agent-derived, needs owner decision (request of lane roles through the controller, 2026-09-30).
+- `mail_post` also accepts the header `START: <subject>` (same length rule as `DONE:`). The parent writes each start message with it. Agent-derived, needs owner decision (request of lane roles through the controller, 2026-09-30). Options, ranked: 1. a `START:` header, as built; 2. the start message as a `DONE:`-style header with a fixed subject such as `START: start message`; 3. no header, and the first message of a mailbox is the start message by position.
 - `bruh_info()` returns `{"plugin_root","data_dir","role_key","version"}`. The paths are absolute. The version comes from `.claude-plugin/plugin.json`. It works without `BRUH_ROLE_KEY` (`role_key` is then empty) and writes nothing.
 - `lease_define` takes an optional `patterns` (list of strings, each 1 to 200 characters, one line). When `patterns` is absent, a redefinition keeps the old patterns. `Resource` gets `"patterns"` (omitted when empty).
 
@@ -174,7 +174,7 @@
 - `main.go`: no argument runs the MCP server. `init --answers <file>` runs the non-interactive init. Plan 5 adds `watch` and `merge-train`. An unknown command prints the usage and exits 2.
 - `init`: reads the answers file (optional), then `BRUH_INIT_<KEY>` variables override single keys (`BRUH_INIT_USER_NAME=Sam`; a list or object value is JSON, for example `BRUH_INIT_CHANNELS='["telegram"]'`). The data folder is `BRUH_DATA`, default `<home>/.claude/plugins/data/bruh-bruh`. The plugin root is `BRUH_PLUGIN_ROOT`, default the parent of the working folder (`go run -C <plugin root>/mcp` sets it to `mcp/`). It prints the diff, applies the plan, prints the applied paths and the launch command, and exits 0.
 
-- `role-settings <role key>`: writes `<data>/roles/<role key>.json` with the defaults and `BRUH_ROLE_KEY`, prints the absolute path, and refuses to overwrite an existing file. A remote clanker is started by an Orca worker session that has no `BRUH_ROLE_KEY`, so it cannot call `role_settings_write`. Agent-derived, needs owner decision (request of lane roles through the controller, 2026-09-30).
+- `role-settings <role key>`: writes `<data>/roles/<role key>.json` with the defaults and `BRUH_ROLE_KEY`, prints the absolute path, and refuses to overwrite an existing file. A remote clanker is started by an Orca worker session that has no `BRUH_ROLE_KEY`, so it cannot call `role_settings_write`. After fix round 1, it writes only clanker keys. Agent-derived, needs owner decision (request of lane roles through the controller, 2026-09-30). Options, ranked: 1. a CLI command for clanker keys only, as built; 2. bigm writes the file on its own machine and the Orca worker copies it; 3. the Orca worker session sets `BRUH_ROLE_KEY` and calls `role_settings_write`.
 
 - [ ] **Step 1: Write the failing test** `TestCLIInit` that runs `runCLI([]string{"init","--answers",f}, env, stdout)` and checks the diff text and the written files, `TestCLIInitEnvAnswers`, and `TestCLIRoleSettings`.
 - [ ] **Step 2: Implement** `runCLI(args, env, out) int`.
@@ -214,11 +214,11 @@
 1. The previous status line command is kept inside `statusLine.command` as the quoted argument of the tap, not in a separate file. The user sees what is wrapped, one file holds the value, and unwrapping is one edit. Options, ranked: 1. an argument of the tap, as built; 2. a file `<data>/bin/statusline-previous`; 3. an environment variable in settings.
 2. `user_name` is not `required` in `userConfig`, so a container install does not stop at the dialog. init writes the value. Options: 1. not required, as built; 2. required.
 3. A merge grant from init fills the column "Owner words" of `grants.md` with the conditions text that the owner typed, and the column "Question ID" with `init`, because an init answer has no question ID. Options: 1. as built; 2. an extra answer field `words` for each grant; 3. leave both columns empty.
-4. `session_resume` refuses a live session (a `pid` in the agents entry). A live session gets a `SendMessage` nudge instead.
-5. The plugin ID for `pluginConfigs` is `bruh@bruh` (the marketplace install of spec 18). A development load with `--plugin-dir` uses another ID, so the options set by init do not apply to it.
+4. `session_resume` refuses a live session (a `pid` in the agents entry). A live session gets a `SendMessage` nudge instead. Options, ranked: 1. refuse, as built; 2. send the prompt as a `SendMessage` nudge instead; 3. resume anyway, which starts a copy (probe G1).
+5. The plugin ID for `pluginConfigs` is `bruh@bruh` (the marketplace install of spec 18). A development load with `--plugin-dir` uses another ID, so the options set by init do not apply to it. Options, ranked: 1. `bruh@bruh` only, as built; 2. write the options for both `bruh@bruh` and `bruh@inline`; 3. an answer `plugin_id`.
 
-6. Init answers refuse unknown keys (`user_nmae` is an error, not a silent default).
-7. `permissions.allow` of the Slack tools (`mcp__plugin_bruh_slack__post_question`, `mcp__plugin_bruh_slack__reply`) is added only when `channels` contains `slack`.
+6. Init answers refuse unknown keys (`user_nmae` is an error, not a silent default). Options, ranked: 1. refuse, as built; 2. ignore unknown keys with a warning in the result; 3. ignore them silently.
+7. `permissions.allow` of the Slack tools (`mcp__plugin_bruh_slack__post_question`, `mcp__plugin_bruh_slack__reply`) is added only when `channels` contains `slack`. Options, ranked: 1. only with Slack, as built; 2. always.
 
 ## Verified facts
 
@@ -258,3 +258,22 @@ Every session of the probe was stopped with `claude stop <id>`, and `claude agen
 
 - **Spec coverage:** 3.2 role key (Task 1), 7 tap, handoff message, and pickup (Task 4), 8.4 lease guard and patterns (Tasks 2 and 4), 10.1 tools (Tasks 2, 3, 6), 13 deny rules in role settings (Task 6, defaults), 16 init skill and non-interactive form (Tasks 6 to 8), 20 script tests (Task 4).
 - **Verify items:** 3.4 `--agent` with a plugin agent (probe G1), 4.1 resume under the same ID (probe G1), 7 status line in a background session and `rate_limits.five_hour.used_percentage` (probe P4 of plan 1, probe G1, statusline.md), 16 plugin options (`userConfig` plus `pluginConfigs`, documented).
+
+## Fix round 1 (2026-09-30)
+
+The adversarial review and the checker of lane go found 1 blocker, 8 major and 14 minor findings, and 1 checker FAIL. The changes of this plan are listed here. The report of the lane maps each finding to its commit.
+
+- `init_plan` writes nothing. It keeps the plan in the memory of the server process (the same session calls both tools) and returns `diff_sha256`, the SHA-256 of its `diff`. `init_apply(plan_id, diff_sha256)` refuses an unknown plan, a wrong hash, and a target state that changed (it plans again at the time of `init_plan` and compares). It writes only the resolved settings file and files under the data folder and under `ledger_path`, and it writes the settings file last. `ledger_path` must be absolute, have no `..` element, and be in a folder that exists or can be created. A symbolic link in the ledger that points outside is refused. `init_apply` carries `_meta["anthropic/requiresUserInteraction"]: true`, so Claude Code asks a person for each call in every permission mode. Agent-derived, needs owner decision (ruling of the controller, 2026-09-30). Options, ranked: 1. memory plan, diff hash, closed list, and the user-interaction flag, as built; 2. the same without the flag, which relies on the allow list; 3. a plan file on disk with a hash in memory.
+- init writes `<data>/init/config.json` = `{"ledger_path"}`. The merge train reads it (plan 5).
+- The settings file keeps its indentation unit (tabs or any number of spaces).
+- The init tests use the real `ledger-template/` and `defaults/priorities.md`; the copies in `testdata/` are gone.
+- `WithLock` uses `flock` (macOS and Linux). The kernel releases the lock of a dead holder, so there is no stale lock to break.
+- `question_open` creates `Q-<n>.json` with `O_EXCL`, before it moves `next`.
+- `session_launch` checks for a live session and starts `claude` under a lock of the role key.
+- The lease guard removes quoted strings, and a segment matches a pattern only when it equals it or continues with white space. bigm gets its own deny reason. `lease_define` refuses a pattern with white space at its start or end.
+
+Rulings on findings that were not changed in code:
+
+1. `autoCompactWindow` and the MCP allow rules stay in the user settings, because spec 7 and spec 16 name the user settings. Agent-derived, needs owner decision. Options, ranked: 1. user settings, as the spec says; 2. the allow rules in the role settings files, which also keeps them out of the manual sessions of the owner; 3. both.
+2. An uninstall of the plugin deletes the data folder and with it the tap, so the status line command fails; the previous command is still the quoted argument. The init skill tells the user. Agent-derived, needs owner decision. Options, ranked: 1. document it, as built; 2. copy the tap to `~/.claude/bruh/` outside the plugin data folder, against spec 10.1; 3. a command that falls back to the previous command when the tap is missing.
+3. The child `claude` of `session_launch` inherits the environment of the MCP server except `BRUH_ROLE_KEY`, including `CLAUDECODE`, `CLAUDE_CODE_SESSION_ID`, and `CLAUDE_CODE_MESSAGING_SOCKET`. Probe G1 ran `claude --bg` from the Bash tool of a live session, which has the same variables, and the new session got its own ID and registered normally. So no variable is removed. Agent-derived, needs owner decision. Options, ranked: 1. keep them, as built; 2. remove the `CLAUDE_CODE_*` session variables and probe again.

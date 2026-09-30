@@ -45,18 +45,18 @@
     "repos": [
       {"repo": "owner/name", "host": "github", "project": "my-app"},
       {"repo": "owner/other", "host": "gitea", "api_url": "https://git.example.com/api/v1",
-       "token_env": "GITEA_TOKEN", "project": "other", "merge_method": "squash"}
+       "project": "other", "merge_method": "squash"}
     ]
   }
   ```
 
-  `host` is `github` or `gitea`. `api_url` defaults to `https://api.github.com` for GitHub and is required for Gitea. `token_env` defaults to `GITHUB_TOKEN` or `GITEA_TOKEN`. `merge_method` defaults to `merge`. `interval_seconds` defaults to 60, minimum 10. `project` defaults to the name part of `repo`.
+  `host` is `github` or `gitea`. `api_url` defaults to `https://api.github.com` for GitHub and is required for Gitea. Tokens are bound to hosts (see "Fix round 1"). `merge_method` defaults to `merge`. `interval_seconds` defaults to 60, minimum 10. `project` defaults to the name part of `repo`.
 - `codeHost` interface:
 
   ```go
   type codeHost interface {
       Branches(ctx context.Context) (map[string]string, error)        // branch name -> head SHA
-      Comments(ctx context.Context, since string) ([]hostComment, error) // issue and pull request comments updated after since
+      IssueComments, ReviewComments, Reviews(ctx context.Context, since string) ([]hostComment, error) // three feeds (fix round 1)
       MergedPulls(ctx context.Context) ([]hostPull, error)             // recently closed pull requests that are merged
       Pull(ctx context.Context, n int) (hostPull, error)
       Checks(ctx context.Context, sha string) (string, error)          // "success", "pending", "failure", or "none"
@@ -65,7 +65,7 @@
   ```
 
   Each method records the call it made (`method URL`) in `lastCall`, so an event can carry its source.
-- MCP tool `repos_set(repo, host, api_url, token_env, project, merge_method, remove, interval_seconds)`: only bigm; adds, replaces, or removes one repository of `repos.json` under the lock `repos`, and checks the result with the same rules as `loadRepos` before it writes. `token_env` must be a variable name, so a token cannot be stored in the file.
+- MCP tool `repos_set(repo, host, api_url, project, merge_method, remove, interval_seconds)`: only bigm; adds, replaces, or removes one repository of `repos.json` under the lock `repos`, and checks the result with the same rules as `loadRepos` before it writes. No field holds a token.
 - GitHub: `GET /repos/{o}/{r}/branches`, `GET /repos/{o}/{r}/issues/comments?since=` and `GET /repos/{o}/{r}/pulls/comments?since=`, `GET /repos/{o}/{r}/pulls?state=closed&sort=updated&direction=desc`, `GET /repos/{o}/{r}/pulls/{n}`, `GET /repos/{o}/{r}/commits/{sha}/status` plus `GET /repos/{o}/{r}/commits/{sha}/check-runs`, `PUT /repos/{o}/{r}/pulls/{n}/merge` with `{"sha","merge_method"}`. Header `Authorization: Bearer <token>`.
 - Gitea: `GET /repos/{o}/{r}/branches`, `GET /repos/{o}/{r}/issues/comments?since=`, `GET /repos/{o}/{r}/pulls?state=closed&sort=recentupdate`, `GET /repos/{o}/{r}/pulls/{n}`, `GET /repos/{o}/{r}/commits/{sha}/status`, `POST /repos/{o}/{r}/pulls/{n}/merge` with `{"Do","head_commit_id"}`. Header `Authorization: token <token>`.
 - `Checks` on GitHub: `failure` when any check run is completed with a conclusion other than `success`, `neutral`, or `skipped`, or the combined status is `failure`; `pending` when any check run is not completed, or statuses exist and the combined state is `pending`; `none` when there are no check runs and no statuses; else `success`. (The combined status is `pending` when no status exists, so it counts only when `total_count` is above 0.) On Gitea: `none` for `total_count` 0, `success`, `pending`, or `failure` for `failure` and `error`.
@@ -106,7 +106,7 @@
 
 **Interfaces:**
 
-- `merge-train [--data <dir>] [--wait-minutes <n>] <owner/repo> <number>...` (and `scripts/merge-train.sh` with the same arguments): it merges only the named pull requests, in the given order. There is no implicit queue of all open pull requests. Agent-derived, needs owner decision (roles review blocker B2, through the controller, 2026-09-30). The merger is the long-lived clerk `clerk-<project>-merge`; `ParseRoleKey` reads it as a clerk with the task `merge`. For each number, one at a time:
+- `merge-train [--data <dir>] [--wait-minutes <n>] <owner/repo> <number>...` (and `scripts/merge-train.sh` with the same arguments): it merges only the named pull requests, in the given order. There is no implicit queue of all open pull requests. Agent-derived, needs owner decision (roles review blocker B2, through the controller, 2026-09-30). Options, ranked: 1. named pull requests, as built; 2. a label queue on the code host; 3. a queue file in the data folder, written by the clanker. The merger is the long-lived clerk `clerk-<project>-merge`; `ParseRoleKey` reads it as a clerk with the task `merge`. For each number, one at a time:
   1. `Pull`: skip with `not_open` when it is not open, `draft` when it is a draft, `conflict` when `mergeable` is `false`.
   2. `Checks` of the head SHA: wait while `pending` (poll every 20 seconds, up to `--wait-minutes`, default 30); skip with `checks_failure`, `checks_none`, or `checks_timeout`.
   3. `Merge` with the head SHA, so the host refuses a head that moved.
@@ -161,9 +161,9 @@
 1. The agent marker is the HTML comment `<!-- bruh:<role key> -->` on the last line of a post (the form of lane roles). GitHub and Gitea do not render HTML comments, so readers do not see it. A person can type the marker, so it separates agents from people only when people do not copy it. Options, ranked: 1. the HTML comment, as built; 2. a visible footer line; 3. a separate bot account for agent posts (identities are out of scope for version 0.1, spec 21).
 2. The code host configuration is the file `<data>/repos.json`. bigm writes it with the new MCP tool `repos_set` (only bigm), because plugin code writes every file of the data folder (spec principle 3). The interfaces file names neither. Options: 1. a data folder file and `repos_set`, as built; 2. the ledger `projects/<project>.md` files.
 3. The Slack channel is one of the MCP servers of the bruh plugin, so it starts (idle) in every session that loads the plugin. It posts and polls only in bigm. Options: 1. one plugin, as built; 2. a second plugin `bruh-slack` in the same marketplace.
-4. The Slack app must be an internal app of the workspace of the owner. Slack limits `conversations.history` and `conversations.replies` to 1 request each minute for new apps that are distributed outside the Slack Marketplace, and gives internal apps Tier 3 (50 or more each minute).
-5. The merge train treats a Gitea commit status `warning` as `failure`, so it never merges on a warning. The watcher then reports a `warning` as a red check.
-6. The watcher reads only the first page of branches (100 on GitHub, 50 on Gitea) and comments (100 and 50) of each poll. A repository with more branches, or more new comments in one interval, loses events past the first page.
+4. The Slack app must be an internal app of the workspace of the owner. Slack limits `conversations.history` and `conversations.replies` to 1 request each minute for new apps that are distributed outside the Slack Marketplace, and gives internal apps Tier 3 (50 or more each minute). Options, ranked: 1. an internal app, as built and documented in the README; 2. a Marketplace app; 3. a distributed app with a poll interval of 60 seconds or more.
+5. The merge train treats a Gitea commit status `warning` as `failure`, so it never merges on a warning. The watcher then reports a `warning` as a red check. Options, ranked: 1. failure, as built; 2. pending (wait); 3. success.
+6. The watcher reads only the first page of branches (100 on GitHub, 50 on Gitea) and comments (100 and 50) of each poll. A repository with more branches, or more new comments in one interval, loses events past the first page. Options, ranked: 1. the first page, as built; 2. read every page; 3. read every page up to a cap and report an `error` event past it.
 
 ## Telegram (no code; facts for the controller and lane roles)
 
@@ -197,3 +197,21 @@
 
 - **Spec coverage:** 8.3 merge confirmed by the API and a host-independent script (Task 3), 9.2 watcher and agent marker (Task 2), 12 Slack thread, allowlist, and permission relay (Task 4), Telegram facts (this file).
 - **Verify items:** 12 permission relay and sender allowlist: documented for both channels; tested for Slack in Task 4.
+
+## Fix round 1 (2026-09-30)
+
+The changes of this plan after the adversarial review of lane go. The report of the lane maps each finding to its commit.
+
+- Tokens: `api_url` must be `https` with no user, query, or fragment. `token_env` is removed. For `host: github`, `GITHUB_TOKEN`, and then `gh auth token --hostname <host>`, go only to `api.github.com` or a host listed in `BRUH_GITHUB_HOSTS` (comma list, for GitHub Enterprise). For `host: gitea`, the token comes only from `BRUH_GITEA_TOKEN_<HOST>`, where `<HOST>` is the host name in capitals with every other character as `_` (`git.example.com` gives `BRUH_GITEA_TOKEN_GIT_EXAMPLE_COM`). Any other `api_url` gets no token. Agent-derived, needs owner decision (ruling of the controller, 2026-09-30). Options, ranked: 1. tokens bound to hosts, as built; 2. a `token_env` field checked against an allowlist of hosts; 3. `token_env` as before.
+- Merge gate, a speed bump in the sense of principle 2: `merge-train` refuses unless `BRUH_ROLE_KEY` is `clerk-<project>-merge` of the project of the repository, and either `grants.md` of the ledger (path from `<data>/init/config.json`) has a table row whose first two cells are the repository and this key, or `--answer Q-<n>` is given and the mailbox of the caller (read or unread) holds a message from `bigm` with the header `ANSWER Q-<n>: ...`. A session with Bash can still merge with other tools. Agent-derived, needs owner decision (ruling of the controller). Options, ranked: 1. the gate, as built; 2. the gate plus a check that the answer names the pull request numbers; 3. no gate, role text only.
+- Checks: GitHub check runs are read on every page (up to 50 pages); runs that could not be read count as pending. The combined status is read once: its `state` covers every context (GitHub REST docs, "Get the combined status"), so its list of statuses is not needed. A GitHub pull request with `mergeable_state` `blocked` (a required check or review is missing), `behind`, or `dirty` is not merged; `unknown` is waited for. Gitea enforces its required checks at the merge call, and the train reports the refusal.
+- The train stops at the first pull request that it does not merge. `merge_method` must be one of `merge`, `squash`, `rebase` (GitHub) or `merge`, `rebase`, `rebase-merge`, `squash`, `fast-forward-only` (Gitea); `manually-merged` is refused.
+- Watcher: a new event type `review` (with `review_state`) from the reviews of the 30 most recently updated open pull requests (GitHub and Gitea, `/pulls/{n}/reviews`). Issue comments, review comments, and reviews each keep their own read position (`feeds` in the state). A head whose checks are `pending` or `none` is read again, up to 30 polls. A push is saved in the state at once. Ruling: Gitea line comments of a review are not read; the review summary is. Agent-derived, needs owner decision. Options, ranked: 1. summaries only, as built; 2. also read `/pulls/{n}/reviews/{id}/comments`.
+- Slack: a `reply` of bigm and a top-level message of the owner open their thread; replies also sent to the channel (`thread_broadcast`) and messages with a file (`file_share`) reach the session. A thread is not polled after the first message of the owner in it or after the verdict of its permission prompt, until a `reply` opens it again. The newest threads are polled first. A thread with no question and no permission prompt expires after one day.
+
+## Verified facts of fix round 1
+
+| Fact | How verified | Source |
+|---|---|---|
+| `_meta["anthropic/requiresUserInteraction"]: true` in a `tools/list` entry makes Claude Code show the permission prompt of that tool on every call, also in `acceptEdits`, `auto`, and `bypassPermissions` mode; allow rules do not skip it; `dontAsk` denies it. Requires Claude Code 2.1.199 or later. | Read the page | <https://code.claude.com/docs/en/mcp.md>, "Require approval for a specific tool" |
+| The Bash tool of a live session has `CLAUDECODE`, `CLAUDE_CODE_SESSION_ID`, `CLAUDE_CODE_CHILD_SESSION`, `CLAUDE_CODE_MESSAGING_SOCKET`, and `CLAUDE_CODE_MESSAGING_TOKEN` set; probe G1 started `claude --bg` from there, and the new session got its own ID. | `env` in the Bash tool of this session, and probe G1 of plan 2 | — |
