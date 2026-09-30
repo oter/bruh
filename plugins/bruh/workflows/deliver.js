@@ -27,18 +27,33 @@ const answers = A.answers && typeof A.answers === 'object' ? A.answers : {}
 let head = base
 let tests = { ran: 0, passed: 0, failed: 0, skipped: 0 }
 const deviations = []
-const found = new Map() // "file:line" -> {file, line, summary, state}
-const refuted = new Set()
+const found = new Map() // key -> {file, line, summary, state, gate}
+const refuted = new Set() // keys of refuted review findings; gate findings never go here
 
-const key = (f) => `${f.file}:${f.line}`
+const norm = (file) => String(file || '').replace(/^(\.\/)+/, '')
+const key = (f) => (f.key ? f.key : `${norm(f.file)}:${f.line}`)
+
+// A small deterministic string hash (djb2), for the dedup key of a gate failure.
+function hash(text) {
+  let h = 5381
+  for (let i = 0; i < text.length; i++) h = ((h * 33) ^ text.charCodeAt(i)) >>> 0
+  return h.toString(16)
+}
 
 function result(status, question = null) {
   const findings = [...found.values()].map(({ file, line, summary, state }) => ({ file, line, summary, state }))
   return { status, branch, base_sha: base, head_sha: head, tests, findings, question, deviations }
 }
 
+// STOP: the task cannot go on as written. FAILED: an agent did not return a
+// result (for example at a usage limit); the clerk relaunches with resumeFromRunId.
 function stop(reason) {
   deviations.push(`STOP: ${reason}`)
+  return result('stopped')
+}
+
+function fail(reason) {
+  deviations.push(`FAILED: ${reason}`)
   return result('stopped')
 }
 
@@ -47,6 +62,7 @@ if (!task) problems.push('args.task is empty')
 if (!/^[0-9a-f]{40}$/.test(base)) problems.push('args.base_sha is not a 40-character hex SHA')
 if (!branch) problems.push('args.branch is empty')
 if (!Array.isArray(A.gates)) problems.push('args.gates is not a list')
+else if (!gateCommands.length) problems.push('args.gates is empty; a run without a required suite cannot prove the change')
 if (problems.length) return stop(problems.join('; '))
 
 const bullets = (xs) => (xs.length ? xs.map((x) => `- ${x}`).join('\n') : '(none)')
@@ -125,6 +141,7 @@ const GATES = {
           command: { type: 'string' },
           exit_code: { type: 'integer' },
           ...COUNTS,
+          output_tail: { type: 'string' },
           problems: {
             type: 'array',
             items: {
@@ -137,7 +154,7 @@ const GATES = {
             },
           },
         },
-        required: ['command', 'exit_code', 'ran', 'passed', 'failed', 'skipped', 'problems'],
+        required: ['command', 'exit_code', 'ran', 'passed', 'failed', 'skipped', 'output_tail', 'problems'],
       },
     },
   },
@@ -198,16 +215,20 @@ async function askable(label, prompt, schema) {
 }
 
 // Each gate is a required suite: each failed or skipped test is a finding.
+// The key names the gate and the failing test, or a hash of the failing
+// output, so a new failure of the same command is a new finding.
 function gateFindings(g) {
   const out = []
   for (const gate of g.gates || []) {
     const named = gate.problems || []
     for (const p of named) {
+      const kind = p.kind === 'skipped' ? 'Skipped' : 'Failed'
       out.push({
-        file: p.file || `gate: ${gate.command}`,
+        file: norm(p.file) || `gate: ${gate.command}`,
         line: p.line || 0,
-        summary: `${p.kind === 'skipped' ? 'Skipped' : 'Failed'} test in the required suite \`${gate.command}\`: ${p.summary}`,
+        summary: `${kind} test in the required suite \`${gate.command}\`: ${p.summary}`,
         gate: gate.command,
+        key: `gate ${gate.command} ${kind} ${norm(p.file)}:${p.line || 0} ${p.summary}`,
       })
     }
     const unnamed = []
@@ -216,11 +237,22 @@ function gateFindings(g) {
       unnamed.push(`exit code ${gate.exit_code}, ${gate.failed} failed`)
     }
     if (unnamed.length) {
-      out.push({ file: `gate: ${gate.command}`, line: 0, summary: `The required suite \`${gate.command}\` has ${unnamed.join(' and ')}.`, gate: gate.command })
+      const text = `${unnamed.join(' and ')} ${gate.output_tail || ''}`
+      out.push({
+        file: `gate: ${gate.command}`,
+        line: 0,
+        summary: `The required suite \`${gate.command}\` has ${unnamed.join(' and ')}.`,
+        gate: gate.command,
+        key: `gate ${gate.command} #${hash(text)}`,
+      })
     }
   }
   return out
 }
+
+// A gate is clean when it exits 0 with no failed and no skipped test.
+const clean = (g) => (g.gates || []).every((x) => x.exit_code === 0 && x.failed === 0 && x.skipped === 0)
+const sum = (g, k) => (g.gates || []).reduce((n, x) => n + (Number.isInteger(x[k]) ? x[k] : 0), 0)
 
 const area = (f) => (f.file.startsWith('gate: ') ? 'gates' : f.file.includes('/') ? f.file.slice(0, f.file.indexOf('/')) : '.')
 
@@ -235,7 +267,7 @@ const plan = await askable(
 4. If the task cannot be done as written, return stop = true with the reason. Otherwise return stop = false and an empty reason.`,
   PLAN,
 )
-if (plan.failed) return stop(plan.failed)
+if (plan.failed) return fail(plan.failed)
 if (plan.question) return result('question', plan.question)
 if (plan.value.stop) return stop(plan.value.reason || 'the plan agent stopped')
 
@@ -255,7 +287,7 @@ ${plan.value.plan}
 5. Return head_sha from \`git rev-parse HEAD\` after your last commit.`,
   IMPLEMENT,
 )
-if (impl.failed) return stop(impl.failed)
+if (impl.failed) return fail(impl.failed)
 if (impl.question) return result('question', impl.question)
 deviations.push(...list(impl.value.deviations))
 if (impl.value.head_sha) head = impl.value.head_sha
@@ -271,64 +303,84 @@ for (let round = 1; ; round++) {
   const [adv, inv, gates] = await parallel([
     () => agent(`${CONTEXT}\n\nStep: adversarial review, round ${round}. Do not edit files.\n${DIFF}\nTry to refute the change: find where it is wrong, where it is incomplete, and where it does not meet the acceptance criteria. Report each finding with the file, the line of the problem, and a summary. Report nothing that you cannot show in the code.`, { label: `adversarial ${round}`, effort: 'low', schema: FINDINGS }),
     () => agent(`${CONTEXT}\n\nStep: invariant check, round ${round}. Do not edit files.\n${DIFF}\nDo not trust the claims of the author. List the invariants that the code must keep, from the code, the tests, and the docs. Verify each invariant against the changed code. Report each broken invariant as a finding with the file, the line, and a summary.`, { label: `invariants ${round}`, effort: 'low', schema: FINDINGS }),
-    () => agent(`${CONTEXT}\n\nStep: gates, round ${round}. Do not edit files.\n${DIFF}\nRun each gate command, in this order:\n${bullets(gateCommands)}\nEach gate is a required suite. For each gate, return its exit code and how many tests ran, passed, failed, and were skipped. Read the counts from the output; do not estimate. For each failed or skipped test, give the file and the line of the test, a summary, and the kind (failed or skipped). Return tests with the totals of all gates, and head_sha from \`git rev-parse HEAD\`.`, { label: `gates ${round}`, effort: 'low', schema: GATES }),
+    () => agent(`${CONTEXT}\n\nStep: gates, round ${round}. Do not edit files.\n${DIFF}\nRun each gate command, in this order:\n${bullets(gateCommands)}\nEach gate is a required suite. For each gate, return its exit code and how many tests ran, passed, failed, and were skipped. Read the counts from the output; do not estimate. For each failed or skipped test, give the file and the line of the test, a summary, and the kind (failed or skipped). When a gate fails or skips a test, return the last 40 lines of its output in output_tail; otherwise return an empty output_tail. Return tests with the totals of all gates, and head_sha from \`git rev-parse HEAD\`.`, { label: `gates ${round}`, effort: 'low', schema: GATES }),
   ])
-  if (!adv || !inv || !gates) return stop(`a review check of round ${round} did not return a result`)
-  tests = { ran: gates.tests.ran, passed: gates.tests.passed, failed: gates.tests.failed, skipped: gates.tests.skipped }
+  if (!adv || !inv || !gates) return fail(`a review check of round ${round} did not return a result`)
+  // The totals come from the per-gate counts, added in code.
+  tests = { ran: sum(gates, 'ran'), passed: sum(gates, 'passed'), failed: sum(gates, 'failed'), skipped: sum(gates, 'skipped') }
   if (gates.head_sha) head = gates.head_sha
 
-  // Deduplicate by file:line (first occurrence wins) and drop refuted keys.
+  // Deduplicate by key (file:line for review findings; first occurrence wins).
+  // Refuted review findings stay refuted. Gate findings always get a refuter.
   const fresh = new Map()
-  for (const f of [...adv.findings, ...inv.findings, ...gateFindings(gates)]) {
+  for (const f of [...adv.findings, ...inv.findings]) {
     const k = key(f)
-    if (!fresh.has(k) && !refuted.has(k)) fresh.set(k, f)
+    if (!fresh.has(k) && !refuted.has(k)) fresh.set(k, { ...f, file: norm(f.file) })
   }
+  const gateNow = gateFindings(gates)
+  // A gate failure of an earlier round that the gates of this round do not show is gone.
+  const gateKeys = new Set(gateNow.map(key))
+  for (const [k, f] of found) if (f.gate && f.state === 'open' && !gateKeys.has(k)) f.state = 'fixed'
+  for (const f of gateNow) if (!fresh.has(key(f))) fresh.set(key(f), f)
   const candidates = [...fresh.values()]
+  log(`Round ${round}: ${candidates.length} findings, one refuter each`)
   const verdicts = await parallel(candidates.map((f) => () => agent(
-    `${CONTEXT}\n\nStep: refute one finding. Do not edit files.\n${DIFF}\nFinding: ${key(f)}: ${f.summary}\n${f.gate ? `This finding comes from the gate command \`${f.gate}\`. Run it again. Confirm the finding only when the new run still shows the failure or the skip.\n` : ''}Try to refute the finding against the code. Confirm it only when you can show it. When you are not sure, return confirmed = false.`,
-    { label: `refute ${key(f)}`, effort: 'low', schema: VERDICT },
+    `${CONTEXT}\n\nStep: refute one finding. Do not edit files.\n${DIFF}\nFinding: ${f.file}:${f.line}: ${f.summary}\n${f.gate ? `This finding comes from the gate command \`${f.gate}\`. Run it again. Confirm the finding only when the new run still shows the failure or the skip.\n` : ''}Try to refute the finding against the code. Confirm it only when you can show it. When you are not sure, return confirmed = false.`,
+    { label: `refute ${f.file}:${f.line}`, effort: 'low', schema: VERDICT },
   )))
 
-  // Each finding confirmed before and not confirmed again is gone from the code.
-  const confirmed = []
+  // A refuter that returned nothing gave no verdict: the finding stays open
+  // and the run stops, so the clerk relaunches it (spec 15).
+  let dead = 0
   candidates.forEach((f, i) => {
     const k = key(f)
-    if (verdicts[i] && verdicts[i].confirmed === true) {
-      confirmed.push(f)
-      found.set(k, { file: f.file, line: f.line, summary: f.summary, state: 'open' })
+    const entry = { file: f.file, line: f.line, summary: f.summary, gate: f.gate }
+    if (!verdicts[i]) {
+      dead++
+      found.set(k, { ...entry, state: 'open' })
+    } else if (verdicts[i].confirmed === true) {
+      found.set(k, { ...entry, state: 'open' })
     } else {
-      refuted.add(k)
-      found.set(k, { file: f.file, line: f.line, summary: f.summary, state: 'refuted' })
+      if (!f.gate) refuted.add(k)
+      found.set(k, { ...entry, state: 'refuted' })
     }
   })
-  const now = new Set(confirmed.map(key))
-  for (const [k, f] of found) if (f.state === 'open' && !now.has(k)) f.state = 'fixed'
+  if (dead) return fail(`${dead} refuter(s) of round ${round} did not return a result`)
 
-  if (!confirmed.length) return result('done')
-  if (round >= cap) return result('findings_left')
+  // A gate failure is a fact of this round: at the end of the run it stays
+  // open even when its refuter did not confirm it.
+  const open = [...found.entries()].filter(([, f]) => f.state === 'open')
+  if (!open.length && clean(gates)) return result('done')
+  if (round >= cap) {
+    for (const f of gateNow) found.get(key(f)).state = 'open'
+    return result('findings_left')
+  }
+  if (!open.length) continue // only refuted gate failures: run the gates again in the next round
 
   // Fix one area at a time: parallel fixers in one tree collide.
   phase('Fix')
   const areas = new Map()
-  for (const f of confirmed) areas.set(area(f), [...(areas.get(area(f)) || []), f])
+  for (const [, f] of open) areas.set(area(f), [...(areas.get(area(f)) || []), f])
   for (const [name, batch] of areas) {
     const fix = await askable(
       `fix ${name}`,
       `Step: fix these confirmed findings of the area ${name}:
-${batch.map((f) => `- ${key(f)}: ${f.summary}`).join('\n')}
+${batch.map((f) => `- ${f.file}:${f.line}: ${f.summary}`).join('\n')}
 
 1. Fix each finding at its root. Edit only the files that the task lists.
 2. Commit your work on the branch ${branch}.
 3. Return fixed with the file and the line of each finding that you fixed, deviations with each deviation and its reason, and head_sha from \`git rev-parse HEAD\`.`,
       FIX,
     )
-    if (fix.failed) return stop(fix.failed)
+    if (fix.failed) return fail(fix.failed)
     if (fix.question) return result('question', fix.question)
     deviations.push(...list(fix.value.deviations))
     if (fix.value.head_sha) head = fix.value.head_sha
+    // Only a fix that the fixer reports makes a finding fixed.
     for (const loc of fix.value.fixed || []) {
-      const f = found.get(key(loc))
-      if (f) f.state = 'fixed'
+      for (const f of found.values()) {
+        if (f.state === 'open' && f.file === norm(loc.file) && f.line === loc.line) f.state = 'fixed'
+      }
     }
   }
 }

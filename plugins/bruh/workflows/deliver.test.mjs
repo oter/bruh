@@ -74,6 +74,8 @@ const finding = (file, line, summary = 'bad') => ({ file, line, summary })
 test('meta.name is deliver and meta is a literal', () => {
   assert.equal(meta.name, 'deliver')
   assert.ok(meta.description)
+  const text = source.match(/export const meta = (\{[\s\S]*?\n\})\n/)[1]
+  assert.doesNotMatch(text, /[`(]|\.\.\.|\$\{/, 'meta must be a pure literal: no template, call, or spread')
 })
 
 test('a clean run returns done with the evidence', async () => {
@@ -90,7 +92,7 @@ test('a clean run returns done with the evidence', async () => {
 })
 
 test('invalid args stop the run before any agent', async () => {
-  for (const bad of [{ base_sha: 'abc' }, { task: '' }, { branch: '' }, { gates: 'go test' }]) {
+  for (const bad of [{ base_sha: 'abc' }, { task: '' }, { branch: '' }, { gates: 'go test' }, { gates: [] }]) {
     const { result, calls } = await run({}, baseArgs(bad))
     assert.equal(result.status, 'stopped')
     assert.equal(calls.length, 0)
@@ -149,13 +151,68 @@ test('refuted findings stay refuted', async () => {
   assert.equal(a.state, 'refuted')
 })
 
-test('a refuter that dies counts as refuted', async () => {
-  const { result } = await run({
-    adversarial: () => ({ findings: [finding('src/a.go', 1)] }),
+test('a refuter that dies is not a refutation: the finding stays open and the run stops', async () => {
+  const { result, byWord } = await run({
+    adversarial: () => ({ findings: [finding('src/a.go', 1, 'real bug')] }),
     refute: () => null,
   })
+  assert.equal(result.status, 'stopped')
+  assert.deepEqual(result.findings, [{ file: 'src/a.go', line: 1, summary: 'real bug', state: 'open' }])
+  assert.match(result.deviations.at(-1), /^FAILED: /)
+  assert.equal(byWord('fix').length, 0)
+})
+
+test('a refuted gate failure gets a new refuter in the next round and never gives done', async () => {
+  const red = () => ({
+    head_sha: HEAD,
+    tests: { ran: 5, passed: 5, failed: 0, skipped: 0 },
+    gates: [{ command: 'go test ./...', exit_code: 1, ran: 5, passed: 4, failed: 1, skipped: 0, output_tail: 'FAIL x', problems: [] }],
+  })
+  const { result, byWord } = await run({ gates: red })
+  assert.equal(result.status, 'findings_left')
+  assert.deepEqual(result.tests, { ran: 5, passed: 4, failed: 1, skipped: 0 }, 'totals come from the per-gate counts')
+  assert.equal(byWord('refute').length, 2, 'one refuter in each round')
+  assert.equal(result.findings.length, 1)
+  assert.equal(result.findings[0].state, 'open')
+})
+
+test('a refuted gate failure that passes in the next round gives done', async () => {
+  const { result, byWord } = await run({
+    gates: (p, o, n) => (n === 1
+      ? { head_sha: HEAD, tests: { ran: 5, passed: 4, failed: 1, skipped: 0 }, gates: [{ command: 'go test ./...', exit_code: 1, ran: 5, passed: 4, failed: 1, skipped: 0, output_tail: 'flaky', problems: [] }] }
+      : cleanGates()),
+  })
   assert.equal(result.status, 'done')
-  assert.equal(result.findings[0].state, 'refuted')
+  assert.equal(byWord('gates').length, 2)
+  assert.equal(byWord('fix').length, 0)
+})
+
+test('a new failure of the same gate command is a new finding', async () => {
+  const gate = (tail) => ({ command: 'make test', exit_code: 1, ran: 1, passed: 0, failed: 1, skipped: 0, output_tail: tail, problems: [] })
+  const { result } = await run({
+    gates: (p, o, n) => ({ head_sha: HEAD, tests: { ran: 1, passed: 0, failed: 1, skipped: 0 }, gates: [gate(n === 1 ? 'error one' : 'error two')] }),
+    refute: () => ({ confirmed: true }),
+  })
+  assert.equal(result.status, 'findings_left')
+  assert.deepEqual(result.findings.map((f) => f.state), ['fixed', 'open'])
+})
+
+test('a finding that the fixer did not fix stays open', async () => {
+  const { result } = await run({
+    adversarial: (p, o, n) => ({ findings: [finding('src/a.go', n)] }),
+    refute: () => ({ confirmed: true }),
+    fix: () => ({ head_sha: HEAD, fixed: [], deviations: [] }),
+  })
+  assert.equal(result.status, 'findings_left')
+  assert.deepEqual(result.findings.map((f) => `${f.line} ${f.state}`), ['1 open', '2 open'])
+})
+
+test('file paths are normalized before dedup', async () => {
+  const { byWord } = await run({
+    adversarial: () => ({ findings: [finding('./src/a.go', 3)] }),
+    invariants: () => ({ findings: [finding('src/a.go', 3)] }),
+  })
+  assert.equal(byWord('refute').length, 1)
 })
 
 test('round cap stops with findings_left', async () => {
@@ -241,7 +298,9 @@ test('a failed gate without named failures is a finding', async () => {
 test('a missing review check stops the run', async () => {
   const { result } = await run({ gates: () => null })
   assert.equal(result.status, 'stopped')
-  assert.match(result.deviations.at(-1), /^STOP: /)
+  assert.match(result.deviations.at(-1), /^FAILED: /)
+  const p = await run({ plan: () => null })
+  assert.match(p.result.deviations.at(-1), /^FAILED: /)
 })
 
 test('a plan STOP and an implement conflict stop the run', async () => {
@@ -291,6 +350,7 @@ test('the same question pending again after its answer stops the run', async () 
     baseArgs({ answers: { 'Q-5': 'B' } }),
   )
   assert.equal(result.status, 'stopped')
+  assert.match(result.deviations.at(-1), /^FAILED: /)
   assert.equal(byWord('plan').length, 2)
 })
 
