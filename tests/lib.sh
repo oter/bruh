@@ -257,8 +257,10 @@ stop_sessions() {
 }
 
 # random_id prints 6 random lowercase letters and digits.
+# It reads a fixed count of bytes. `tr </dev/urandom | head` never ends when
+# SIGPIPE is ignored, as it is for the jobs of a CI runner.
 random_id() {
-	LC_ALL=C tr -dc 'a-z0-9' </dev/urandom | head -c 6
+	od -An -N8 -tx1 /dev/urandom | tr -d ' \n' | cut -c1-6
 }
 
 # preflight_common checks the tools, the Claude Code version, and the trusted
