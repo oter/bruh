@@ -46,6 +46,7 @@ const SHA = 'a'.repeat(40)
 const HEAD = 'b'.repeat(40)
 const GIT_RULE = 'Never run git commit, git push, git stash, git checkout, git switch, git reset, or git rebase'
 const POST_RULE = 'Do not post outside the project'
+const Q = { id: 'Q-5', header: 'P1 Q-5: which table?', body: 'Use table A or table B?' }
 
 // ---------- shared checks ----------
 
@@ -67,23 +68,31 @@ const BASE_ARGS = {
   }),
 }
 
+const COMMON_BAD = [{ deadline_seconds: 0 }, { deadline_seconds: 'x' }, { answers: [] }, { answers: 'x' }]
 const BAD_ARGS = {
-  tickets: [{ root: 'relative' }, { spec: '' }, { issues: "/x'y" }, { guides: undefined }, { rules: '' }, { round_cap: 0 }, { ground: 'x' }],
+  tickets: [{ root: 'relative' }, { spec: '' }, { issues: "/x'y" }, { guides: undefined }, { rules: '' }, { round_cap: 0 }, { ground: 'x' }, ...COMMON_BAD],
   'implement-tickets': [
     { root: '' }, { lane: 'lane.sh' }, { waves: [] }, { waves: [[]] }, { waves: 'x' }, { waves: [['../x.md']] },
     { waves: [['a.md'], ['a.md']] }, { gates: [] }, { fix_cap: -1 }, { issues: '/a\nb' },
+    { test_gates: 'make test' }, { test_gates: ['make lint'] }, ...COMMON_BAD,
   ],
   'review-and-fix': [
     { root: 'r' }, { base: 'origin/main' }, { head: 'abc' }, { guides: '' }, { lenses: [] },
     { lenses: [{ key: 'A B', prompt: 'x' }] }, { lenses: [{ key: 'a', prompt: 'x' }, { key: 'a', prompt: 'y' }] },
     { lenses: [{ key: 'a', prompt: '' }] }, { gates: [] }, { round_cap: 0 }, { spec: 'rel' }, { deliberate: 'x' },
+    { test_gates: 'make test' }, { test_gates: ['make lint'] }, ...COMMON_BAD,
   ],
-  'review-only': [{ root: 'r' }, { base: 'HEAD~1' }, { head: '' }, { guides: 1 }, { lenses: 'x' }, { spec: 'rel' }],
+  'review-only': [{ root: 'r' }, { base: 'HEAD~1' }, { head: '' }, { guides: 1 }, { lenses: 'x' }, { spec: 'rel' }, ...COMMON_BAD],
 }
 
 // Handlers for a busy run of each script: every stage runs at least once.
 const f = (file, line, extra = {}) => ({ file, line, rule: 'guide R1', problem: `bad ${file}:${line}`, fix: 'do it', severity: 'bug', ...extra })
-const cleanGate = (cmds = ['make test']) => ({ gates: cmds.map((command) => ({ command, exit_code: 0, output_tail: '' })) })
+const gateResult = (command, extra = {}) => ({ command, exit_code: 0, ran: 1, passed: 1, failed: 0, skipped: 0, output_tail: '', problems: [], ...extra })
+const cleanGate = (cmds = ['make test']) => ({ gates: cmds.map((c) => gateResult(c)) })
+const cleanCheck = () => ({ head_sha: HEAD, status_porcelain: '', base_is_ancestor: true })
+// The fixer and the fix check read the findings of their prompt: lines "1. file:line ...".
+const listed = (p) => [...p.matchAll(/^\d+\. (\S+):(\d+)[: ]/gm)].map((m) => ({ file: m[1], line: Number(m[2]) }))
+const confirmAll = (p) => ({ results: listed(p).map((l) => ({ ...l, fixed: true, reason: 'fixed' })) })
 const BUSY = {
   tickets: {
     write: () => ({ tickets: [], notes: '' }),
@@ -98,12 +107,15 @@ const BUSY = {
     gate: () => cleanGate(),
   },
   'review-and-fix': {
+    check: cleanCheck,
     review: (p, o, n) => ({ findings: n === 1 ? [f('src/a.go', 1)] : [], summary: 'ok' }),
     gate: () => cleanGate(),
     verify: () => ({ confirmed: true, reason: 'shown', adjusted_fix: '' }),
     fix: () => ({ fixed: [{ file: 'src/a.go', line: 1 }], report: '' }),
+    confirm: confirmAll,
   },
   'review-only': {
+    check: cleanCheck,
     review: () => ({ findings: [f('src/a.go', 1)], summary: 'ok' }),
     verify: () => ({ confirmed: true, reason: 'shown', adjusted_fix: '' }),
   },
@@ -114,6 +126,8 @@ const BUSY_ARGS = {
   'review-and-fix': () => BASE_ARGS['review-and-fix'](),
   'review-only': () => BASE_ARGS['review-only'](),
 }
+// The first agent that can ask a question in each script.
+const ASKER = { tickets: 'write', 'implement-tickets': 'impl', 'review-and-fix': 'fix', 'review-only': 'review' }
 
 for (const name of SCRIPTS) {
   const { meta, source } = loaded[name]
@@ -136,6 +150,7 @@ for (const name of SCRIPTS) {
       assert.equal(result.status, 'stopped', JSON.stringify(bad))
       assert.equal(calls.length, 0, JSON.stringify(bad))
       assert.match(result.deviations.at(-1), /^STOP: /)
+      assert.equal(result.question, null)
     }
     for (const a of [null, undefined, 'x']) {
       const { result, calls } = await run(name, {}, a)
@@ -161,6 +176,56 @@ for (const name of SCRIPTS) {
     const titles = new Set((meta.phases || []).map((p) => p.title))
     for (const p of phases) assert.ok(titles.has(p), `phase(${p}) is not in meta.phases`)
     for (const c of calls) if (c.opts.phase) assert.ok(titles.has(c.opts.phase), `opts.phase ${c.opts.phase} is not in meta.phases`)
+  })
+
+  // Spec 6.2 (M7): the question path of deliver.js in each workflow.
+  const asker = ASKER[name]
+  const askArgs = () => {
+    const a = BUSY_ARGS[name]()
+    return name === 'implement-tickets' ? { ...a, waves: [['t-01-a.md']], deadline_seconds: 600 } : { ...a, deadline_seconds: 600 }
+  }
+  const asking = () => ({
+    ...BUSY[name],
+    // Only the first call of the asker asks, and its attempt with the answer does not.
+    [asker]: (p, o, n) => (n > 1 || p.includes('Q-5') ? BUSY[name][asker](p, o, n) : { ...BUSY[name][asker](p, o, n), question: Q }),
+  })
+
+  test(`${name}: a pending question returns status question`, async () => {
+    const { result, byWord } = await run(name, asking(), askArgs())
+    assert.equal(result.status, 'question')
+    assert.deepEqual(result.question, Q)
+    const p = byWord(asker)[0].prompt
+    for (const s of ['question_open', 'SendMessage', 'main', 'answer_wait', 'deadline_seconds 600', 'pending']) {
+      assert.ok(p.includes(s), `the ${asker} prompt does not name ${s}`)
+    }
+    if (name === 'implement-tickets') assert.equal(byWord('review').length, 0)
+  })
+
+  test(`${name}: the answer reaches only prompts after the question`, async () => {
+    const first = await run(name, asking(), askArgs())
+    const answer = 'Use table B. (owner, 2026-09-30, Q-5)'
+    const second = await run(name, asking(), { ...askArgs(), answers: { 'Q-5': answer } })
+    assert.notEqual(second.result.status, 'question')
+    assert.notEqual(second.result.status, 'stopped', JSON.stringify(second.result.deviations))
+    // Each call before the question is the same in both runs, so resumeFromRunId returns it cached.
+    const n = first.calls.length
+    for (let i = 0; i < n; i++) {
+      assert.equal(second.calls[i].prompt, first.calls[i].prompt, `call ${i} changed`)
+      assert.deepEqual(second.calls[i].opts, first.calls[i].opts)
+    }
+    const withAnswer = second.calls.filter((c) => c.prompt.includes(answer))
+    assert.equal(withAnswer.length, 1)
+    assert.equal(withAnswer[0], second.calls[n])
+  })
+
+  test(`${name}: a question pending again after its answer counts, then stops`, async () => {
+    const always = { ...BUSY[name], [asker]: (p, o, n) => ({ ...BUSY[name][asker](p, o, n), question: Q }) }
+    const one = await run(name, always, { ...askArgs(), answers: { 'Q-5': 'B' } })
+    assert.equal(one.result.status, 'question')
+    assert.equal(one.result.deviations.at(-1), 'REPEAT: Q-5 1 of 2')
+    const three = await run(name, always, { ...askArgs(), answers: { 'Q-5': ['B', 'C', 'D'] } })
+    assert.equal(three.result.status, 'stopped')
+    assert.match(three.result.deviations.at(-1), /Q-5 is pending again after 3 answers/)
   })
 }
 
@@ -238,7 +303,8 @@ test('implement-tickets: a wave of one works in the shared tree, with no lane an
   assert.equal(byWord('merge').length, 0)
   assert.equal(result.tickets[0].id, 't-01-a')
   assert.equal(result.tickets[0].status, 'done')
-  assert.deepEqual(result.gate, { ok: true, gates: cleanGate().gates })
+  assert.deepEqual(result.gate, { ok: true, gates: cleanGate().gates, findings: [] })
+  assert.deepEqual(result.tests, { ran: 1, passed: 1, failed: 0, skipped: 0 })
   assert.equal(byWord('impl')[0].opts.effort, 'high')
   for (const w of ['review', 'gate']) assert.equal(byWord(w)[0].opts.effort, 'low')
 })
@@ -257,6 +323,19 @@ test('implement-tickets: lanes merge in wave order and skip failed lanes', async
   assert.equal(result.status, 'findings_left')
   assert.deepEqual(result.tickets.map((t) => `${t.id} ${t.status}`), ['t-03-c done', 't-02-b failed', 't-01-a done'])
   assert.equal(byWord('gate').length, 0, 'no gate after a failed wave')
+})
+
+test('implement-tickets: a wave with a pending question is not merged', async () => {
+  const lanes = (p) => work({ workdir: `/lanes/${p.match(/start (\S+)/)[1]}` })
+  const h = itHandlers({ impl: (p) => (p.includes('t-02-b') && !p.includes('Q-5') ? { ...lanes(p), question: Q } : lanes(p)) })
+  const a = IT({ waves: [['t-01-a.md', 't-02-b.md']] })
+  const first = await run('implement-tickets', h, a)
+  assert.equal(first.result.status, 'question')
+  assert.equal(first.byWord('merge').length, 0, 'no merge before the answer')
+  const second = await run('implement-tickets', h, { ...a, answers: { 'Q-5': 'B' } })
+  assert.equal(second.result.status, 'done')
+  assert.equal(second.byWord('merge').length, 1)
+  assert.match(second.byWord('merge')[0].prompt, /patch t-01-a[\s\S]*patch t-02-b/)
 })
 
 test('implement-tickets: a failed wave stops the later waves', async () => {
@@ -281,10 +360,7 @@ test('implement-tickets: fix_cap from args', async () => {
 
 test('implement-tickets: a dead agent stops the run, never done', async () => {
   const lanes = IT({ waves: [['t-01-a.md', 't-02-b.md']] })
-  const cases = [
-    ['impl', IT()], ['review', IT()], ['merge', lanes], ['gate', IT()],
-    ['fix', IT()],
-  ]
+  const cases = [['impl', IT()], ['review', IT()], ['merge', lanes], ['gate', IT()], ['fix', IT()]]
   for (const [dead, a] of cases) {
     const extra = { [dead]: () => null }
     if (dead === 'fix') extra.review = () => ({ pass: false, findings: [], verify_output: '', summary: '' })
@@ -314,13 +390,25 @@ test('implement-tickets: a lane implementer that works in the shared tree is an 
   assert.match(result.deviations.at(-1), /^FAILED: /)
 })
 
-test('implement-tickets: the gate must cover exactly args.gates and exit 0', async () => {
+// M5: the gate rules of deliver.js.
+test('implement-tickets: the gate must cover exactly args.gates, with no failed or skipped test', async () => {
   const two = IT({ gates: ['make test', 'make lint'] })
   const missing = await run('implement-tickets', itHandlers(), two)
   assert.equal(missing.result.status, 'findings_left')
-  assert.equal(missing.result.gate.ok, false)
-  const red = await run('implement-tickets', itHandlers({ gate: () => ({ gates: [{ command: 'make test', exit_code: 1, output_tail: 'FAIL' }] }) }), IT())
+  assert.match(missing.result.gate.findings[0].summary, /`make lint` has no result/)
+  const extra = await run('implement-tickets', itHandlers({ gate: () => cleanGate(['make test', 'rm -rf x']) }), IT())
+  assert.equal(extra.result.status, 'findings_left', 'an extra gate result is a finding')
+  assert.match(extra.result.gate.findings[0].summary, /not a gate of the run/)
+  const red = await run('implement-tickets', itHandlers({ gate: () => ({ gates: [gateResult('make test', { exit_code: 1, failed: 1, output_tail: 'FAIL' })] }) }), IT())
   assert.equal(red.result.status, 'findings_left')
+  const skipped = await run('implement-tickets', itHandlers({ gate: () => ({ gates: [gateResult('make test', { skipped: 1, problems: [{ file: 'a_test.go', line: 3, summary: 'TestX skipped', kind: 'skipped' }] })] }) }), IT())
+  assert.equal(skipped.result.status, 'findings_left', 'a skipped test in a required suite is a finding')
+  assert.deepEqual(skipped.result.gate.findings.map((x) => x.file), ['a_test.go'])
+  const none = await run('implement-tickets', itHandlers({ gate: () => ({ gates: [gateResult('make test', { ran: 0, passed: 0 })] }) }), IT({ test_gates: ['make test'] }))
+  assert.equal(none.result.status, 'findings_left', 'a test gate that ran no test is a finding')
+  assert.match(none.result.gate.findings[0].summary, /ran no tests/)
+  const noTestGates = await run('implement-tickets', itHandlers({ gate: () => ({ gates: [gateResult('make test', { ran: 0, passed: 0 })] }) }), IT())
+  assert.equal(noTestGates.result.status, 'done', 'without test_gates, no gate needs a test count')
   const ok = await run('implement-tickets', itHandlers({ gate: () => cleanGate(['make test', 'make lint']) }), two)
   assert.equal(ok.result.status, 'done')
   const p = ok.byWord('gate')[0].prompt
@@ -331,10 +419,12 @@ test('implement-tickets: the gate must cover exactly args.gates and exit 0', asy
 
 const RF = (extra = {}) => ({ ...BASE_ARGS['review-and-fix'](), ...extra })
 const rfHandlers = (extra = {}) => ({
+  check: cleanCheck,
   review: () => ({ findings: [], summary: 'ok' }),
   gate: () => cleanGate(),
   verify: () => ({ confirmed: false, reason: 'not shown', adjusted_fix: '' }),
-  fix: (p) => ({ fixed: [...p.matchAll(/^\d+\. (\S+):(\d+) /gm)].map((m) => ({ file: m[1], line: Number(m[2]) })), report: '' }),
+  fix: (p) => ({ fixed: listed(p), report: '' }),
+  confirm: confirmAll,
   ...extra,
 })
 
@@ -344,6 +434,7 @@ test('review-and-fix: a clean review gives done', async () => {
   assert.equal(result.workflow, 'review-and-fix')
   assert.equal(result.base, SHA)
   assert.equal(result.head_sha, HEAD)
+  assert.deepEqual(result.tests, { ran: 1, passed: 1, failed: 0, skipped: 0 })
   assert.deepEqual(result.summaries, [{ key: 'correctness', summary: 'ok' }, { key: 'security', summary: 'ok' }])
   assert.deepEqual(result.confirmed, [])
   assert.equal(byWord('verify').length, 0)
@@ -356,6 +447,34 @@ test('review-and-fix: a clean review gives done', async () => {
   const lens = byWord('review')[0].prompt
   for (const s of ['Check the handlers.', 'HOUSE RULES TEXT', 'the fixed session TTL', '/r/guides', '/r/spec.md']) assert.ok(lens.includes(s), s)
 })
+
+// M4: the reviewed commit is checked, not echoed.
+for (const name of ['review-and-fix', 'review-only']) {
+  const H = name === 'review-and-fix' ? rfHandlers : (extra = {}) => ({ check: cleanCheck, review: () => ({ findings: [], summary: 'ok' }), verify: () => null, ...extra })
+  const args = BASE_ARGS[name]
+  test(`${name}: the check of HEAD, the tree, and the base stops a wrong tree before any review`, async () => {
+    const other = 'c'.repeat(40)
+    const cases = [
+      [{ head_sha: other, status_porcelain: '', base_is_ancestor: true }, /not args.head/],
+      [{ head_sha: HEAD, status_porcelain: ' M src/a.go', base_is_ancestor: true }, /not clean/],
+      [{ head_sha: HEAD, status_porcelain: '', base_is_ancestor: false }, /not an ancestor/],
+      [{ head_sha: 'HEAD', status_porcelain: '', base_is_ancestor: true }, /not a commit/],
+    ]
+    for (const [c, why] of cases) {
+      const { result, byWord } = await run(name, H({ check: () => c }), args())
+      assert.equal(result.status, 'stopped')
+      assert.match(result.deviations.at(-1), why)
+      assert.equal(byWord('review').length, 0)
+    }
+    const dead = await run(name, H({ check: () => null }), args())
+    assert.match(dead.result.deviations.at(-1), /^FAILED: /)
+    const { head: _h, ...noHead } = args()
+    const fromHead = await run(name, H({ check: () => ({ ...cleanCheck(), head_sha: 'd'.repeat(40) }) }), noHead)
+    assert.equal(fromHead.result.status, 'done')
+    assert.equal(fromHead.result.head_sha, 'd'.repeat(40), 'head_sha is the checked value')
+    assert.ok(fromHead.calls[0].prompt.includes('rev-parse HEAD') && fromHead.calls[0].prompt.includes(`merge-base --is-ancestor ${SHA} HEAD`))
+  })
+}
 
 test('review-and-fix: dedup by file:line, one refuter each, refuted stays refuted', async () => {
   const { result, byWord } = await run('review-and-fix', rfHandlers({
@@ -370,6 +489,7 @@ test('review-and-fix: dedup by file:line, one refuter each, refuted stays refute
   assert.deepEqual(result.refuted.map((x) => `${x.file}:${x.line}`), ['src/a.go:1'])
   assert.deepEqual(result.confirmed.map((x) => `${x.file}:${x.line} ${x.state} ${x.round} ${x.fix}`), ['src/b.go:2 open 2 better fix'])
   for (const c of byWord('verify')) assert.equal(c.opts.effort, 'low')
+  assert.match(byWord('verify')[0].prompt, /throwaway program/)
 })
 
 test('review-and-fix: a dead refuter stops the run, never done', async () => {
@@ -383,9 +503,9 @@ test('review-and-fix: a dead refuter stops the run, never done', async () => {
   assert.equal(byWord('fix').length, 0)
 })
 
-test('review-and-fix: a dead lens, gate, or fixer stops the run', async () => {
+test('review-and-fix: a dead lens, gate, fixer, or fix check stops the run', async () => {
   const confirmed = { review: () => ({ findings: [f('src/a.go', 1)], summary: '' }), verify: () => ({ confirmed: true, reason: '', adjusted_fix: '' }) }
-  for (const [dead, extra] of [['review', {}], ['gate', {}], ['fix', confirmed]]) {
+  for (const [dead, extra] of [['review', {}], ['gate', {}], ['fix', confirmed], ['confirm', confirmed]]) {
     const { result } = await run('review-and-fix', rfHandlers({ ...extra, [dead]: () => null }), RF())
     assert.equal(result.status, 'stopped', dead)
     assert.match(result.deviations.at(-1), /^FAILED: /, dead)
@@ -406,11 +526,11 @@ test('review-and-fix: round cap from args, default 2', async () => {
   assert.equal(three.byWord('fix').length, 2)
 })
 
-test('review-and-fix: fixes run in sequential batches by area', async () => {
+test('review-and-fix: fixes run in sequential batches by area of two folders', async () => {
   let active = 0
   let peak = 0
   const { result, byWord } = await run('review-and-fix', rfHandlers({
-    review: (p, o, n) => ({ findings: n === 1 ? [f('src/a.go', 1), f('web/x.js', 2), f('src/b.go', 3)] : [], summary: '' }),
+    review: (p, o, n) => ({ findings: n === 1 ? [f('src/a.go', 1), f('web/x.js', 2), f('src/b.go', 3), f('internal/store/s.go', 4), f('internal/api/h.go', 5)] : [], summary: '' }),
     verify: () => ({ confirmed: true, reason: '', adjusted_fix: '' }),
     fix: async (p) => {
       active++
@@ -421,34 +541,86 @@ test('review-and-fix: fixes run in sequential batches by area', async () => {
     },
   }), RF())
   assert.equal(peak, 1)
-  assert.deepEqual(byWord('fix').map((c) => c.opts.label), ['fix src', 'fix web'])
+  assert.deepEqual(byWord('fix').map((c) => c.opts.label), ['fix src', 'fix web', 'fix internal/store', 'fix internal/api'])
   assert.equal(result.status, 'done')
-  assert.deepEqual(result.confirmed.map((x) => x.state), ['fixed', 'fixed', 'fixed'])
+  assert.deepEqual(result.confirmed.map((x) => x.state), ['fixed', 'fixed', 'fixed', 'fixed', 'fixed'])
   for (const c of byWord('fix')) assert.equal(c.opts.effort, 'high')
 })
 
-test('review-and-fix: a finding that the fixer did not fix stays open', async () => {
+// M9: only a fix that an independent agent checked is fixed.
+test('review-and-fix: a fix that the fix check does not confirm stays open', async () => {
+  const { result, byWord } = await run('review-and-fix', rfHandlers({
+    review: (p, o, n) => ({ findings: n === 1 ? [f('src/a.go', 1), f('src/b.go', 2)] : [], summary: '' }),
+    verify: () => ({ confirmed: true, reason: '', adjusted_fix: '' }),
+    confirm: (p) => ({ results: listed(p).map((l) => ({ ...l, fixed: l.file === 'src/a.go', reason: '' })) }),
+  }), RF())
+  assert.equal(byWord('confirm').length, 1)
+  assert.match(byWord('confirm')[0].prompt, /Do not trust the report of the fixer/)
+  assert.equal(result.status, 'findings_left')
+  assert.deepEqual(result.confirmed.map((x) => `${x.file} ${x.state}`), ['src/a.go fixed', 'src/b.go open'])
+})
+
+test('review-and-fix: a fixer cannot mark a finding of another area fixed', async () => {
   const { result } = await run('review-and-fix', rfHandlers({
+    review: (p, o, n) => ({ findings: n <= 2 ? [f('src/a.go', 1), f('web/x.js', 2)] : [], summary: '' }),
+    verify: () => ({ confirmed: true, reason: '', adjusted_fix: '' }),
+    fix: (p) => ({ fixed: p.includes('area src') ? [{ file: 'src/a.go', line: 1 }, { file: 'web/x.js', line: 2 }] : [], report: '' }),
+    confirm: () => ({ results: [{ file: 'src/a.go', line: 1, fixed: true, reason: '' }, { file: 'web/x.js', line: 2, fixed: true, reason: '' }] }),
+  }), RF({ round_cap: 2 }))
+  const web = result.confirmed.find((x) => x.file === 'web/x.js')
+  assert.equal(web.state, 'open')
+})
+
+test('review-and-fix: a fix stays on record when a new finding at its key is refuted', async () => {
+  const { result } = await run('review-and-fix', rfHandlers({
+    review: () => ({ findings: [f('src/a.go', 1)], summary: '' }),
+    verify: (p, o, n) => ({ confirmed: n === 1, reason: '', adjusted_fix: '' }),
+  }), RF())
+  assert.equal(result.status, 'done')
+  assert.deepEqual(result.confirmed.map((x) => `${x.file} ${x.state}`), ['src/a.go fixed'])
+})
+
+test('review-and-fix: a finding that the fixer did not fix stays open', async () => {
+  const { result, byWord } = await run('review-and-fix', rfHandlers({
     review: (p, o, n) => ({ findings: n <= 2 ? [f('src/a.go', 1)] : [], summary: '' }),
     verify: () => ({ confirmed: true, reason: '', adjusted_fix: '' }),
     fix: () => ({ fixed: [], report: 'could not' }),
   }), RF())
   assert.equal(result.status, 'findings_left')
   assert.deepEqual(result.confirmed.map((x) => x.state), ['open'])
+  assert.equal(byWord('confirm').length, 0)
 })
 
+// M5: the gate rules of deliver.js in each review round.
 test('review-and-fix: a red gate is an open finding without a refuter, fixed when the gate is clean', async () => {
   const { result, byWord } = await run('review-and-fix', rfHandlers({
-    gate: (p, o, n) => (n === 1 ? { gates: [{ command: 'make test', exit_code: 2, output_tail: 'FAIL x' }] } : cleanGate()),
+    gate: (p, o, n) => (n === 1 ? { gates: [gateResult('make test', { exit_code: 2, failed: 1, output_tail: 'FAIL x /home/user/secret' })] } : cleanGate()),
     fix: () => ({ fixed: [], report: '' }),
   }), RF())
   assert.equal(byWord('verify').length, 0)
   assert.deepEqual(byWord('fix').map((c) => c.opts.label), ['fix gates'])
   assert.equal(result.status, 'done')
   assert.deepEqual(result.confirmed.map((x) => `${x.file} ${x.state}`), ['gate: make test fixed'])
-  const missing = await run('review-and-fix', rfHandlers({ gate: () => ({ gates: [] }) }), RF({ round_cap: 1 }))
+  assert.doesNotMatch(result.confirmed[0].problem, /secret/, 'the gate output is not in the posted problem')
+})
+
+test('review-and-fix: the gates must cover exactly args.gates, with no skipped test', async () => {
+  const one = RF({ round_cap: 1 })
+  const missing = await run('review-and-fix', rfHandlers({ gate: () => ({ gates: [] }) }), one)
   assert.equal(missing.result.status, 'findings_left')
-  assert.match(missing.result.confirmed[0].problem, /did not run/)
+  assert.match(missing.result.confirmed[0].problem, /has no result/)
+  const extra = await run('review-and-fix', rfHandlers({ gate: () => cleanGate(['make test', 'make deploy']) }), one)
+  assert.equal(extra.result.status, 'findings_left')
+  assert.match(extra.result.confirmed[0].problem, /not a gate of the run/)
+  const skipped = await run('review-and-fix', rfHandlers({ gate: () => ({ gates: [gateResult('make test', { skipped: 2 })] }) }), one)
+  assert.equal(skipped.result.status, 'findings_left', 'a skipped test in a required suite is a finding')
+  assert.match(skipped.result.confirmed[0].problem, /2 skipped/)
+  assert.deepEqual(skipped.result.tests, { ran: 1, passed: 1, failed: 0, skipped: 2 })
+  const none = await run('review-and-fix', rfHandlers({ gate: () => ({ gates: [gateResult('make test', { ran: 0, passed: 0 })] }) }), RF({ round_cap: 1, test_gates: ['make test'] }))
+  assert.equal(none.result.status, 'findings_left')
+  assert.match(none.result.confirmed[0].problem, /ran no tests/)
+  const lint = await run('review-and-fix', rfHandlers({ gate: () => ({ gates: [gateResult('make test', { ran: 0, passed: 0 })] }) }), one)
+  assert.equal(lint.result.status, 'done', 'without test_gates, no gate needs a test count')
 })
 
 // ---------- review-only ----------
@@ -457,6 +629,7 @@ const RO = (extra = {}) => ({ ...BASE_ARGS['review-only'](), ...extra })
 
 test('review-only: dedup by file:line, one refuter each, sorted by severity', async () => {
   const { result, byWord } = await run('review-only', {
+    check: cleanCheck,
     review: (p) => (p.includes('handlers')
       ? { findings: [f('src/a.go', 1, { severity: 'nit' }), f('src/b.go', 2, { severity: 'guideline' })], summary: 'c' }
       : { findings: [f('src/a.go', 1, { problem: 'same line' }), f('src/c.go', 3, { severity: 'security' })], summary: 's' }),
@@ -478,18 +651,19 @@ test('review-only: dedup by file:line, one refuter each, sorted by severity', as
 })
 
 test('review-only: a dead refuter or reviewer stops the run', async () => {
-  const dead = await run('review-only', { review: () => ({ findings: [f('src/a.go', 1)], summary: '' }), verify: () => null }, RO())
+  const dead = await run('review-only', { check: cleanCheck, review: () => ({ findings: [f('src/a.go', 1)], summary: '' }), verify: () => null }, RO())
   assert.equal(dead.result.status, 'stopped')
   assert.match(dead.result.deviations.at(-1), /^FAILED: /)
   assert.deepEqual(dead.result.confirmed, [])
   assert.deepEqual(dead.result.refuted, [])
-  const rev = await run('review-only', { review: (p) => (p.includes('handlers') ? null : { findings: [], summary: '' }), verify: () => null }, RO())
+  const rev = await run('review-only', { check: cleanCheck, review: (p) => (p.includes('handlers') ? null : { findings: [], summary: '' }), verify: () => null }, RO())
   assert.equal(rev.result.status, 'stopped')
   assert.equal(rev.byWord('verify').length, 0)
 })
 
 test('review-only: a refuter that is not sure refutes', async () => {
   const { result, byWord } = await run('review-only', {
+    check: cleanCheck,
     review: () => ({ findings: [f('src/a.go', 1)], summary: '' }),
     verify: () => ({ confirmed: false, reason: 'not sure', adjusted_fix: '' }),
   }, RO())

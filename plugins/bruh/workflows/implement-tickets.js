@@ -11,6 +11,11 @@ export const meta = {
 
 // The script has no clock and no filesystem. Agents do all reads and writes.
 // Each helper is copied from deliver.js: the Workflow runtime has no imports.
+// Prompts before a question never contain an answer, so a relaunch with
+// resumeFromRunId after a question returns their cached results (spec 6.2). A
+// wave with an open question is not merged, so a merge prompt never changes
+// between the run and its relaunch. After a FAILED stop, relaunch as a new run
+// with only the waves that are not done (the resume lesson of the skill).
 
 const A = (typeof args === 'object' && args) || {}
 const list = (v) => (Array.isArray(v) ? v.filter((x) => typeof x === 'string') : [])
@@ -20,13 +25,17 @@ const TICKET_FILE = /^[A-Za-z0-9][A-Za-z0-9._-]*\.md$/
 const root = isPath(A.root) ? A.root : ''
 const issues = isPath(A.issues) ? A.issues.replace(/\/+$/, '') : ''
 const gateCommands = list(A.gates)
+const testGates = list(A.test_gates)
 const fixCap = Number.isInteger(A.fix_cap) && A.fix_cap >= 0 ? A.fix_cap : 3
+const deadline = typeof A.deadline_seconds === 'number' && A.deadline_seconds > 0 ? A.deadline_seconds : 3600
+const answers = A.answers && typeof A.answers === 'object' && !Array.isArray(A.answers) ? A.answers : {}
 const deviations = []
 const tickets = []
 let gate = null
+let tests = { ran: 0, passed: 0, failed: 0, skipped: 0 }
 
-function result(status) {
-  return { status, tickets, gate, deviations }
+function result(status, question = null) {
+  return { status, tickets, gate, tests, question, deviations }
 }
 function stop(reason) {
   deviations.push(`STOP: ${reason}`)
@@ -42,6 +51,10 @@ if (!root) problems.push('args.root is not an absolute path')
 for (const k of ['spec', 'guides', 'lane']) if (!isPath(A[k])) problems.push(`args.${k} is not an absolute path`)
 if (!issues) problems.push('args.issues is not an absolute path')
 if (!gateCommands.length) problems.push('args.gates is not a list of gate commands')
+if (A.test_gates !== undefined && !Array.isArray(A.test_gates)) problems.push('args.test_gates is not a list')
+else if (testGates.some((c) => !gateCommands.includes(c))) problems.push('args.test_gates has a command that is not in args.gates')
+if (A.deadline_seconds !== undefined && !(typeof A.deadline_seconds === 'number' && A.deadline_seconds > 0)) problems.push('args.deadline_seconds is not a positive number')
+if (A.answers !== undefined && answers !== A.answers) problems.push('args.answers is not an object')
 if (A.fix_cap !== undefined && !(Number.isInteger(A.fix_cap) && A.fix_cap >= 0)) problems.push('args.fix_cap is not an integer of 0 or more')
 const waves = Array.isArray(A.waves) ? A.waves : []
 if (!waves.length || !waves.every((w) => Array.isArray(w) && w.length)) problems.push('args.waves is not a list of lists of ticket file names')
@@ -63,14 +76,27 @@ const COMMON = `Ground rules of this run (binding):
 - Do not post outside the project: no comments on pull requests, merge requests, or issues, no chat messages, no emails.
 - Do not edit anything in the scratch folder that holds ${A.spec}, except where a step below says so.
 - Change only the files that the ticket lists under Files. If the ticket is not possible without another file, do the minimum and name it in deviations.
-- The spec is ${A.spec}. The ticket wins on detail; the spec wins on intent. If they conflict, stop and return the conflict with the reason. Do not guess.
+- The spec is ${A.spec}. The ticket wins on detail; the spec wins on intent. Do not guess. When you need a decision, ask it as the Questions rule says. Return a conflict only for a contradiction between the ticket and the spec that no answer can settle.
 - MODULES: when a ticket needs a module that the module file does not require yet, add it at the version that the spec or the ticket names, run the tidy command, and list the module files in files_changed with a one-line note in deviations. That is in scope, and reviewers must not flag it. The tidy command must be idempotent afterwards.
 - Some tickets leave the build broken on purpose until a later ticket (the ticket text says so). Only the verify commands of the acceptance criteria of the ticket decide pass or fail.
 - The guides are mandatory for each reviewer: the Review guides section of the ticket names files in ${A.guides}/.`
 
+const ASK = `Questions: when you need a decision that the ticket, the spec, and the code do not answer, do not guess.
+1. Call the bruh MCP tool question_open (mcp__plugin_bruh_bruh__question_open; load it with ToolSearch) with priority (P0, P1, or P2: your estimate), subject (one line), body (the question, the options ranked, and your recommendation), and blocks (the work that waits for the answer).
+2. Send the returned header, and only the header, to main with SendMessage.
+3. Call answer_wait (mcp__plugin_bruh_bruh__answer_wait) with question_id set to the returned id and deadline_seconds ${deadline}.
+4. If it returns answered, use the answer text and continue.
+5. If it returns pending, stop at once and do no more work. Return your result with question set to the id, header, and body of the question.`
+
+const QUESTION = {
+  type: 'object',
+  properties: { id: { type: 'string' }, header: { type: 'string' }, body: { type: 'string' } },
+  required: ['id', 'header', 'body'],
+}
 const WORK = {
   type: 'object',
   properties: {
+    question: QUESTION,
     done: { type: 'boolean' },
     workdir: { type: 'string' },
     summary: { type: 'string' },
@@ -95,6 +121,9 @@ const REVIEW = {
   required: ['pass', 'findings', 'verify_output', 'summary'],
 }
 const REPORT = { type: 'object', properties: { ok: { type: 'boolean' }, report: { type: 'string' } }, required: ['ok', 'report'] }
+const COUNTS = {
+  ran: { type: 'integer' }, passed: { type: 'integer' }, failed: { type: 'integer' }, skipped: { type: 'integer' },
+}
 const GATES = {
   type: 'object',
   properties: {
@@ -102,13 +131,94 @@ const GATES = {
       type: 'array',
       items: {
         type: 'object',
-        properties: { command: { type: 'string' }, exit_code: { type: 'integer' }, output_tail: { type: 'string' } },
-        required: ['command', 'exit_code', 'output_tail'],
+        properties: {
+          command: { type: 'string' },
+          exit_code: { type: 'integer' },
+          ...COUNTS,
+          output_tail: { type: 'string' },
+          problems: {
+            type: 'array',
+            items: {
+              type: 'object',
+              properties: {
+                file: { type: 'string' }, line: { type: 'integer' }, summary: { type: 'string' },
+                kind: { type: 'string', enum: ['failed', 'skipped'] },
+              },
+              required: ['file', 'line', 'summary', 'kind'],
+            },
+          },
+        },
+        required: ['command', 'exit_code', 'ran', 'passed', 'failed', 'skipped', 'output_tail', 'problems'],
       },
     },
   },
   required: ['gates'],
 }
+
+// The answers of the session for one question ID: a string, or a list of
+// strings when the session answered the same question more than one time.
+function answerList(id) {
+  const a = answers[id]
+  if (typeof a === 'string') return [a]
+  return Array.isArray(a) ? a.filter((x) => typeof x === 'string') : []
+}
+
+// Runs a step that can ask a question (deliver.js). The first attempt has the
+// plain prompt. Each later attempt adds the earlier questions of this step and
+// their answers from args.answers, in order, so the prompts of the earlier
+// attempts never change. Returns {value}, {question, repeat}, {stop}, or {failed}.
+const MAX_ANSWERS = 3
+async function askable(label, prompt, opts) {
+  const given = []
+  for (;;) {
+    const earlier = given.length
+      ? `\n\nEarlier questions of this step and their answers. Check the working folder first: work of an earlier attempt can be in it already.\n${given.map((g) => `- ${g.q.id} (${g.q.header}): ${g.text}`).join('\n')}`
+      : ''
+    const r = await agent(`${prompt}${earlier}\n\n${ASK}`, { ...opts, label: given.length ? `${label} attempt ${given.length + 1}` : label })
+    if (!r) return { failed: `the ${label} agent did not return a result` }
+    if (!r.question) return { value: r }
+    const q = { id: r.question.id, header: r.question.header, body: r.question.body }
+    const used = given.filter((g) => g.q.id === q.id).length
+    const texts = answerList(q.id)
+    if (used >= MAX_ANSWERS) return { stop: `${q.id} is pending again after ${used} answers` }
+    if (used < texts.length) {
+      given.push({ q, text: texts[used] })
+      continue
+    }
+    return { question: q, repeat: used }
+  }
+}
+
+// A small deterministic string hash (djb2), for the dedup key of a gate failure.
+function hash(text) {
+  let h = 5381
+  for (let i = 0; i < text.length; i++) h = ((h * 33) ^ text.charCodeAt(i)) >>> 0
+  return h.toString(16)
+}
+
+// The gate rules of deliver.js: each gate of args.gates is a required suite. A
+// failed or skipped test is a finding; a missing or an extra gate result is a
+// finding; a gate of args.test_gates that ran no test is a finding.
+function gateFindings(g) {
+  const out = []
+  for (const x of g.gates || []) {
+    const named = x.problems || []
+    for (const p of named) out.push({ file: norm(p.file) || `gate: ${x.command}`, line: p.line || 0, summary: `${p.kind === 'skipped' ? 'Skipped' : 'Failed'} test in the required suite \`${x.command}\`: ${p.summary}` })
+    const unnamed = []
+    if (x.skipped > 0 && !named.some((p) => p.kind === 'skipped')) unnamed.push(`${x.skipped} skipped`)
+    if ((x.failed > 0 || x.exit_code !== 0) && !named.some((p) => p.kind === 'failed')) unnamed.push(`exit code ${x.exit_code}, ${x.failed} failed`)
+    if (unnamed.length) out.push({ file: `gate: ${x.command}`, line: 0, summary: `The required suite \`${x.command}\` has ${unnamed.join(' and ')}.`, key: `#${hash(x.output_tail || '')}` })
+  }
+  const reported = new Set((g.gates || []).map((x) => x.command))
+  for (const cmd of gateCommands) if (!reported.has(cmd)) out.push({ file: `gate: ${cmd}`, line: 0, summary: `The required suite \`${cmd}\` has no result: the gate check did not run it.` })
+  for (const x of g.gates || []) {
+    if (!gateCommands.includes(x.command)) out.push({ file: `gate: ${x.command}`, line: 0, summary: `The gate check returned \`${x.command}\`, which is not a gate of the run.` })
+    else if (testGates.includes(x.command) && !(x.ran > 0)) out.push({ file: `gate: ${x.command}`, line: 0, summary: `The required suite \`${x.command}\` ran no tests.` })
+  }
+  return out.map(({ key: _k, ...f }) => f)
+}
+const sum = (g, k) => (g.gates || []).reduce((n, x) => n + (Number.isInteger(x[k]) ? x[k] : 0), 0)
+const norm = (file) => String(file || '').replace(/^(\.\/)+/, '')
 
 const laneDiff = (workdir, useLane) => (useLane
   ? `In the lane, \`git -C '${workdir}' diff refs/lane/base\` plus the untracked files is exactly the work of this ticket.`
@@ -161,23 +271,32 @@ ${COMMON}
 Return done = true only when each acceptance criterion holds now. Return an empty conflict unless you stopped at a conflict.`
 }
 
-const entry = (t, status, extra = {}) => ({ id: t.id, file: t.file, status, workdir: '', rounds: 0, findings: [], deviations: '', ...extra })
+const entry = (t, status, extra = {}) => ({ id: t.id, file: t.file, status, workdir: '', rounds: 0, findings: [], deviations: '', question: null, ...extra })
+
+// work runs an implementer or a fixer: an entry for an error, a stop, a
+// question, or a conflict, or {value} with the work report.
+async function work(t, label, prompt, extra) {
+  const r = await askable(label, prompt, { phase: 'Implement', effort: 'high', schema: WORK })
+  if (r.failed) return { entry: entry(t, 'error', { ...extra, deviations: r.failed }) }
+  if (r.stop) return { entry: entry(t, 'error', { ...extra, deviations: `STOP: ${r.stop}` }) }
+  if (r.question) return { entry: entry(t, 'question', { ...extra, question: r.question, repeat: r.repeat }) }
+  if (r.value.conflict) return { entry: entry(t, 'conflict', { ...extra, deviations: r.value.conflict }) }
+  return { value: r.value }
+}
 
 async function runTicket(t, useLane) {
-  let work = await agent(implPrompt(t, useLane), { label: `impl ${t.id}`, phase: 'Implement', effort: 'high', schema: WORK })
-  if (!work) return entry(t, 'error', { deviations: 'the implementer did not return a result' })
-  if (work.conflict) return entry(t, 'conflict', { deviations: work.conflict })
-  const workdir = useLane ? work.workdir : root
-  if (useLane && (!isPath(workdir) || workdir === root)) return entry(t, 'error', { deviations: `the implementer returned no lane folder: ${JSON.stringify(work.workdir)}` })
+  let w = await work(t, `impl ${t.id}`, implPrompt(t, useLane), {})
+  if (w.entry) return w.entry
+  const workdir = useLane ? w.value.workdir : root
+  if (useLane && (!isPath(workdir) || workdir === root)) return entry(t, 'error', { deviations: `the implementer returned no lane folder: ${JSON.stringify(w.value.workdir)}` })
   let review = null
   for (let round = 0; ; round++) {
     review = await agent(reviewPrompt(t, workdir, useLane), { label: `review ${t.id}${round ? ` #${round + 1}` : ''}`, phase: 'Implement', effort: 'low', schema: REVIEW })
     if (!review) return entry(t, 'error', { workdir, rounds: round, deviations: 'the reviewer did not return a result' })
-    if (review.pass) return entry(t, 'done', { workdir, rounds: round, deviations: work.deviations || '' })
+    if (review.pass) return entry(t, 'done', { workdir, rounds: round, deviations: w.value.deviations || '' })
     if (round >= fixCap) break
-    work = await agent(fixPrompt(t, workdir, useLane, review.findings || []), { label: `fix ${t.id} #${round + 1}`, phase: 'Implement', effort: 'high', schema: WORK })
-    if (!work) return entry(t, 'error', { workdir, rounds: round + 1, deviations: 'the fixer did not return a result' })
-    if (work.conflict) return entry(t, 'conflict', { workdir, rounds: round + 1, deviations: work.conflict })
+    w = await work(t, `fix ${t.id} #${round + 1}`, fixPrompt(t, workdir, useLane, review.findings || []), { workdir, rounds: round + 1 })
+    if (w.entry) return w.entry
   }
   return entry(t, 'failed', { workdir, rounds: fixCap, findings: review.findings || [] })
 }
@@ -192,6 +311,16 @@ for (let w = 0; w < waves.length; w++) {
   tickets.push(...out)
   const good = out.filter((r) => r.status === 'done')
   const bad = out.filter((r) => r.status !== 'done')
+  const errors = bad.filter((r) => r.status === 'error')
+  const questions = bad.filter((r) => r.status === 'question')
+
+  // A wave with an open question and no error is not merged: the relaunch with
+  // the answer returns the cached agents of the wave, and then merges it once.
+  if (questions.length && !errors.length) {
+    const q = questions[0]
+    if (q.repeat) deviations.push(`REPEAT: ${q.question.id} ${q.repeat} of ${MAX_ANSWERS - 1}`)
+    return result('question', q.question)
+  }
 
   // Merge the done lanes one at a time, in wave order. A failed lane stays for a look.
   if (useLane && good.length) {
@@ -207,7 +336,6 @@ ${COMMON}`, { label: `merge ${n}`, phase: 'Merge', effort: 'low', schema: REPORT
     if (!merge.ok) return stop(`the merge of wave ${n} failed: ${merge.report}`)
   }
 
-  const errors = bad.filter((r) => r.status === 'error')
   if (errors.length) return fail(`wave ${n}: ${errors.map((r) => `${r.id}: ${r.deviations}`).join('; ')}`)
   const conflicts = bad.filter((r) => r.status === 'conflict')
   if (conflicts.length) {
@@ -221,13 +349,15 @@ ${COMMON}`, { label: `merge ${n}`, phase: 'Merge', effort: 'low', schema: REPORT
 }
 
 phase('Gate')
-const g = await agent(`Run the whole-branch gate in ${root}. Run each gate command, in this order:
+const g = await agent(`Run the whole-branch gate in ${root}. Do not fix anything. Run each gate command, in this order:
 ${bullets(gateCommands)}
-Return exactly one result for each command, with the command text unchanged: its exit code, and the last 40 lines of its output when it fails (else an empty output_tail). Run no other command as a gate. Do not fix anything.
+Each gate is required: it must exit 0. These gates are test suites and must run tests:
+${bullets(testGates)}
+A gate that is not a test suite (for example lint or build) returns 0 for each count when its output has no test count. Return exactly one result for each gate command above, with the command text unchanged, and run no other gate. For each gate, return its exit code and how many tests ran, passed, failed, and were skipped. Read the counts from the output; do not estimate. For each failed or skipped test, give the file and the line of the test, a summary, and the kind (failed or skipped). When a gate fails or skips a test, return the last 40 lines of its output in output_tail; otherwise return an empty output_tail.
 
 ${COMMON}`, { label: 'gate', phase: 'Gate', effort: 'low', schema: GATES })
 if (!g) return fail('the gate agent did not return a result')
-const reported = g.gates || []
-const ok = gateCommands.every((cmd) => reported.some((x) => x.command === cmd && x.exit_code === 0))
-gate = { ok, gates: reported }
-return result(ok ? 'done' : 'findings_left')
+tests = { ran: sum(g, 'ran'), passed: sum(g, 'passed'), failed: sum(g, 'failed'), skipped: sum(g, 'skipped') }
+const findings = gateFindings(g)
+gate = { ok: findings.length === 0, gates: g.gates || [], findings }
+return result(gate.ok ? 'done' : 'findings_left')
