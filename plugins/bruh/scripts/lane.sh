@@ -17,7 +17,10 @@
 # `apply` is a plain `git apply`, not --3way: three-way needs a clean index, and
 # the shared tree is dirty on purpose between milestone commits.
 # Each path of EXCLUDES is anchored at the top of the tree, so `.bin/` does not
-# drop node_modules/.bin.
+# drop node_modules/.bin. `.git` is excluded at every depth, so the files of a
+# nested repository are plain files of the lane and their edits reach the patch.
+# `apply` refuses a missing patch file: a merge that skipped `patch` must not look
+# like an empty ticket, because `clean` then deletes the work.
 set -eu
 die() {
 	printf 'lane.sh: %s\n' "$*" >&2
@@ -41,8 +44,10 @@ start)
 	[ "$(cd "$top" && pwd -P)" = "$(cd "$ROOT" && pwd -P)" ] || die "ROOT is not the top level of a work tree: $ROOT"
 	mkdir -p "$LANES"
 	rm -rf "$dir"
-	set -- --exclude /.git
+	set -f # EXCLUDES holds paths, not globs for this shell
+	set -- --exclude .git
 	for e in $EXCLUDES; do set -- "$@" --exclude "/${e#/}"; done
+	set +f
 	rsync -a "$@" "$ROOT/" "$dir/"
 	git -C "$dir" init -q --object-format="$(git -C "$ROOT" rev-parse --show-object-format)"
 	common=$(git -C "$ROOT" rev-parse --path-format=absolute --git-common-dir)
@@ -60,6 +65,7 @@ patch)
 	echo "$dir.patch ($(grep -c '^diff --git' "$dir.patch" || true) files)"
 	;;
 apply)
+	[ -f "$dir.patch" ] || die "no patch for $t in $LANES: run patch first"
 	if [ ! -s "$dir.patch" ]; then
 		echo "empty patch for $t"
 		exit 0

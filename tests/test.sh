@@ -324,7 +324,27 @@ check "lane refuses a ticket ID with a slash" not env ROOT="$tmp/ln" LANES="$lan
 check "lane refuses a ticket ID that starts with a dot" not env ROOT="$tmp/ln" LANES="$lanes" sh "$lane" start .x
 check "lane refuses a ROOT that is not the top of a work tree" not env ROOT="$tmp/ln/node_modules" LANES="$lanes" sh "$lane" start t-02-b
 check "lane refuses an unknown command" not env ROOT="$tmp/ln" LANES="$lanes" sh "$lane" merge t-02-b
-check "lane apply of a missing patch says so" contains "$(ROOT="$tmp/ln" LANES="$lanes" sh "$lane" apply t-09-z 2>&1)" "empty patch"
+check "lane apply refuses a missing patch" not env ROOT="$tmp/ln" LANES="$lanes" sh "$lane" apply t-09-z
+: >"$lanes/t-08-y.patch"
+check "lane apply of an empty patch says so" contains "$(ROOT="$tmp/ln" LANES="$lanes" sh "$lane" apply t-08-y 2>&1)" "empty patch"
+# A pattern of EXCLUDES is for rsync, not for the shell of the current folder.
+printf 'x\n' >"$tmp/ln/gl1"
+mkdir -p "$tmp/cwdx" && : >"$tmp/cwdx/glzz"
+lp=$(cd "$tmp/cwdx" && ROOT="$tmp/ln" LANES="$lanes" EXCLUDES='gl*' sh "$lane" start t-04-d 2>/dev/null)
+# shellcheck disable=SC2016 # the inner shell expands $1
+check "the shell does not expand a pattern of EXCLUDES in the current folder" sh -c 'test -d "$1" && ! test -e "$1/gl1"' _ "$lp"
+ROOT="$tmp/ln" LANES="$lanes" sh "$lane" clean t-04-d >/dev/null
+rm -f "$tmp/ln/gl1"
+# A nested repository: no nested .git in the lane, and its edits reach the patch.
+git init -q "$tmp/ln/sub" && printf 's\n' >"$tmp/ln/sub/f.txt"
+lp=$(ROOT="$tmp/ln" LANES="$lanes" sh "$lane" start t-03-c 2>/dev/null)
+# shellcheck disable=SC2016 # the inner shell expands $1
+check "lane start copies a nested repository without its .git" sh -c 'test -f "$1/sub/f.txt" && ! test -e "$1/sub/.git"' _ "$lp"
+printf 'S\n' >"$lp/sub/f.txt"
+ROOT="$tmp/ln" LANES="$lanes" sh "$lane" patch t-03-c >/dev/null 2>&1
+check "an edit in a nested repository reaches the patch" grep -q 'sub/f.txt' "$lanes/t-03-c.patch"
+ROOT="$tmp/ln" LANES="$lanes" sh "$lane" clean t-03-c >/dev/null
+rm -rf "$tmp/ln/sub"
 # A linked worktree has a .git pointer file; the lane must not share its index.
 git -C "$tmp/ln" -c user.name=t -c user.email=t@example.com commit -qam work
 git -C "$tmp/ln" worktree add -q "$tmp/lnw" -b lnw
