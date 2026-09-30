@@ -9,5 +9,6 @@ func AllTools() []Tool {
 	tools = append(tools, reportTools()...)
 	tools = append(tools, rolesTools()...)
 	tools = append(tools, leaseTools()...)
+	tools = append(tools, questionTools()...)
 	return tools
 }

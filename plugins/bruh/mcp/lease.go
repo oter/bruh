@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"slices"
+	"strings"
 	"time"
 )
 
@@ -21,8 +22,9 @@ type Grant struct {
 }
 
 type Resource struct {
-	Capacity int     `json:"capacity"`
-	Grants   []Grant `json:"grants"`
+	Capacity int      `json:"capacity"`
+	Patterns []string `json:"patterns,omitempty"`
+	Grants   []Grant  `json:"grants"`
 }
 
 type LeaseRequest struct {
@@ -109,8 +111,12 @@ func leaseTools() []Tool {
 	return []Tool{
 		{
 			Name:        "lease_define",
-			Description: "Define a shared resource and its capacity. Only bigm.",
-			InputSchema: objectSchema(map[string]any{"resource": stringSchema(), "capacity": map[string]any{"type": "integer", "minimum": 1}}, "resource", "capacity"),
+			Description: "Define a shared resource, its capacity, and the command prefixes that use it (the lease guard hook reads them). Only bigm.",
+			InputSchema: objectSchema(map[string]any{
+				"resource": stringSchema(),
+				"capacity": map[string]any{"type": "integer", "minimum": 1},
+				"patterns": map[string]any{"type": "array", "items": stringSchema(), "description": `Exact command prefixes, for example ["psql -h test-db", "make integration"]`},
+			}, "resource", "capacity"),
 			Handler: func(c *Call, raw json.RawMessage) (any, error) {
 				me, err := c.Env.Caller()
 				if err != nil {
@@ -120,11 +126,17 @@ func leaseTools() []Tool {
 					return nil, errors.New("only bigm defines resources")
 				}
 				a, err := decode[struct {
-					Resource string `json:"resource"`
-					Capacity int    `json:"capacity"`
+					Resource string   `json:"resource"`
+					Capacity int      `json:"capacity"`
+					Patterns []string `json:"patterns"`
 				}](raw)
 				if err != nil {
 					return nil, err
+				}
+				for _, p := range a.Patterns {
+					if strings.TrimSpace(p) == "" || len(p) > 200 || strings.ContainsAny(p, "\n\r") {
+						return nil, fmt.Errorf("invalid pattern: %q (one line, 1 to 200 characters)", p)
+					}
 				}
 				if _, err := checkID(a.Resource, resourceRE, "resource"); err != nil {
 					return nil, err
@@ -133,12 +145,15 @@ func leaseTools() []Tool {
 					return nil, errors.New("capacity must be 1 or more")
 				}
 				return withLeases(c.Env, func(st *LeaseState) (any, error) {
-					grants := []Grant{}
+					r := &Resource{Capacity: a.Capacity, Patterns: a.Patterns, Grants: []Grant{}}
 					if old, ok := st.Resources[a.Resource]; ok {
-						grants = old.Grants
+						r.Grants = old.Grants
+						if a.Patterns == nil {
+							r.Patterns = old.Patterns
+						}
 					}
-					st.Resources[a.Resource] = &Resource{Capacity: a.Capacity, Grants: grants}
-					return map[string]any{"resource": a.Resource, "capacity": a.Capacity}, nil
+					st.Resources[a.Resource] = r
+					return map[string]any{"resource": a.Resource, "capacity": r.Capacity, "patterns": r.Patterns}, nil
 				})
 			},
 		},
