@@ -182,6 +182,14 @@ Input: the re-review of fix round 2 (R1 major, minors, test gaps). Each ruling i
 5. **A finding at an earlier key in review-and-fix.** Options, ranked: (a) it merges with the earlier finding: the stronger state (open, then fixed, then refuted), both problems, and both reasons; (b) it replaces the earlier finding (fix round 2).
 6. **Test gaps closed.** The `refs/lane/base` half of the keep check, and the 40-hex `head_sha` check of `post-findings.sh`, each checked with a mutation.
 
+## Fix round 4 (2026-09-30)
+
+Input: the re-review of fix round 3 (M1 major, test gaps, two text points). Each ruling is agent-derived, needs owner decision; the first option is built.
+
+1. **M1, a refuted report erased an open finding.** Options, ranked: (a) in review-and-fix, a refutation overwrites only an entry that is already refuted; an open finding stays open, and a fixed one stays fixed; (b) a refutation at a key with an open finding is dropped from the result.
+2. **A gate-only relaunch with lane tickets.** Options, ranked: (a) the clerk passes `lane_tickets` = `[]` with `gate_only`, and a gate-only run refuses lane tickets that are not empty, with its own message; (b) the workflow ignores `lane_tickets` in a gate-only run.
+3. **Test gaps closed.** The root half of the lane meta (a clone at the same HEAD); a real double-apply reproduction (plain `git apply` inserts twice, `lane.sh apply` once); the lane tickets of `args.lane_tickets` stay in the result when their wave did not run. The implementer prompt no longer says "never wipes".
+
 ## Verified facts
 
 | Fact | How verified | Source |
