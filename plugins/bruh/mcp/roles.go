@@ -41,8 +41,10 @@ func rolesTools() []Tool {
 					return nil, err
 				}
 				key := target.String()
-				if target.Parent() != me && (me != "bigm" || key != "bigm") {
-					return nil, fmt.Errorf("%s cannot write the role settings of %s; only its parent %q can", me, key, target.Parent())
+				// bigm may write every key: its own file, and the merger clerk of a remote project
+				// that runs on the machine of bigm.
+				if target.Parent() != me && me != "bigm" {
+					return nil, fmt.Errorf("%s cannot write the role settings of %s; only its parent %q or bigm can", me, key, target.Parent())
 				}
 				if _, ok := a.Env["BRUH_ROLE_KEY"]; ok {
 					return nil, errors.New("env must not set BRUH_ROLE_KEY; role_key sets it")

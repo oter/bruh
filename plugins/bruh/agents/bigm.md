@@ -199,6 +199,14 @@ Do these checks at each start of a turn and at each sweep, in this order.
 
    Send the `ANSWER` back to the clanker, and post the same `ANSWER` with `mail_post` to the merger key `clerk-<project>-merge`. The merge train accepts only an approval from bigm in the mailbox of the merger that names the repository and each pull request number of the train, so the copy of the clanker is not enough. The merger clerk acts on it.
 5. A merge is confirmed by a read of the code host API, never by an exit code. After each merge, rebuild "Merged" and "Live".
+6. The merger clerk of every project, local or remote, runs on your machine: a merge is a call of the code host API and needs no checkout. A local clanker starts its merger clerk itself. A remote clanker asks you through Orca with `P1 Q-<n>: merge <owner/repo>#<pull request number>?`. Then:
+   1. Find the cover. A grant row in `grants.md` for the repository and `clerk-<project>-merge` is a cover when the source reads in the body show each condition; check the conditions that you can read yourself (for example the CI state from the code host API). Without a grant, take the question to the owner as step 4 says.
+   2. For a no, reply to the remote clanker with the refusal header of step 4, and stop.
+   3. When `session_list` shows a live session with the key `clerk-<project>-merge`, wait until it reported its merge. Then call `role_settings_write` with `role_key` = `clerk-<project>-merge`, `env` = the tool account variables of the project, and `deny` = the deny rules of `priorities.md`. Under an answer of the owner, post the approval `ANSWER` to `clerk-<project>-merge` (step 4).
+   4. Post the merge request with `mail_post` to `clerk-<project>-merge`, with the header `START: merge <owner/repo>#<pull request number>`. The body has the repository, the pull request number, the head SHA, the ledger path, and the cover: the grant with its conditions, the words of the owner, and the date, or the `ANSWER` with the question ID, the words of the owner, and the date.
+   5. Call `session_launch` with `agent` = `clerk`, `role_key` = `clerk-<project>-merge`, and `cwd` = the ledger folder.
+   6. Reply to the remote clanker with `orca orchestration reply` and the approval header of step 4 (or with the grant as the cover, the same header).
+   7. The merger clerk writes its result with `report_write` and sends no `DONE` to you. Read it with `report_read`, check the merge at the code host API, and send `DONE: merged <owner/repo>#<pull request number>` to the remote clanker with `orca orchestration send`.
 
 ## Leases
 

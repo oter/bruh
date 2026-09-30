@@ -249,3 +249,17 @@ test('bigm sends a merge approval in the closed form that the merge gate reads',
   assert.match('ANSWER Q-7: merge owner/app#12,#14 approved', new RegExp(gate))
   assert.doesNotMatch('ANSWER Q-7: merge owner/app#12 refused', new RegExp(gate))
 })
+
+// Final review M3: the merger clerk of every project runs on the machine of bigm; for a remote
+// project, bigm starts it in the ledger folder after the remote clanker asks through Orca.
+test('bigm runs the merger clerk of a remote project on its own machine', () => {
+  const merges = agents.bigm.split('## Merges and merge grants')[1].split('\n## ')[0]
+  assert.match(merges, /A remote clanker asks you through Orca with `P1 Q-<n>: merge <owner\/repo>#<pull request number>\?`/)
+  assert.match(merges, /`session_launch` with `agent` = `clerk`, `role_key` = `clerk-<project>-merge`, and `cwd` = the ledger folder/)
+  const clanker = agents.clanker.split('## Merges')[1].split('\n## ')[0]
+  assert.match(clanker, /On a remote machine \(your start message has the line `remote: yes`\), do not start a merger clerk/)
+  assert.match(clanker, /orca orchestration ask/)
+  const merger = agents.clerk.split('## The merger clerk')[1].split('\n## ')[0]
+  assert.match(merger, /You always run on the machine of bigm/)
+  assert.doesNotMatch(merger, /Orca reply/)
+})

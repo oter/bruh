@@ -91,7 +91,8 @@ func sessionResult(key string, e map[string]any) map[string]string {
 	return map[string]string{"role_key": key, "session_id": str(e, "sessionId"), "name": str(e, "name"), "state": str(e, "state")}
 }
 
-// childKey checks that the caller is the parent of key and returns the plugin agent of the key.
+// childKey checks that the caller is the parent of key or bigm, and returns the plugin agent of
+// the key. bigm starts the merger clerk of a remote project on its own machine.
 func childKey(env Env, key string) (RoleKey, string, error) {
 	me, err := env.Caller()
 	if err != nil {
@@ -101,8 +102,8 @@ func childKey(env Env, key string) (RoleKey, string, error) {
 	if err != nil {
 		return RoleKey{}, "", err
 	}
-	if k.Parent() != me {
-		return RoleKey{}, "", fmt.Errorf("%s cannot start %s; only its parent %q can", me, key, k.Parent())
+	if k.Parent() != me && me != "bigm" {
+		return RoleKey{}, "", fmt.Errorf("%s cannot start %s; only its parent %q or bigm can", me, key, k.Parent())
 	}
 	agent := map[string]string{"clanker": "clanker", "clerk": "clerk", "ledger": "clerk"}[k.Role]
 	return k, agent, nil
@@ -132,7 +133,7 @@ func sessionTools() []Tool {
 	return []Tool{
 		{
 			Name:        "session_launch",
-			Description: "Start a clanker or clerk as a background session. Only the parent of role_key. Write its role settings and its start message (mail_post) first.",
+			Description: "Start a clanker or clerk as a background session. Only the parent of role_key, or bigm. Write its role settings and its start message (mail_post) first.",
 			InputSchema: objectSchema(map[string]any{
 				"agent":    map[string]any{"type": "string", "enum": []string{"clanker", "clerk"}},
 				"role_key": stringSchema(),
@@ -198,7 +199,7 @@ func sessionTools() []Tool {
 		},
 		{
 			Name:        "session_resume",
-			Description: "Wake a stopped background session of a role with a prompt. Only the parent of role_key. A live session gets a SendMessage nudge instead.",
+			Description: "Wake a stopped background session of a role with a prompt. Only the parent of role_key, or bigm. A live session gets a SendMessage nudge instead.",
 			InputSchema: objectSchema(map[string]any{
 				"role_key": stringSchema(),
 				"prompt":   map[string]any{"type": "string", "description": "Default: Read your mailbox with mail_read."},

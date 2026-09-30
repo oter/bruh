@@ -185,3 +185,28 @@ func TestSessionList(t *testing.T) {
 		t.Fatalf("list = %v", list)
 	}
 }
+
+// Final review M3: bigm may start and resume any role key, so that it runs the merger clerk of a
+// remote project on its own machine. Every other caller must be the parent of the key.
+func TestSessionLaunchAndResumeByBigm(t *testing.T) {
+	env := testEnv(t, "bigm")
+	cwd, _ := filepath.EvalSymlinks(t.TempDir())
+	fakeClaude(t, &env, "3e4ce000", []map[string]any{
+		{"id": "3e4ce000", "kind": "background", "name": "clerk-remote-app-merge", "sessionId": "3e4ce000-full", "state": "done", "cwd": cwd, "startedAt": 1},
+	})
+	if _, err := call(t, env, "role_settings_write", map[string]any{"role_key": "clerk-remote-app-merge"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := call(t, env, "session_launch", map[string]any{"agent": "clerk", "role_key": "clerk-remote-app-merge", "cwd": cwd}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := call(t, env, "session_resume", map[string]any{"role_key": "clerk-remote-app-merge"}); err != nil {
+		t.Fatal(err)
+	}
+	for _, caller := range []string{"clanker-other", "clerk-remote-app-x", "clerk-ledger"} {
+		_, err := call(t, as(env, caller), "session_launch", map[string]any{"agent": "clerk", "role_key": "clerk-remote-app-merge", "cwd": cwd})
+		mustErr(t, err, "only its parent")
+		_, err = call(t, as(env, caller), "session_resume", map[string]any{"role_key": "clerk-remote-app-merge"})
+		mustErr(t, err, "only its parent")
+	}
+}

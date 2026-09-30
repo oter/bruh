@@ -58,7 +58,7 @@ func TestRoleSettingsWriteParentOnly(t *testing.T) {
 		{"bigm", "clanker-a", true},
 		{"bigm", "clerk-ledger", true},
 		{"bigm", "bigm", true},
-		{"bigm", "clerk-a-1", false},
+		{"bigm", "clerk-a-1", true},
 		{"clanker-a", "clerk-a-1", true},
 		{"clanker-a", "clerk-ab-1", false},
 		{"clanker-a", "clerk-a-b-1", false},
