@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"regexp"
 	"slices"
+	"strconv"
+	"strings"
 	"testing"
 )
 
@@ -94,5 +96,26 @@ func TestUserConfig(t *testing.T) {
 	}
 	if p.UserConfig["handoff_percent"]["default"] != 50.0 || p.UserConfig["max_busy_clerks"]["default"] != 8.0 {
 		t.Fatalf("defaults = %v", p.UserConfig)
+	}
+}
+
+func TestInitSkill(t *testing.T) {
+	data, err := os.ReadFile("../skills/init/SKILL.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := string(data)
+	if !strings.HasPrefix(s, "---\nname: init\ndescription: ") || !strings.Contains(s, "\ndisable-model-invocation: true\n---\n") {
+		t.Fatal("bad frontmatter")
+	}
+	for i := 1; i <= 13; i++ {
+		if !strings.Contains(s, "\n"+strconv.Itoa(i)+". ") {
+			t.Errorf("question %d is missing", i)
+		}
+	}
+	for _, w := range []string{"init_plan", "init_apply", "--answers", "BRUH_INIT_", "trust"} {
+		if !strings.Contains(s, w) {
+			t.Errorf("no %q", w)
+		}
 	}
 }
