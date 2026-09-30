@@ -1,6 +1,6 @@
 export const meta = {
   name: 'deliver',
-  description: 'Deliver one bruh task: plan, implement, review in three parallel checks, refute each finding, fix by area, and review again up to the round cap.',
+  description: 'Deliver one bruh task: plan, implement, review, refute, fix, and review again.',
   whenToUse: 'A bruh clerk runs it with the args of its start message.',
   phases: [
     { title: 'Plan', detail: 'pin the base SHA, write a plan with STOP conditions' },
