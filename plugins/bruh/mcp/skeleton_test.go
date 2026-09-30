@@ -1,0 +1,148 @@
+package main
+
+import (
+	"encoding/json"
+	"os"
+	"path/filepath"
+	"regexp"
+	"slices"
+	"strconv"
+	"strings"
+	"testing"
+)
+
+func readJSON(t *testing.T, rel string, v any) {
+	t.Helper()
+	data, err := os.ReadFile(filepath.FromSlash(rel))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal(data, v); err != nil {
+		t.Fatalf("%s: %v", rel, err)
+	}
+}
+
+func TestMarketplaceListsBruh(t *testing.T) {
+	var m struct {
+		Name    string `json:"name"`
+		Plugins []struct {
+			Name   string `json:"name"`
+			Source string `json:"source"`
+		} `json:"plugins"`
+	}
+	readJSON(t, "../../../.claude-plugin/marketplace.json", &m)
+	if m.Name != "bruh" || len(m.Plugins) != 1 || m.Plugins[0].Name != "bruh" || m.Plugins[0].Source != "./plugins/bruh" {
+		t.Fatalf("marketplace = %+v", m)
+	}
+}
+
+func TestPluginManifest(t *testing.T) {
+	var p struct {
+		Name    string `json:"name"`
+		License string `json:"license"`
+	}
+	readJSON(t, "../.claude-plugin/plugin.json", &p)
+	if p.Name != "bruh" || p.License != "Apache-2.0" {
+		t.Fatalf("plugin = %+v", p)
+	}
+}
+
+func TestMCPConfig(t *testing.T) {
+	var c struct {
+		MCPServers map[string]struct {
+			Command string            `json:"command"`
+			Args    []string          `json:"args"`
+			Env     map[string]string `json:"env"`
+			Timeout int               `json:"timeout"`
+		} `json:"mcpServers"`
+	}
+	readJSON(t, "../.mcp.json", &c)
+	s, ok := c.MCPServers["bruh"]
+	if !ok {
+		t.Fatal("no bruh server")
+	}
+	if s.Command != "go" || !slices.Equal(s.Args, []string{"run", "-C", "${CLAUDE_PLUGIN_ROOT}/mcp", "."}) {
+		t.Fatalf("server = %+v", s)
+	}
+	if s.Env["BRUH_DATA"] != "${CLAUDE_PLUGIN_DATA}" || s.Env["BRUH_PLUGIN_ROOT"] != "${CLAUDE_PLUGIN_ROOT}" || s.Env["GOTOOLCHAIN"] != "local" {
+		t.Fatalf("env = %v", s.Env)
+	}
+	if s.Timeout != 86400000 {
+		t.Fatalf("timeout = %d", s.Timeout)
+	}
+}
+
+func TestLicenseIsApache(t *testing.T) {
+	data, err := os.ReadFile("../../../LICENSE")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !regexp.MustCompile(`Apache License\s+Version 2\.0, January 2004`).Match(data) {
+		t.Fatal("LICENSE is not Apache-2.0")
+	}
+}
+
+func TestUserConfig(t *testing.T) {
+	var p struct {
+		UserConfig map[string]map[string]any `json:"userConfig"`
+	}
+	readJSON(t, "../.claude-plugin/plugin.json", &p)
+	want := map[string]string{"user_name": "string", "handoff_percent": "number", "max_busy_clerks": "number"}
+	for k, typ := range want {
+		o := p.UserConfig[k]
+		if o["type"] != typ || o["title"] == nil || o["description"] == nil {
+			t.Errorf("%s = %v", k, o)
+		}
+	}
+	if p.UserConfig["handoff_percent"]["default"] != 50.0 || p.UserConfig["max_busy_clerks"]["default"] != 8.0 {
+		t.Fatalf("defaults = %v", p.UserConfig)
+	}
+}
+
+func TestInitSkill(t *testing.T) {
+	data, err := os.ReadFile("../skills/init/SKILL.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := string(data)
+	if !strings.HasPrefix(s, "---\nname: init\ndescription: ") || !strings.Contains(s, "\ndisable-model-invocation: true\n---\n") {
+		t.Fatal("bad frontmatter")
+	}
+	for i := 1; i <= 13; i++ {
+		if !strings.Contains(s, "\n"+strconv.Itoa(i)+". ") {
+			t.Errorf("question %d is missing", i)
+		}
+	}
+	for _, w := range []string{"init_plan", "init_apply", "--answers", "BRUH_INIT_", "trust"} {
+		if !strings.Contains(s, w) {
+			t.Errorf("no %q", w)
+		}
+	}
+}
+
+func TestSlackChannelWiring(t *testing.T) {
+	var c struct {
+		MCPServers map[string]struct {
+			Command string            `json:"command"`
+			Args    []string          `json:"args"`
+			Env     map[string]string `json:"env"`
+		} `json:"mcpServers"`
+	}
+	readJSON(t, "../.mcp.json", &c)
+	s := c.MCPServers["slack"]
+	if s.Command != "go" || !slices.Equal(s.Args, []string{"run", "-C", "${CLAUDE_PLUGIN_ROOT}/channels/slack", "."}) ||
+		s.Env["SLACK_BOT_TOKEN"] != "${user_config.slack_bot_token}" || s.Env["GOTOOLCHAIN"] != "local" || s.Env["BRUH_DATA"] != "${CLAUDE_PLUGIN_DATA}" {
+		t.Fatalf("slack server = %+v", s)
+	}
+	var p struct {
+		UserConfig map[string]map[string]any `json:"userConfig"`
+		Channels   []map[string]any          `json:"channels"`
+	}
+	readJSON(t, "../.claude-plugin/plugin.json", &p)
+	if len(p.Channels) != 1 || p.Channels[0]["server"] != "slack" || p.UserConfig["slack_bot_token"]["sensitive"] != true {
+		t.Fatalf("plugin = %+v", p)
+	}
+	if _, err := os.Stat("../channels/slack/go.mod"); err != nil {
+		t.Fatal(err)
+	}
+}

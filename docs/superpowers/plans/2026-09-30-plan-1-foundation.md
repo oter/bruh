@@ -16,7 +16,7 @@
 - Timestamps come from code, in the fixed layout `2006-01-02T15:04:05.000Z` (UTC, millisecond precision). The fixed layout makes string comparison equal to time comparison (spec 2, principle 4).
 - Role keys: `bigm`, `clanker-<project>`, `clerk-<project>-<task>`, `clerk-ledger` (spec 3.2). Pattern `^[a-z0-9][a-z0-9-]{0,63}$`.
 - Handoff text of the caller is at most 8,000 characters (spec 7).
-- Message headers: `P0 Q-<n>: `, `P1 Q-<n>: `, `P2 Q-<n>: `, `ANSWER Q-<n>: `, `REC Q-<n>: `, `RULE R-<n>: `, `DONE: ` (spec 5).
+- Message headers: `P0 Q-<n>:`, `P1 Q-<n>:`, `P2 Q-<n>:`, `ANSWER Q-<n>:`, `REC Q-<n>:`, `RULE R-<n>:`, `DONE:` (spec 5).
 - The MCP server uses only the Go standard library. `go.mod` has no `require` lines. `GOTOOLCHAIN=local`, so `go run` never downloads a toolchain.
 - Runs on macOS and Linux (spec 10.2). CI tests both.
 - License Apache-2.0 (spec 19).
@@ -36,6 +36,7 @@
 ### Task 1: Repository skeleton, license, and CI
 
 **Files:**
+
 - Create: `.claude-plugin/marketplace.json`
 - Create: `plugins/bruh/.claude-plugin/plugin.json`
 - Create: `plugins/bruh/.mcp.json`
@@ -47,13 +48,14 @@
 - Create: `.github/workflows/ci.yml`
 
 **Interfaces:**
+
 - Produces: plugin name `bruh`, marketplace name `bruh`, MCP server name `bruh`. The server env: `BRUH_DATA=${CLAUDE_PLUGIN_DATA}`, `BRUH_PLUGIN_ROOT=${CLAUDE_PLUGIN_ROOT}`, `GOTOOLCHAIN=local`. Test command: `cd plugins/bruh/mcp && go test ./...`.
 
 - [ ] **Step 1: Write the failing test**
 
 `plugins/bruh/mcp/go.mod`:
 
-```
+```text
 module github.com/oter/bruh/mcp
 
 go 1.26
@@ -224,7 +226,7 @@ Expected: FAIL with `no such file or directory` for `marketplace.json`.
 
 `.gitignore`:
 
-```
+```text
 *.tmp
 .remember/
 ```
@@ -318,6 +320,7 @@ git commit -m "Add the plugin skeleton, Apache-2.0 license, and CI"
 Each probe answers one "Verify" item that Plans 2 to 5 depend on. A probe prints `PASS` or `FAIL` and the evidence. The results go into `docs/knowledge.md`, section "Probe results (plan 1)". A probe that fails does not stop this plan; it changes a later plan.
 
 **Files:**
+
 - Create: `probes/README.md`
 - Create: `probes/probe-plugin/.claude-plugin/plugin.json`
 - Create: `probes/probe-plugin/agents/probe-role.md`
@@ -327,6 +330,7 @@ Each probe answers one "Verify" item that Plans 2 to 5 depend on. A probe prints
 - Modify: `docs/knowledge.md`
 
 **Interfaces:**
+
 - Produces: the results P1 to P8 in `docs/knowledge.md`. Plans 2 to 5 read them.
 
 | ID | Spec item | Question |
@@ -458,6 +462,7 @@ git commit -m "Add the probes for the Verify items and record their results"
 ### Task 3: MCP server core (Env, store, and JSON-RPC over stdio)
 
 **Files:**
+
 - Create: `plugins/bruh/mcp/env.go`
 - Create: `plugins/bruh/mcp/rpc.go`
 - Create: `plugins/bruh/mcp/tools.go`
@@ -466,6 +471,7 @@ git commit -m "Add the probes for the Verify items and record their results"
 - Create: `plugins/bruh/mcp/rpc_test.go`
 
 **Interfaces:**
+
 - Produces:
   - `type Env struct { DataDir, RoleKey, PluginRoot string; PollInterval, ProgressInterval time.Duration; Now func() time.Time }` and `EnvFromOS() Env`.
   - `(Env) Caller() (string, error)`, `(Env) Dir(parts ...string) (string, error)`, `(Env) Stamp() string`, `(Env) WithLock(name string, fn func() error) error`.
@@ -1014,6 +1020,7 @@ git commit -m "Add the MCP server core: Env, file store, and JSON-RPC over stdio
 ### Task 4: Mailbox and handoff tools
 
 **Files:**
+
 - Create: `plugins/bruh/mcp/mail.go`
 - Create: `plugins/bruh/mcp/handoff.go`
 - Modify: `plugins/bruh/mcp/tools.go`
@@ -1021,6 +1028,7 @@ git commit -m "Add the MCP server core: Env, file store, and JSON-RPC over stdio
 - Create: `plugins/bruh/mcp/handoff_test.go`
 
 **Interfaces:**
+
 - Consumes: `Env`, `checkKey`, `atomicWrite`, `decode` from Task 3.
 - Produces:
   - `mailTools() []Tool`: `mail_post({to, header, body})` → `{"id", "at"}`, file `mail/<to>/<id>.json` = `Message`; `mail_read({})` → `[]Message` for the caller, oldest first, moved to `mail/<caller>/read/`.
@@ -1453,11 +1461,13 @@ git commit -m "Add the mailbox and handoff tools of the MCP server"
 ### Task 5: Answer tools with progress and deadline
 
 **Files:**
+
 - Create: `plugins/bruh/mcp/answer.go`
 - Modify: `plugins/bruh/mcp/tools.go`
 - Create: `plugins/bruh/mcp/answer_test.go`
 
 **Interfaces:**
+
 - Consumes: `Env`, `checkID`, `atomicWrite`, `decode`, `(*Call).Progress`.
 - Produces `answerTools() []Tool`:
   - `answer_write({question_id, text})` → `{"at"}`. File `answers/<caller>/<question_id>.answer` = `{"text", "at"}`. `question_id` matches `^Q-\d+$`.
@@ -1690,6 +1700,7 @@ git commit -m "Add answer_write and answer_wait with progress and a deadline"
 ### Task 6: Report and role settings tools
 
 **Files:**
+
 - Create: `plugins/bruh/mcp/report.go`
 - Create: `plugins/bruh/mcp/roles.go`
 - Modify: `plugins/bruh/mcp/tools.go`
@@ -1697,6 +1708,7 @@ git commit -m "Add answer_write and answer_wait with progress and a deadline"
 - Create: `plugins/bruh/mcp/roles_test.go`
 
 **Interfaces:**
+
 - Consumes: `Env`, `checkKey`, `atomicWrite`, `decode`, `plugins/bruh/defaults/role-settings.json` (read from `Env.PluginRoot`).
 - Produces:
   - `reportTools() []Tool`: `report_write({kind, text, source})` → `{"at"}`. `kind` is one of `status`, `answer`, `event`, `result`. `source` is optional: `{call, value, at}` (spec principle 1). Appends one JSON line to `reports/<caller>.jsonl`. `report_read({role_key, since})` → the lines of that role with `at` after `since` (optional).
@@ -2053,11 +2065,13 @@ git commit -m "Add the report and role settings tools"
 ### Task 7: Lease tools with a lock
 
 **Files:**
+
 - Create: `plugins/bruh/mcp/lease.go`
 - Modify: `plugins/bruh/mcp/tools.go`
 - Create: `plugins/bruh/mcp/lease_test.go`
 
 **Interfaces:**
+
 - Consumes: `Env`, `(Env).WithLock`, `checkKey`, `checkID`, `atomicWrite`, `decode`, `stampLayout`.
 - Produces `leaseTools() []Tool` and the state file `leases/state.json`, which `lease-guard.sh` (Plan 2) reads with `jq`:
 
@@ -2510,6 +2524,7 @@ git commit -m "Add hierarchical lease tools with a file lock"
 ### Task 8: End-to-end check in a real session
 
 **Files:**
+
 - Modify: `docs/knowledge.md` (one row in "Probe results (plan 1)")
 
 - [ ] **Step 1: Load the plugin from the working tree**

@@ -1,0 +1,12 @@
+{
+  "name": "bruh",
+  "owner": { "name": "oter" },
+  "description": "Claude Code plugins for coordinating sessions across projects and machines.",
+  "plugins": [
+    {
+      "name": "bruh",
+      "source": "./plugins/bruh",
+      "description": "Coordinate Claude Code sessions: bigm, clankers, clerks, and workflows."
+    }
+  ]
+}

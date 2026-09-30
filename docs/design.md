@@ -95,7 +95,7 @@ Status: brainstorming. A decision tagged "Owner decision" is approved. All other
 
 - P0 and P1 questions can go through a chat channel. bruh supports several channels. Slack and Telegram come first. Owner decision 2026-09-29.
 - bruh is installed in the agentic Docker image. Owner decision 2026-09-29.
-- Facts (https://code.claude.com/docs/en/channels.md): channels are a research preview. The official channel plugins are Telegram, Discord, and iMessage. A channel pushes chat messages into a running session that started with `--channels`. A channel can relay permission prompts, so a person can approve a prompt from the chat. Slack has no channel plugin: a Slack channel is a custom channel, and during the preview a custom channel loads only with `--dangerously-load-development-channels`. "Claude in Slack" starts cloud sessions from mentions and is a different product.
+- Facts (<https://code.claude.com/docs/en/channels.md>): channels are a research preview. The official channel plugins are Telegram, Discord, and iMessage. A channel pushes chat messages into a running session that started with `--channels`. A channel can relay permission prompts, so a person can approve a prompt from the chat. Slack has no channel plugin: a Slack channel is a custom channel, and during the preview a custom channel loads only with `--dangerously-load-development-channels`. "Claude in Slack" starts cloud sessions from mentions and is a different product.
 - Dependents re-decided because of the container premise. Each is agent-derived, needs owner decision:
   - Out of scope for version 0.1 was "`autonomous-agents` as an executor". Now the agentic image must contain bruh, so the install is in scope. Which image: spec open question 15, decided 2026-09-30.
   - The init skill asks questions in a chat. In an image build nobody answers, so init also needs a non-interactive form: the same answers from a file or environment variables.
@@ -116,6 +116,10 @@ An adversarial review and an invariant check of the first spec draft found these
 - Merge ownership: a clerk delivers a branch or a pull request. A merge is P1 by default, set in `priorities.md`.
 - Workflow input (corrected by the owner the same day): the review said that a workflow run takes no input, and the first fix split `plan` from `deliver`. The owner said that workflows can get input while they run. The docs confirm that each workflow agent keeps `SendMessage`. So `deliver` again contains the plan stage, and a workflow agent sends its questions to the clerk. The review round limit is two, an owner decision 2026-09-27.
 - Handoff message in subagents: the `PostToolUse` hook exits when the input has `agent_id`, so subagent tool calls do not use up the message.
+
+## Build of v0.1 (2026-09-30)
+
+- Owner decision 2026-09-30: the owner accepted, as a set, the recommended option of each decision that plans 2 to 6 tagged "agent-derived, needs owner decision" (see the [plan index](superpowers/plans/2026-09-30-bruh-v0.1-index.md)). The owner said "go go go" to the push and the pull request of the build.
 
 ## Knowledge
 
