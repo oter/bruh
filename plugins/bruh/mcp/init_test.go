@@ -214,10 +214,10 @@ func TestInitPlanWrapsStatusLine(t *testing.T) {
 	}
 	// The wrapped command, run by a shell as Claude Code does, records the context and runs the previous command.
 	cmd := exec.Command("sh", "-c", sl["command"].(string))
-	cmd.Env = []string{"PATH=" + os.Getenv("PATH"), "HOME=/home/x", "BRUH_ROLE_KEY=bigm"}
+	cmd.Env = []string{"PATH=" + os.Getenv("PATH"), "HOME=/example-home", "BRUH_ROLE_KEY=bigm"}
 	cmd.Stdin = strings.NewReader(`{"session_id":"s-9","model":{"display_name":"Opus"},"context_window":{"used_percentage":12}}`)
 	out, err := cmd.Output()
-	if err != nil || string(out) != "it's /home/xOpus\n" {
+	if err != nil || string(out) != "it's /example-homeOpus\n" {
 		t.Fatalf("out = %q, %v", out, err)
 	}
 	if m := readContext(t, data, "s-9"); m["used_percentage"] != 12.0 {
