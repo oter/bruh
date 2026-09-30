@@ -1,7 +1,7 @@
 export const meta = {
   name: 'implement-tickets',
   description: 'Implement tickets wave by wave: one implementer for each ticket, in parallel lanes inside a wave, one reviewer, a fix loop, the merge of the lanes, and a whole-branch gate. No commits and no posts.',
-  whenToUse: 'Implement the tickets of a settled spec that /bruh:tickets wrote. Pass the waves of issues/INDEX.md. After a stop, relaunch with only the waves that are not done; do not resume.',
+  whenToUse: 'Implement the tickets of a settled spec that /bruh:tickets wrote. Pass the waves of issues/INDEX.md. After a FAILED stop, relaunch as a new run with the remaining_waves of the result, or with gate_only when only the gate is left; do not resume.',
   phases: [
     { title: 'Implement', detail: 'one implementer, one reviewer, and a fix loop for each ticket; parallel inside a wave' },
     { title: 'Merge', detail: 'patch the lanes of a wave back onto the shared tree, in wave order' },
@@ -15,7 +15,11 @@ export const meta = {
 // resumeFromRunId after a question returns their cached results (spec 6.2). A
 // wave with an open question is not merged, so a merge prompt never changes
 // between the run and its relaunch. After a FAILED stop, relaunch as a new run
-// with only the waves that are not done (the resume lesson of the skill).
+// with the remaining_waves of the result (the resume lesson of the skill). A
+// ticket is merged only after its lane merge returned ok (a wave of one works in
+// the shared tree, so its pass merges it); remaining_waves holds every ticket that
+// is not merged. When every ticket is merged and only the gate is left, the result
+// has gate_only = true, and the relaunch runs only the gate.
 
 const A = (typeof args === 'object' && args) || {}
 const list = (v) => (Array.isArray(v) ? v.filter((x) => typeof x === 'string') : [])
@@ -35,7 +39,10 @@ let gate = null
 let tests = { ran: 0, passed: 0, failed: 0, skipped: 0 }
 
 function result(status, question = null) {
-  return { status, tickets, gate, tests, question, deviations }
+  const merged = new Set(tickets.filter((t) => t.status === 'merged').map((t) => t.file.slice(t.file.lastIndexOf('/') + 1)))
+  const remaining = waves.map((w) => w.filter((file) => !merged.has(file))).filter((w) => w.length)
+  const gateLeft = !remaining.length && status !== 'done'
+  return { status, tickets, remaining_waves: remaining, gate_only: gateLeft, gate, tests, question, deviations }
 }
 function stop(reason) {
   deviations.push(`STOP: ${reason}`)
@@ -56,8 +63,12 @@ else if (testGates.some((c) => !gateCommands.includes(c))) problems.push('args.t
 if (A.deadline_seconds !== undefined && !(typeof A.deadline_seconds === 'number' && A.deadline_seconds > 0)) problems.push('args.deadline_seconds is not a positive number')
 if (A.answers !== undefined && answers !== A.answers) problems.push('args.answers is not an object')
 if (A.fix_cap !== undefined && !(Number.isInteger(A.fix_cap) && A.fix_cap >= 0)) problems.push('args.fix_cap is not an integer of 0 or more')
-const waves = Array.isArray(A.waves) ? A.waves : []
-if (!waves.length || !waves.every((w) => Array.isArray(w) && w.length)) problems.push('args.waves is not a list of lists of ticket file names')
+const gateOnly = A.gate_only === true
+const waves = Array.isArray(A.waves) && A.waves.every((w) => Array.isArray(w)) ? A.waves : []
+if (A.gate_only !== undefined && typeof A.gate_only !== 'boolean') problems.push('args.gate_only is not a boolean')
+if (gateOnly) {
+  if (A.waves !== undefined && !(Array.isArray(A.waves) && A.waves.length === 0)) problems.push('args.gate_only needs no waves: pass an empty list or none')
+} else if (!waves.length || !waves.every((w) => w.length)) problems.push('args.waves is not a list of lists of ticket file names')
 else {
   const seen = new Set()
   for (const file of waves.flat()) {
@@ -120,7 +131,15 @@ const REVIEW = {
   },
   required: ['pass', 'findings', 'verify_output', 'summary'],
 }
-const REPORT = { type: 'object', properties: { ok: { type: 'boolean' }, report: { type: 'string' } }, required: ['ok', 'report'] }
+const MERGE = {
+  type: 'object',
+  properties: {
+    ok: { type: 'boolean' },
+    applied: { type: 'array', items: { type: 'string' }, description: 'the ticket IDs whose apply succeeded, in order' },
+    report: { type: 'string' },
+  },
+  required: ['ok', 'applied', 'report'],
+}
 const COUNTS = {
   ran: { type: 'integer' }, passed: { type: 'integer' }, failed: { type: 'integer' }, skipped: { type: 'integer' },
 }
@@ -230,10 +249,10 @@ function implPrompt(t, useLane) {
 Ticket: ${t.file}. Read it in full. Read ${A.spec} for the intent. Read each existing file that the ticket lists under Files, and the files around them, before you write anything.
 
 Working folder: ${useLane
-    ? `run \`${LANE} start ${t.id}\` first. It prints the path of a private copy of the repository. Do all work and run all commands inside that copy. Do not touch ${root} in this ticket.`
+    ? `run \`${LANE} start ${t.id}\` first. It prints the path of a private copy of the repository. When the lane exists already (an earlier attempt of this ticket, for example before a question), start keeps it with its work and never wipes it. Do all work and run all commands inside that copy. Do not touch ${root} in this ticket.`
     : `${root}. Work there. You are the only agent that edits it now.`}
 
-Do the work that the ticket describes, and nothing more. For a ticket of Kind: test, the test must compile and fail against the stub (red); do not make it pass. For a ticket of Kind: implementation, make the paired test pass without an edit to the test. Format the files that you touched. Then run each verify command of the acceptance criteria and paste the real output.
+Check first what is there already: an earlier run can have done part of the work, in the lane or in the shared tree. Do the work that the ticket describes and that is missing, and nothing more. For a ticket of Kind: test, the test must compile and fail against the stub (red); do not make it pass. For a ticket of Kind: implementation, make the paired test pass without an edit to the test. Format the files that you touched. Then run each verify command of the acceptance criteria and paste the real output.
 
 ${COMMON}
 
@@ -301,7 +320,7 @@ async function runTicket(t, useLane) {
   return entry(t, 'failed', { workdir, rounds: fixCap, findings: review.findings || [] })
 }
 
-for (let w = 0; w < waves.length; w++) {
+for (let w = 0; w < (gateOnly ? 0 : waves.length); w++) {
   const n = w + 1
   const wave = waves[w].map((file) => ({ id: file.slice(0, -3), file: `${issues}/${file}` }))
   const useLane = wave.length > 1
@@ -309,8 +328,10 @@ for (let w = 0; w < waves.length; w++) {
   log(`Wave ${n}: ${wave.map((t) => t.id).join(', ')}${useLane ? ' (parallel lanes)' : ''}`)
   const out = (await parallel(wave.map((t) => () => runTicket(t, useLane)))).map((r, i) => r || entry(wave[i], 'error', { deviations: 'the ticket run threw' }))
   tickets.push(...out)
-  const good = out.filter((r) => r.status === 'done')
-  const bad = out.filter((r) => r.status !== 'done')
+  // A wave of one works in the shared tree: its pass merges it.
+  if (!useLane) for (const r of out) if (r.status === 'done') r.status = 'merged'
+  const good = out.filter((r) => r.status === 'done' || r.status === 'merged')
+  const bad = out.filter((r) => r.status !== 'done' && r.status !== 'merged')
   const errors = bad.filter((r) => r.status === 'error')
   const questions = bad.filter((r) => r.status === 'question')
 
@@ -327,12 +348,16 @@ for (let w = 0; w < waves.length; w++) {
     phase('Merge')
     const merge = await agent(`Merge the finished lanes of wave ${n} back onto the shared tree ${root}, one at a time, in this order. Run each command and paste its output:
 ${good.map((r) => `- ${LANE} patch ${r.id}\n- ${LANE} apply ${r.id}\n- ${LANE} clean ${r.id}`).join('\n')}
-If an apply reports a conflict or a rejected hunk, stop at once, leave the tree as it is, and report the file and the hunk with ok = false.
+Return applied with the ID of each ticket whose apply succeeded, in order. If an apply reports a conflict or a rejected hunk, stop at once, leave the tree as it is, and report the file and the hunk with ok = false.
 Leave these failed lanes untouched (no patch, no clean): ${bad.map((r) => r.id).join(', ') || 'none'}.
 After the last apply, run \`git -C '${root}' status --porcelain\` and paste it.
 
-${COMMON}`, { label: `merge ${n}`, phase: 'Merge', effort: 'low', schema: REPORT })
-    if (!merge) return fail(`the merge agent of wave ${n} did not return a result`)
+${COMMON}`, { label: `merge ${n}`, phase: 'Merge', effort: 'low', schema: MERGE })
+    // A ticket is merged only when its lane is applied: after a dead merge agent,
+    // each ticket of the wave stays in remaining_waves.
+    if (!merge) return fail(`the merge agent of wave ${n} did not return a result; the tickets of the wave are not merged`)
+    const applied = new Set(merge.ok ? good.map((r) => r.id) : list(merge.applied))
+    for (const r of good) if (applied.has(r.id)) r.status = 'merged'
     if (!merge.ok) return stop(`the merge of wave ${n} failed: ${merge.report}`)
   }
 

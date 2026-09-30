@@ -2,7 +2,8 @@
 # Lane tooling for parallel ticket agents: one private copy of the tree for
 # each ticket, and its delta patched back onto the shared working tree.
 #
-#   ROOT=<repo> [LANES=<folder>] [EXCLUDES="<paths>"] lane.sh start <ticket>   copy the tree, record the baseline, print the path
+#   ROOT=<repo> [LANES=<folder>] [EXCLUDES="<paths>"] lane.sh start <ticket>   copy the tree, record the baseline, print the path;
+#                                                   an existing lane is kept with its work (clean it first for a new copy)
 #   ROOT=<repo> [LANES=<folder>] lane.sh patch <ticket>   write the delta of the ticket to $LANES/<ticket>.patch
 #   ROOT=<repo> [LANES=<folder>] lane.sh apply <ticket>   apply that patch onto the shared tree
 #   ROOT=<repo> [LANES=<folder>] lane.sh clean <ticket>   remove the copy and the patch
@@ -42,6 +43,12 @@ case $cmd in
 start)
 	top=$(git -C "$ROOT" rev-parse --show-toplevel 2>/dev/null) || die "ROOT is not a git work tree: $ROOT"
 	[ "$(cd "$top" && pwd -P)" = "$(cd "$ROOT" && pwd -P)" ] || die "ROOT is not the top level of a work tree: $ROOT"
+	# Keep a lane that exists: the attempt after a question, or a relaunch, goes on
+	# with the work of the earlier attempt. Only clean removes a lane.
+	if [ -d "$dir/.git" ] && git -C "$dir" rev-parse -q --verify refs/lane/base >/dev/null; then
+		echo "$dir"
+		exit 0
+	fi
 	mkdir -p "$LANES"
 	rm -rf "$dir"
 	set -f # EXCLUDES holds paths, not globs for this shell

@@ -289,7 +289,7 @@ const itHandlers = (extra = {}) => ({
   impl: () => work(),
   review: () => ({ pass: true, findings: [], verify_output: '', summary: '' }),
   fix: () => work(),
-  merge: () => ({ ok: true, report: 'applied' }),
+  merge: () => ({ ok: true, applied: [], report: 'applied' }),
   gate: () => cleanGate(),
   ...extra,
 })
@@ -302,7 +302,9 @@ test('implement-tickets: a wave of one works in the shared tree, with no lane an
   assert.ok(p.includes('/r/.scratch/f/issues/t-01-a.md'))
   assert.equal(byWord('merge').length, 0)
   assert.equal(result.tickets[0].id, 't-01-a')
-  assert.equal(result.tickets[0].status, 'done')
+  assert.equal(result.tickets[0].status, 'merged', 'a wave of one is merged by its pass')
+  assert.deepEqual(result.remaining_waves, [])
+  assert.equal(result.gate_only, false)
   assert.deepEqual(result.gate, { ok: true, gates: cleanGate().gates, findings: [] })
   assert.deepEqual(result.tests, { ran: 1, passed: 1, failed: 0, skipped: 0 })
   assert.equal(byWord('impl')[0].opts.effort, 'high')
@@ -321,7 +323,8 @@ test('implement-tickets: lanes merge in wave order and skip failed lanes', async
   assert.deepEqual(order, ['patch t-03-c', 'apply t-03-c', 'clean t-03-c', 'patch t-01-a', 'apply t-01-a', 'clean t-01-a'])
   assert.match(m, /untouched[^\n]*t-02-b/)
   assert.equal(result.status, 'findings_left')
-  assert.deepEqual(result.tickets.map((t) => `${t.id} ${t.status}`), ['t-03-c done', 't-02-b failed', 't-01-a done'])
+  assert.deepEqual(result.tickets.map((t) => `${t.id} ${t.status}`), ['t-03-c merged', 't-02-b failed', 't-01-a merged'])
+  assert.deepEqual(result.remaining_waves, [['t-02-b.md']])
   assert.equal(byWord('gate').length, 0, 'no gate after a failed wave')
 })
 
@@ -368,6 +371,55 @@ test('implement-tickets: a dead agent stops the run, never done', async () => {
     assert.equal(result.status, 'stopped', dead)
     assert.match(result.deviations.at(-1), /^FAILED: /, dead)
   }
+})
+
+// Fix round 2, N1: a ticket is merged only after its lane merge returned ok.
+test('implement-tickets: a dead merge agent leaves each ticket of the wave in remaining_waves', async () => {
+  const lanes = (p) => work({ workdir: `/lanes/${p.match(/start (\S+)/)[1]}` })
+  const a = IT({ waves: [['t-00-z.md'], ['t-01-a.md', 't-02-b.md'], ['t-03-c.md']] })
+  const { result } = await run('implement-tickets', itHandlers({ impl: (p) => (p.includes('t-00-z') ? work({ workdir: '/r' }) : lanes(p)), merge: () => null }), a)
+  assert.equal(result.status, 'stopped')
+  assert.match(result.deviations.at(-1), /^FAILED: .*not merged/)
+  assert.deepEqual(result.tickets.map((t) => `${t.id} ${t.status}`), ['t-00-z merged', 't-01-a done', 't-02-b done'])
+  assert.deepEqual(result.remaining_waves, [['t-01-a.md', 't-02-b.md'], ['t-03-c.md']], 'the relaunch set has the unapplied tickets')
+  assert.equal(result.gate_only, false)
+  // The relaunch with remaining_waves implements exactly those tickets.
+  const again = await run('implement-tickets', itHandlers({ impl: lanes }), { ...a, waves: result.remaining_waves })
+  assert.deepEqual(again.byWord('impl').map((c) => c.opts.label), ['impl t-01-a', 'impl t-02-b', 'impl t-03-c'])
+  assert.match(again.byWord('impl')[0].prompt, /start keeps it with its work and never wipes it/)
+  assert.match(again.byWord('impl')[0].prompt, /Check first what is there already/)
+})
+
+test('implement-tickets: a merge that stops at a hunk merges only the applied tickets', async () => {
+  const lanes = (p) => work({ workdir: `/lanes/${p.match(/start (\S+)/)[1]}` })
+  const { result } = await run('implement-tickets', itHandlers({ impl: lanes, merge: () => ({ ok: false, applied: ['t-01-a'], report: 'rejected hunk in b.go' }) }), IT({ waves: [['t-01-a.md', 't-02-b.md']] }))
+  assert.equal(result.status, 'stopped')
+  assert.deepEqual(result.tickets.map((t) => `${t.id} ${t.status}`), ['t-01-a merged', 't-02-b done'])
+  assert.deepEqual(result.remaining_waves, [['t-02-b.md']])
+})
+
+// Fix round 2: when only the gate is left, the result says so, and the relaunch runs only the gate.
+test('implement-tickets: a dead gate agent gives gate_only, and a gate_only run runs only the gate', async () => {
+  const dead = await run('implement-tickets', itHandlers({ gate: () => null }), IT())
+  assert.equal(dead.result.status, 'stopped')
+  assert.deepEqual(dead.result.remaining_waves, [])
+  assert.equal(dead.result.gate_only, true)
+  const only = await run('implement-tickets', itHandlers(), IT({ waves: [], gate_only: true }))
+  assert.equal(only.result.status, 'done')
+  assert.deepEqual(only.calls.map((c) => c.word), ['gate'])
+  const noWaves = await run('implement-tickets', itHandlers(), (({ waves: _w, ...a }) => ({ ...a, gate_only: true }))(IT()))
+  assert.equal(noWaves.result.status, 'done')
+  for (const bad of [{ gate_only: true }, { gate_only: 'yes', waves: [] }]) {
+    const r = await run('implement-tickets', itHandlers(), IT(bad))
+    assert.equal(r.result.status, 'stopped', JSON.stringify(bad))
+    assert.equal(r.calls.length, 0)
+  }
+})
+
+test('implement-tickets: an unnamed skip count of the gate is a finding', async () => {
+  const { result } = await run('implement-tickets', itHandlers({ gate: () => ({ gates: [gateResult('make test', { skipped: 2 })] }) }), IT())
+  assert.equal(result.status, 'findings_left')
+  assert.match(result.gate.findings[0].summary, /has 2 skipped/)
 })
 
 test('implement-tickets: a merge that reports a rejected hunk stops the run', async () => {

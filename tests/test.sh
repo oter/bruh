@@ -310,6 +310,8 @@ check "lane start skips the top-level .scratch" not test -e "$lp/.scratch"
 check "lane start keeps node_modules/.bin" test -e "$lp/node_modules/.bin/tsc"
 check "a new lane shows no change" eq "$(git -C "$lp" diff --cached refs/lane/base 2>/dev/null)" ""
 printf 'C\n' >"$lp/edit.txt" && rm "$lp/gone.txt" && printf 'n\n' >"$lp/new.txt"
+check "lane start keeps an existing lane with its work" eq "$(ROOT="$tmp/ln" LANES="$lanes" sh "$lane" start t-01-a 2>/dev/null && cat "$lp/edit.txt")" "$lp
+C"
 out=$(ROOT="$tmp/ln" LANES="$lanes" sh "$lane" patch t-01-a 2>&1)
 check "lane patch counts the files of the ticket" contains "$out" "(3 files)"
 check "lane apply succeeds" env ROOT="$tmp/ln" LANES="$lanes" sh "$lane" apply t-01-a
@@ -318,6 +320,9 @@ check "lane apply brings a new file" test -f "$tmp/ln/new.txt"
 check "lane apply brings a deletion" not test -e "$tmp/ln/gone.txt"
 check "lane apply keeps the dirty work of the shared tree" eq "$(cat "$tmp/ln/keep.txt")" dirty
 check "lane apply leaves the index of the shared tree clean" eq "$(git -C "$tmp/ln" diff --cached --name-only)" ""
+# shellcheck disable=SC2016 # the inner shell expands $1, $2, and $3
+# shellcheck disable=SC2016 # the inner shell expands $1, $2, and $3
+check "after clean, lane start makes a new copy" sh -c 'ROOT="$1" LANES="$2" sh "$3" start t-05-e >/dev/null && printf x >"$2/t-05-e/edit.txt" && ROOT="$1" LANES="$2" sh "$3" clean t-05-e >/dev/null && ROOT="$1" LANES="$2" sh "$3" start t-05-e >/dev/null && ! grep -qx x "$2/t-05-e/edit.txt"; r=$?; ROOT="$1" LANES="$2" sh "$3" clean t-05-e >/dev/null; exit $r' _ "$tmp/ln" "$lanes" "$lane"
 # shellcheck disable=SC2016 # the inner shell expands $1, $2, and $3
 check "lane clean removes the lane and the patch" sh -c 'ROOT="$1" LANES="$2" sh "$3" clean t-01-a >/dev/null && ! test -e "$2/t-01-a" && ! test -e "$2/t-01-a.patch"' _ "$tmp/ln" "$lanes" "$lane"
 check "lane refuses a ticket ID with a slash" not env ROOT="$tmp/ln" LANES="$lanes" sh "$lane" start ../x

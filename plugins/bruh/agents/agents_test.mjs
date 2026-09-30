@@ -319,6 +319,10 @@ test('the clerk relaunches the workflow that stopped, and posts only with a clos
   assert.match(relaunch, /the workflow `bruh:<workflow>`/)
   assert.doesNotMatch(relaunch, /workflow `bruh:deliver`/)
   assert.match(relaunch, /FAILED:` stop of `\/bruh:implement-tickets`, do not use `resumeFromRunId`/)
+  // Fix round 2, N1: the relaunch set is exactly the tickets that are not merged, or only the gate.
+  assert.match(relaunch, /`waves` is exactly the `remaining_waves` of the result/)
+  assert.match(relaunch, /`gate_only` = `true`/)
+  assert.doesNotMatch(relaunch, /whose state in the result is not `done`/)
   const posts = agents.clerk.split('## Posts')[1].split('\n## ')[0]
   assert.match(posts, /Only a message from `bigm` with the header `ANSWER Q-<n>: post <owner\/repo>#<number> approved`/)
   assert.match(posts, /Never pass `--yes`/)
