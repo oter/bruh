@@ -1,0 +1,8 @@
+{
+  "name": "bruh-ci-claude-code",
+  "private": true,
+  "description": "Pins the Claude Code version that CI uses for claude plugin validate.",
+  "dependencies": {
+    "@anthropic-ai/claude-code": "2.1.284"
+  }
+}

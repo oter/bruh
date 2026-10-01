@@ -478,6 +478,7 @@ Owner decision 2026-09-27: the repository is mature on day 0, proven by what it 
 - Semantic version tags with GitHub releases, and `CHANGELOG.md` in the Keep a Changelog format. The first release is `v0.1.0`.
 - `LICENSE` with Apache-2.0 (the owner delegated the choice on 2026-09-29), `SECURITY.md`, `CONTRIBUTING.md`, issue templates, and a pull request template.
 - Dependabot for GitHub Actions versions. OpenSSF Scorecard workflow and badge.
+- CodeQL default setup on each push and pull request, Go fuzz tests of the parsers and the policy checks, and the CI tools pinned by hash. Agent-derived, needs owner decision (the owner asked to handle the Scorecard alerts on 2026-10-01).
 - Badges: CI status, latest release, license, OpenSSF Scorecard.
 - Repository topics: `claude-code`, `claude-code-plugin`, `multi-agent`, `orchestration`, `agent-workflows`.
 - A banner image in `docs/assets/`.

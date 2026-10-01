@@ -12,3 +12,7 @@ updates:
     directory: /plugins/bruh/channels/slack
     schedule:
       interval: weekly
+  - package-ecosystem: npm
+    directory: /.github/tools/claude-code
+    schedule:
+      interval: weekly

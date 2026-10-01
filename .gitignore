@@ -2,3 +2,4 @@
 .remember/
 plugins/bruh/mcp/mcp
 .superpowers/
+.github/tools/*/node_modules/
