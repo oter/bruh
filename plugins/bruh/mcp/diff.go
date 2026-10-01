@@ -33,16 +33,13 @@ func unifiedDiff(from, to, old, new string) string {
 	}
 	a, b := splitLines(old), splitLines(new)
 	n, m := len(a), len(b)
-	var ops []diffOp
-	if n > maxLCSLines || m > maxLCSLines {
-		for i, line := range a {
-			ops = append(ops, diffOp{'-', line, i, 0})
-		}
-		for j, line := range b {
-			ops = append(ops, diffOp{'+', line, n, j})
-		}
-		return formatHunks(from, to, ops)
+	if n > maxLCSLines {
+		return replaceWhole(from, to, a, b)
 	}
+	if m > maxLCSLines {
+		return replaceWhole(from, to, a, b)
+	}
+	var ops []diffOp
 	lcs := make([][]int, n+1)
 	for i := range lcs {
 		lcs[i] = make([]int, m+1)
@@ -68,6 +65,18 @@ func unifiedDiff(from, to, old, new string) string {
 			ops = append(ops, diffOp{'+', b[j], i, j})
 			j++
 		}
+	}
+	return formatHunks(from, to, ops)
+}
+
+// replaceWhole is the diff that removes every line of a and adds every line of b.
+func replaceWhole(from, to string, a, b []string) string {
+	var ops []diffOp
+	for i, line := range a {
+		ops = append(ops, diffOp{'-', line, i, 0})
+	}
+	for j, line := range b {
+		ops = append(ops, diffOp{'+', line, len(a), j})
 	}
 	return formatHunks(from, to, ops)
 }
