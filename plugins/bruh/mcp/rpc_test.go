@@ -91,7 +91,7 @@ func TestToolErrorAndProgress(t *testing.T) {
 
 func TestMissingRoleKeyWritesNothing(t *testing.T) {
 	env := testEnv(t, "")
-	anySession := []string{"bruh_info", "init_plan", "init_apply"}
+	anySession := []string{"bruh_info", "init_plan", "init_apply", "result_save"}
 	for _, tool := range AllTools() {
 		_, err := tool.Handler(&Call{Env: env}, json.RawMessage(`{}`))
 		if slices.Contains(anySession, tool.Name) {

@@ -141,6 +141,13 @@ check "smoke remote step asks for the rot13 of the reply" contains "$rout" "tr '
 check "smoke remote step removes the remote worktree in cleanup" contains "$rout" "orca worktree rm --environment env1 --worktree name:bruh-smoke-dry1 --force"
 check "smoke refuses an unknown flag" not sh "$here/smoke/run.sh" --bogus
 
+# random_id ends also when SIGPIPE is ignored, as on a CI runner.
+# perl ignores SIGPIPE, then execs sh; the alarm stops sh after 10 seconds with status 142.
+rid_rc=0
+rid=$(perl -e '$SIG{PIPE}="IGNORE"; alarm 10; exec "sh","-c",". \"$ARGV[0]\" && random_id"' "$here/lib.sh") || rid_rc=$?
+check "random_id ends with SIGPIPE ignored" eq "$rid_rc" 0
+check "random_id prints a run ID" valid_run_id "$rid"
+check "random_id has 6 characters" eq "${#rid}" 6
 # remove_scratch deletes only the branches that the run created
 git init -q "$tmp/rs" && git -C "$tmp/rs" -c user.name=t -c user.email=t@example.com commit -q --allow-empty -m init
 mkdir -p "$tmp/rs-ev" "$tmp/rs/.bruh-test/x"
@@ -294,6 +301,300 @@ ticks() {
 }
 check "the MCP server accepts each tick of the 8 load sessions" ticks "$load8" 8
 check "load refuses a word for --minutes" not sh "$here/load/run.sh" --dry-run --minutes ten
+
+# lane.sh: a private copy of the tree for one ticket, its patch, and the merge back
+lane="$here/../plugins/bruh/scripts/lane.sh"
+git init -q "$tmp/ln"
+printf 'a\n' >"$tmp/ln/keep.txt" && printf 'b\n' >"$tmp/ln/gone.txt" && printf 'c\n' >"$tmp/ln/edit.txt"
+mkdir -p "$tmp/ln/.scratch" "$tmp/ln/node_modules/.bin" && printf 's\n' >"$tmp/ln/.scratch/spec.md" && printf 't\n' >"$tmp/ln/node_modules/.bin/tsc"
+git -C "$tmp/ln" add keep.txt gone.txt edit.txt && git -C "$tmp/ln" -c user.name=t -c user.email=t@example.com commit -q -m base
+printf 'dirty\n' >"$tmp/ln/keep.txt" # the shared tree is dirty on purpose
+lanes="$tmp/lanes"
+lp=$(ROOT="$tmp/ln" LANES="$lanes" sh "$lane" start t-01-a 2>/dev/null)
+check "lane start prints the lane folder" eq "$lp" "$lanes/t-01-a"
+check "lane start copies the dirty tree" eq "$(cat "$lp/keep.txt" 2>/dev/null)" dirty
+check "lane start skips the top-level .scratch" not test -e "$lp/.scratch"
+check "lane start keeps node_modules/.bin" test -e "$lp/node_modules/.bin/tsc"
+check "a new lane shows no change" eq "$(git -C "$lp" diff --cached refs/lane/base 2>/dev/null)" ""
+printf 'C\n' >"$lp/edit.txt" && rm "$lp/gone.txt" && printf 'n\n' >"$lp/new.txt"
+check "lane start keeps an existing lane with its work" eq "$(ROOT="$tmp/ln" LANES="$lanes" sh "$lane" start t-01-a 2>/dev/null && cat "$lp/edit.txt")" "$lp
+C"
+out=$(ROOT="$tmp/ln" LANES="$lanes" sh "$lane" patch t-01-a 2>&1)
+check "lane patch counts the files of the ticket" contains "$out" "(3 files)"
+check "lane apply succeeds" env ROOT="$tmp/ln" LANES="$lanes" sh "$lane" apply t-01-a
+check "lane apply brings a changed file" eq "$(cat "$tmp/ln/edit.txt")" C
+check "lane apply brings a new file" test -f "$tmp/ln/new.txt"
+check "lane apply brings a deletion" not test -e "$tmp/ln/gone.txt"
+check "lane apply keeps the dirty work of the shared tree" eq "$(cat "$tmp/ln/keep.txt")" dirty
+check "lane apply leaves the index of the shared tree clean" eq "$(git -C "$tmp/ln" diff --cached --name-only)" ""
+# shellcheck disable=SC2016 # the inner shell expands $1, $2, and $3
+check "after clean, lane start makes a new copy" sh -c 'ROOT="$1" LANES="$2" sh "$3" start t-05-e >/dev/null && printf x >"$2/t-05-e/edit.txt" && ROOT="$1" LANES="$2" sh "$3" clean t-05-e >/dev/null && ROOT="$1" LANES="$2" sh "$3" start t-05-e >/dev/null && ! grep -qx x "$2/t-05-e/edit.txt"; r=$?; ROOT="$1" LANES="$2" sh "$3" clean t-05-e >/dev/null; exit $r' _ "$tmp/ln" "$lanes" "$lane"
+# shellcheck disable=SC2016 # the inner shell expands $1, $2, and $3
+check "lane clean removes the lane and the patch" sh -c 'ROOT="$1" LANES="$2" sh "$3" clean t-01-a >/dev/null && ! test -e "$2/t-01-a" && ! test -e "$2/t-01-a.patch"' _ "$tmp/ln" "$lanes" "$lane"
+check "lane refuses a ticket ID with a slash" not env ROOT="$tmp/ln" LANES="$lanes" sh "$lane" start ../x
+check "lane refuses a ticket ID that starts with a dot" not env ROOT="$tmp/ln" LANES="$lanes" sh "$lane" start .x
+check "lane refuses a ROOT that is not the top of a work tree" not env ROOT="$tmp/ln/node_modules" LANES="$lanes" sh "$lane" start t-02-b
+check "lane refuses an unknown command" not env ROOT="$tmp/ln" LANES="$lanes" sh "$lane" merge t-02-b
+check "lane apply refuses a missing patch" not env ROOT="$tmp/ln" LANES="$lanes" sh "$lane" apply t-09-z
+: >"$lanes/t-08-y.patch"
+check "lane apply of an empty patch says so" contains "$(ROOT="$tmp/ln" LANES="$lanes" sh "$lane" apply t-08-y 2>&1)" "empty patch"
+# A pattern of EXCLUDES is for rsync, not for the shell of the current folder.
+printf 'x\n' >"$tmp/ln/gl1"
+mkdir -p "$tmp/cwdx" && : >"$tmp/cwdx/glzz"
+lp=$(cd "$tmp/cwdx" && ROOT="$tmp/ln" LANES="$lanes" EXCLUDES='gl*' sh "$lane" start t-04-d 2>/dev/null)
+# shellcheck disable=SC2016 # the inner shell expands $1
+check "the shell does not expand a pattern of EXCLUDES in the current folder" sh -c 'test -d "$1" && ! test -e "$1/gl1"' _ "$lp"
+ROOT="$tmp/ln" LANES="$lanes" sh "$lane" clean t-04-d >/dev/null
+rm -f "$tmp/ln/gl1"
+# A nested repository: no nested .git in the lane, and its edits reach the patch.
+git init -q "$tmp/ln/sub" && printf 's\n' >"$tmp/ln/sub/f.txt"
+lp=$(ROOT="$tmp/ln" LANES="$lanes" sh "$lane" start t-03-c 2>/dev/null)
+# shellcheck disable=SC2016 # the inner shell expands $1
+check "lane start copies a nested repository without its .git" sh -c 'test -f "$1/sub/f.txt" && ! test -e "$1/sub/.git"' _ "$lp"
+printf 'S\n' >"$lp/sub/f.txt"
+ROOT="$tmp/ln" LANES="$lanes" sh "$lane" patch t-03-c >/dev/null 2>&1
+check "an edit in a nested repository reaches the patch" grep -q 'sub/f.txt' "$lanes/t-03-c.patch"
+ROOT="$tmp/ln" LANES="$lanes" sh "$lane" clean t-03-c >/dev/null
+rm -rf "$tmp/ln/sub"
+# A linked worktree has a .git pointer file; the lane must not share its index.
+git -C "$tmp/ln" -c user.name=t -c user.email=t@example.com commit -qam work
+git -C "$tmp/ln" worktree add -q "$tmp/lnw" -b lnw
+lp=$(ROOT="$tmp/lnw" LANES="$lanes" sh "$lane" start t-02-b 2>/dev/null)
+rm "$lp/keep.txt"
+ROOT="$tmp/lnw" LANES="$lanes" sh "$lane" patch t-02-b >/dev/null 2>&1
+check "a lane of a linked worktree leaves the index of the worktree clean" eq "$(git -C "$tmp/lnw" status --porcelain)" ""
+# shellcheck disable=SC2016 # the inner shell expands $1, $2, and $3
+check "a lane of a linked worktree applies a deletion" sh -c 'ROOT="$1" LANES="$2" sh "$3" apply t-02-b >/dev/null && ! test -e "$1/keep.txt"' _ "$tmp/lnw" "$lanes" "$lane"
+# A kept lane must belong to the same ROOT, HEAD, and run (fix round 3, R1).
+mkrepo() {
+	git init -q "$1" && printf '%s\n' "$2" >"$1/g.txt" && git -C "$1" add g.txt &&
+		git -C "$1" -c user.name=t -c user.email=t@example.com commit -q -m base
+}
+mkrepo "$tmp/ra" a && mkrepo "$tmp/rb" b
+rl="$tmp/rlanes"
+la=$(ROOT="$tmp/ra" LANES="$rl" sh "$lane" start mr1-01-schema 2>/dev/null)
+printf 'edit of A\n' >"$la/g.txt"
+lb=$(ROOT="$tmp/rb" LANES="$rl" sh "$lane" start mr1-01-schema 2>/dev/null)
+check "a lane of another repository is not kept" eq "$(cat "$lb/g.txt")" b
+ROOT="$tmp/rb" LANES="$rl" sh "$lane" patch mr1-01-schema >/dev/null 2>&1
+ROOT="$tmp/rb" LANES="$rl" sh "$lane" apply mr1-01-schema >/dev/null 2>&1
+check "the old edit of another repository does not land in ROOT" eq "$(cat "$tmp/rb/g.txt")" b
+printf 'edit of B\n' >"$lb/g.txt"
+check "a lane of the same ROOT, HEAD, and run is kept" eq "$(ROOT="$tmp/rb" LANES="$rl" sh "$lane" start mr1-01-schema >/dev/null 2>&1; cat "$lb/g.txt")" "edit of B"
+check "a lane of another run is not kept" eq "$(ROOT="$tmp/rb" LANES="$rl" LANE_RUN=other sh "$lane" start mr1-01-schema >/dev/null 2>&1; cat "$lb/g.txt")" b
+printf 'edit of run other\n' >"$lb/g.txt"
+git -C "$tmp/rb" -c user.name=t -c user.email=t@example.com commit -q --allow-empty -m next
+check "a lane of another HEAD is not kept" eq "$(ROOT="$tmp/rb" LANES="$rl" LANE_RUN=other sh "$lane" start mr1-01-schema >/dev/null 2>&1; cat "$lb/g.txt")" b
+printf 'edit again\n' >"$lb/g.txt"
+git -C "$lb" update-ref -d refs/lane/base
+check "a lane without refs/lane/base is not kept" eq "$(ROOT="$tmp/rb" LANES="$rl" LANE_RUN=other sh "$lane" start mr1-01-schema >/dev/null 2>&1; cat "$lb/g.txt")" b
+check "a remade lane has refs/lane/base again" git -C "$lb" rev-parse -q --verify refs/lane/base
+# A patch is applied once. Four identical blocks give repeated context: plain git apply
+# inserts the same line a second time at an offset, and lane.sh apply does not.
+for _ in 1 2 3 4; do printf 'x\ny\nz\nw\n'; done >"$tmp/ra/g.txt" && git -C "$tmp/ra" -c user.name=t -c user.email=t@example.com commit -qam blocks
+ROOT="$tmp/ra" LANES="$rl" sh "$lane" clean mr1-02-rep >/dev/null
+lr=$(ROOT="$tmp/ra" LANES="$rl" sh "$lane" start mr1-02-rep 2>/dev/null)
+awk 'NR == 7 { print "inserted" } { print }' "$lr/g.txt" >"$lr/g.new" && mv "$lr/g.new" "$lr/g.txt"
+ROOT="$tmp/ra" LANES="$rl" sh "$lane" patch mr1-02-rep >/dev/null 2>&1
+cp -R "$tmp/ra" "$tmp/ra-plain"
+git -C "$tmp/ra-plain" apply "$rl/mr1-02-rep.patch" && git -C "$tmp/ra-plain" apply "$rl/mr1-02-rep.patch" 2>/dev/null
+check "plain git apply of the patch twice inserts the line twice (the reproduction)" eq "$(grep -c inserted "$tmp/ra-plain/g.txt")" 2
+ROOT="$tmp/ra" LANES="$rl" sh "$lane" apply mr1-02-rep >/dev/null 2>&1
+out=$(ROOT="$tmp/ra" LANES="$rl" sh "$lane" apply mr1-02-rep 2>&1)
+check "a second apply of the same patch is skipped" contains "$out" "already applied mr1-02-rep; skipped"
+check "lane.sh apply twice inserts the line once" eq "$(grep -c inserted "$tmp/ra/g.txt")" 1
+printf 'more\n' >>"$lr/g.txt"
+ROOT="$tmp/ra" LANES="$rl" sh "$lane" patch mr1-02-rep >/dev/null 2>&1
+check "an applied lane refuses a changed patch" not env ROOT="$tmp/ra" LANES="$rl" sh "$lane" apply mr1-02-rep
+check "the refused patch changes nothing" eq "$(grep -c more "$tmp/ra/g.txt")" 0
+# The root half of the lane meta: a clone at the same HEAD is another root.
+git clone -q "$tmp/rb" "$tmp/rc"
+check "the clone has the same HEAD" eq "$(git -C "$tmp/rc" rev-parse HEAD)" "$(git -C "$tmp/rb" rev-parse HEAD)"
+ROOT="$tmp/rb" LANES="$rl" sh "$lane" clean mr1-03-root >/dev/null
+lo=$(ROOT="$tmp/rb" LANES="$rl" sh "$lane" start mr1-03-root 2>/dev/null)
+printf 'edit of rb\n' >"$lo/g.txt"
+check "a lane of another root at the same HEAD is not kept" eq "$(ROOT="$tmp/rc" LANES="$rl" sh "$lane" start mr1-03-root >/dev/null 2>&1; cat "$lo/g.txt")" b
+
+# post-findings.sh with a fake glab and a fake gh on PATH
+post="$here/../plugins/bruh/scripts/post-findings.sh"
+mkdir -p "$tmp/fakebin"
+cat >"$tmp/fakebin/glab" <<'FAKE'
+#!/bin/sh
+# Fake glab and gh: records each call, stores each POST body, and serves them back.
+tool=${0##*/}
+printf '%s %s\n' "$tool" "$*" >>"$FAKE_DIR/calls"
+method=GET input='' path=''
+while [ $# -gt 0 ]; do
+	case $1 in
+	-X) method=$2; shift ;;
+	--input | -H) [ "$1" = --input ] && input=$2; shift ;;
+	api | --paginate) ;;
+	*) path=$1 ;;
+	esac
+	shift
+done
+if [ "$method" = POST ]; then
+	if [ -n "${FAKE_REJECT_INLINE:-}" ] && jq -e 'has("position") or has("path")' "$input" >/dev/null; then
+		if [ "$tool" = glab ]; then echo 'glab: 400 Bad Request (HTTP 400)' >&2; else echo 'gh: Validation Failed (HTTP 422)' >&2; fi
+		exit 1
+	fi
+	jq -c . "$input" >>"$FAKE_DIR/posted.jsonl"
+	id=$(wc -l <"$FAKE_DIR/posted.jsonl" | tr -d ' ')
+	printf '{"id":%s,"notes":[{"id":%s}],"html_url":"https://example.com/c/%s"}\n' "$id" "$id" "$id"
+	exit 0
+fi
+case $path in
+*/discussions | */comments)
+	# FAKE_FAIL_PAGE2: print the first page, then fail on the second, as --paginate does.
+	if [ -n "${FAKE_FAIL_PAGE2:-}" ]; then
+		jq -s '[.[] | {notes: [{body}], body}] | .[:1]' "$FAKE_DIR/posted.jsonl"
+		echo "$tool: HTTP 502 on page 2" >&2
+		exit 1
+	fi
+	;;
+esac
+case $path in
+*/discussions) jq -s '[.[] | {notes: [{body}]}]' "$FAKE_DIR/posted.jsonl" ;;
+*/pulls/*/comments) jq -s '[.[] | select(has("path")) | {body}]' "$FAKE_DIR/posted.jsonl" ;;
+*/issues/*/comments) jq -s '[.[] | select(has("path") | not) | {body}]' "$FAKE_DIR/posted.jsonl" ;;
+*) jq -n --arg h "$FAKE_HEAD" '{web_url: "https://example.com/mr/7", html_url: "https://example.com/pr/7",
+	diff_refs: {base_sha: "1111111111111111111111111111111111111111", start_sha: "1111111111111111111111111111111111111111", head_sha: $h},
+	head: {sha: $h}}' ;;
+esac
+FAKE
+cp "$tmp/fakebin/glab" "$tmp/fakebin/gh"
+chmod +x "$tmp/fakebin/glab" "$tmp/fakebin/gh"
+RH=cccccccccccccccccccccccccccccccccccccccc
+cat >"$tmp/result.json" <<JSON
+{"status":"done","workflow":"review-only","base":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","head_sha":"$RH",
+ "summaries":[{"key":"correctness","summary":"two bugs"},{"key":"security","summary":"clean"}],
+ "confirmed":[{"file":"src/a.go","line":3,"lens":"correctness","rule":"guide R1","severity":"bug","problem":"nil map \$(touch $tmp/pwned)","fix":"make it","round":1,"reason":"shown"},
+              {"file":"src/b.go","line":9,"lens":"security","rule":"asvs 6.1","severity":"security","problem":"timing","fix":"compare in constant time","round":1,"reason":"shown"}],
+ "refuted":[{"file":"src/c.go","line":1,"lens":"correctness","rule":"r","severity":"nit","problem":"p","fix":"f","round":1,"reason":"taste"}],
+ "deviations":[]}
+JSON
+# pf <fake folder> <args>: runs post-findings.sh with the fakes; FAKE_* and BRUH_* come from the caller.
+pf() {
+	d=$1
+	shift
+	mkdir -p "$d" && touch "$d/posted.jsonl" "$d/calls"
+	FAKE_DIR=$d FAKE_HEAD=${FAKE_HEAD:-$RH} PATH="$tmp/fakebin:$PATH" sh "$post" "$@"
+}
+posts() { grep -c . "$1/posted.jsonl"; }
+# Each posted body starts and ends with the marker line and says "Agent review".
+marked() {
+	jq -e --arg m "$2" '.body | split("\n") as $l | $l[0] == $m and $l[-1] == $m and contains("Agent review")' "$1/posted.jsonl" >/dev/null &&
+		[ "$(jq -s --arg m "$2" '[.[] | .body | split("\n") | select(.[0] != $m or .[-1] != $m)] | length' "$1/posted.jsonl")" = 0 ]
+}
+out=$(unset BRUH_ROLE_KEY; pf "$tmp/pf1" gitlab group/app 7 "$tmp/result.json" 2>&1; echo "exit $?")
+check "post-findings refuses without --yes or a post grant" contains "$out" "exit 3"
+check "post-findings refusal in a manual session names --yes" contains "$out" "pass --yes only after the owner said yes"
+check "post-findings refusal posts nothing" eq "$(posts "$tmp/pf1")" 0
+check "post-findings refusal reads nothing from the code host" eq "$(grep -c . "$tmp/pf1/calls")" 0
+out=$(unset BRUH_ROLE_KEY; pf "$tmp/pf1" --dry-run gitlab group/app 7 "$tmp/result.json" 2>&1)
+check "post-findings dry run needs no --yes and shows each body" contains "$out" "would post inline src/a.go:3"
+check "post-findings dry run posts nothing" eq "$(posts "$tmp/pf1")" 0
+out=$(unset BRUH_ROLE_KEY; pf "$tmp/pf1" --yes gitlab group/app 7 "$tmp/result.json" 2>&1)
+check "post-findings posts the summary and each confirmed finding" eq "$(posts "$tmp/pf1")" 3
+check "post-findings reports the counts" contains "$out" "2 inline, 0 general, 0 failed, 0 already posted"
+check "post-findings marks each body with the owner marker" marked "$tmp/pf1" '<!-- bruh:owner -->'
+check "post-findings posts inline findings on the head of the merge request" eq "$(jq -s '[.[] | select(.position.head_sha == "'"$RH"'" and .position.new_line == 3)] | length' "$tmp/pf1/posted.jsonl")" 1
+check "post-findings summary counts the confirmed and refuted findings" contains "$(jq -r 'select(.position == null) | .body' "$tmp/pf1/posted.jsonl")" "2 confirmed (1 security, 1 bug), 1 refuted"
+check "post-findings never runs finding text in a shell" not test -e "$tmp/pwned"
+out=$(unset BRUH_ROLE_KEY; pf "$tmp/pf1" --yes gitlab group/app 7 "$tmp/result.json" 2>&1)
+check "post-findings rerun posts nothing new" eq "$(posts "$tmp/pf1")" 3
+check "post-findings rerun reports each body as already posted" contains "$out" "0 inline, 0 general, 0 failed, 2 already posted"
+# A role session needs the approval ANSWER of bigm in its mailbox, or a post grant; --yes is refused.
+mkdir -p "$tmp/pfbox/mail/clerk-app-t1/read"
+jq -n '{id: "1", from: "clanker-app", to: "clerk-app-t1", header: "ANSWER Q-4: post group/app#7 at ccccccc approved", body: "yes"}' >"$tmp/pfbox/mail/clerk-app-t1/1.json"
+jq -n '{id: "2", from: "bigm", to: "clerk-app-t1", header: "ANSWER Q-5: post group/app#8 at ccccccc approved", body: "yes"}' >"$tmp/pfbox/mail/clerk-app-t1/2.json"
+jq -n '{id: "3", from: "bigm", to: "clerk-app-t1", header: "ANSWER Q-6: post group/app#7 at ccccccc refused", body: "no"}' >"$tmp/pfbox/mail/clerk-app-t1/3.json"
+out=$(BRUH_ROLE_KEY=clerk-app-t1 pf "$tmp/pf2" --yes gitlab group/app 7 "$tmp/result.json" 2>&1; echo "exit $?")
+check "post-findings refuses --yes in a role session" contains "$out" "exit 3"
+for q in Q-4 Q-5 Q-6 Q-9; do
+	out=$(BRUH_ROLE_KEY=clerk-app-t1 pf "$tmp/pf2" --data "$tmp/pfbox" --answer "$q" gitlab group/app 7 "$tmp/result.json" 2>&1; echo "exit $?")
+	check "post-findings refuses $q: not an approval of bigm for this post" contains "$out" "exit 3"
+done
+check "a refused post posts nothing" eq "$(posts "$tmp/pf2")" 0
+# An approval names the reviewed head: one for another head, or with no SHA, does not cover this result.
+jq -n '{id: "5", from: "bigm", to: "clerk-app-t1", header: "ANSWER Q-8: post group/app#7 at ddddddd approved", body: "yes"}' >"$tmp/pfbox/mail/clerk-app-t1/5.json"
+jq -n '{id: "6", from: "bigm", to: "clerk-app-t1", header: "ANSWER Q-3: post group/app#7 approved", body: "yes"}' >"$tmp/pfbox/mail/clerk-app-t1/6.json"
+jq -n '{id: "7", from: "bigm", to: "clerk-app-t1", header: "ANSWER Q-2: post group/app#7 at cc approved", body: "yes"}' >"$tmp/pfbox/mail/clerk-app-t1/7.json"
+for q in Q-8 Q-3 Q-2; do
+	out=$(BRUH_ROLE_KEY=clerk-app-t1 pf "$tmp/pf2" --data "$tmp/pfbox" --answer "$q" gitlab group/app 7 "$tmp/result.json" 2>&1; echo "exit $?")
+	check "post-findings refuses $q: its approval does not name the reviewed head" contains "$out" "exit 3"
+done
+jq -n '{id: "4", from: "bigm", to: "clerk-app-t1", header: "ANSWER Q-7: post group/app#7 at ccccccc approved", body: "owner: yes"}' >"$tmp/pfbox/mail/clerk-app-t1/read/4.json"
+# The approval SHA must be a prefix of a full 40-hex head_sha: a short head_sha in the result is not enough.
+jq '.head_sha = "ccccccc"' "$tmp/result.json" >"$tmp/short.json"
+out=$(BRUH_ROLE_KEY=clerk-app-t1 pf "$tmp/pf2s" --data "$tmp/pfbox" --answer Q-7 gitlab group/app 7 "$tmp/short.json" 2>&1; echo "exit $?")
+check "post-findings refuses an approval for a result whose head_sha is not 40 hex" contains "$out" "exit 3"
+out=$(BRUH_ROLE_KEY=clerk-app-t1 pf "$tmp/pf2" --data "$tmp/pfbox" --answer Q-7 gitlab group/app 7 "$tmp/result.json" 2>&1; echo "exit $?")
+check "the approval ANSWER of bigm for this post allows it" contains "$out" "exit 0"
+check "post-findings marks each body with the role key" marked "$tmp/pf2" '<!-- bruh:clerk-app-t1 -->'
+check "post-findings refuses a bad question ID" not pf "$tmp/pf2" --answer 'Q-1 x' gitlab group/app 7 "$tmp/result.json"
+# A post grant row lets the named role key post without --yes; a merge grant row does not.
+mkdir -p "$tmp/pfdata/init" "$tmp/pfledger"
+jq -n --arg l "$tmp/pfledger" '{ledger_path: $l}' >"$tmp/pfdata/init/config.json"
+cat >"$tmp/pfledger/grants.md" <<'MD'
+# Grants
+
+## Merge grants
+
+| Repository | Merger role key | Conditions | Owner words | Date (UTC) | Question ID |
+|---|---|---|---|---|---|
+| group/app | clerk-app-t1 | green CI | "merge it" | 2026-09-30T10:00:00Z | Q-1 |
+
+## Post grants
+
+| Poster role key | Host | Repository | Conditions | Owner words | Date (UTC) | Question ID |
+|---|---|---|---|---|---|---|
+| `clerk-app-t2` | gitlab | `group/app` | review results | "post reviews" | 2026-09-30T10:00:00Z | Q-2 |
+MD
+out=$(BRUH_ROLE_KEY=clerk-app-t1 pf "$tmp/pf3" --data "$tmp/pfdata" gitlab group/app 7 "$tmp/result.json" 2>&1; echo "exit $?")
+check "a merge grant row is not a post grant" contains "$out" "exit 3"
+out=$(BRUH_ROLE_KEY=clerk-app-t2 pf "$tmp/pf3" --data "$tmp/pfdata" gitlab group/other 7 "$tmp/result.json" 2>&1; echo "exit $?")
+check "a post grant covers only its repository" contains "$out" "exit 3"
+out=$(BRUH_ROLE_KEY=clerk-app-t2 pf "$tmp/pf3" --data "$tmp/pfdata" github group/app 7 "$tmp/result.json" 2>&1; echo "exit $?")
+check "a post grant covers only its host" contains "$out" "exit 3"
+out=$(BRUH_ROLE_KEY=clerk-app-t2 pf "$tmp/pf3" --data "$tmp/pfdata" gitlab group/app 7 "$tmp/result.json" 2>&1; echo "exit $?")
+check "a post grant row for the repository and the role key allows the post" contains "$out" "exit 0"
+check "the post grant posts each body" eq "$(posts "$tmp/pf3")" 3
+out=$(unset BRUH_ROLE_KEY; FAKE_REJECT_INLINE=1 pf "$tmp/pf4" --yes gitlab group/app 7 "$tmp/result.json" 2>&1)
+check "a rejected inline position becomes a general comment" contains "$out" "0 inline, 2 general, 0 failed"
+# shellcheck disable=SC2016 # literal backticks
+check "a general comment names file:line" contains "$(jq -r .body "$tmp/pf4/posted.jsonl")" '`src/a.go:3`'
+out=$(unset BRUH_ROLE_KEY; FAKE_HEAD=dddddddddddddddddddddddddddddddddddddddd pf "$tmp/pf5" --yes gitlab group/app 7 "$tmp/result.json" 2>&1)
+check "a moved head posts every finding as a general comment" contains "$out" "0 inline, 2 general"
+check "a moved head is named in the summary" contains "$(jq -r .body "$tmp/pf5/posted.jsonl")" "has moved to \`dddddddd\`"
+out=$(unset BRUH_ROLE_KEY; pf "$tmp/pf6" --yes github owner/app 7 "$tmp/result.json" 2>&1)
+check "post-findings posts on GitHub" contains "$out" "2 inline, 0 general, 0 failed"
+check "GitHub inline comments name the commit, the path, and the line" eq "$(jq -s '[.[] | select(.commit_id == "'"$RH"'" and .path == "src/b.go" and .line == 9 and .side == "RIGHT")] | length' "$tmp/pf6/posted.jsonl")" 1
+check "GitHub posts go to the pull request" contains "$(cat "$tmp/pf6/calls")" "repos/owner/app/pulls/7/comments"
+out=$(unset BRUH_ROLE_KEY; pf "$tmp/pf6" --yes github owner/app 7 "$tmp/result.json" 2>&1)
+check "GitHub rerun posts nothing new" eq "$(posts "$tmp/pf6")" 3
+jq '.status = "stopped"' "$tmp/result.json" >"$tmp/stopped.json"
+out=$(unset BRUH_ROLE_KEY; pf "$tmp/pf7" --yes gitlab group/app 7 "$tmp/stopped.json" 2>&1; echo "exit $?")
+check "post-findings refuses a stopped result" contains "$out" "exit 2"
+check "post-findings refuses a bad repository" not pf "$tmp/pf7" --yes github 'owner/app;x' 7 "$tmp/result.json"
+check "post-findings refuses a repository with a newline" not pf "$tmp/pf7" --yes github "owner/app
+../../orgs/x" 7 "$tmp/result.json"
+check "a refused repository reaches no code host" eq "$(grep -c . "$tmp/pf7/calls")" 0
+# A failed read of any page of the existing comments stops before the first post.
+for h in gitlab github; do
+	r=group/app
+	[ "$h" = github ] && r=owner/app
+	(unset BRUH_ROLE_KEY; pf "$tmp/pf9$h" --yes "$h" "$r" 7 "$tmp/result.json" >/dev/null 2>&1)
+	out=$(unset BRUH_ROLE_KEY; FAKE_FAIL_PAGE2=1 pf "$tmp/pf9$h" --yes "$h" "$r" 7 "$tmp/result.json" 2>&1; echo "exit $?")
+	check "a failed page 2 of the $h comments exits non-zero" not contains "$out" "exit 0"
+	check "a failed page 2 of the $h comments posts nothing" eq "$(posts "$tmp/pf9$h")" 3
+done
+check "post-findings refuses an unknown host" not pf "$tmp/pf7" --yes gitea owner/app 7 "$tmp/result.json"
+jq '.workflow = "review-and-fix" | .status = "findings_left" | .confirmed[0].state = "fixed" | .confirmed[1].state = "open" | .confirmed[1].round = 2' "$tmp/result.json" >"$tmp/fixed.json"
+out=$(unset BRUH_ROLE_KEY; pf "$tmp/pf8" --yes gitlab group/app 7 "$tmp/fixed.json" 2>&1)
+check "a finding of a later round is a general comment" contains "$out" "1 inline, 1 general"
+check "review-and-fix gets a note of the fixes" contains "$(jq -r .body "$tmp/pf8/posted.jsonl")" "1 of 2 findings fixed"
+check "the note of the fixes is marked" marked "$tmp/pf8" '<!-- bruh:owner -->'
 
 echo "$n tests, $fails failed"
 [ "$fails" -eq 0 ]

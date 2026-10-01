@@ -16,7 +16,7 @@ This repository is the ledger of bruh. It describes all other repositories. Keep
 | `mode.md` | `human` or `autonomous`, the date and the reason of the last change, and the runtime settings |
 | `priorities.md` | P-level definitions, delegated P1 classes, and the never-without-the-owner list |
 | `rules.md` | Standing owner rules, word for word, with dates and sources |
-| `grants.md` | Merge grants |
+| `grants.md` | Post grants and merge grants |
 | `questions.md` | Open P1 questions, oldest first, with age and what they block |
 | `owed.md` | Items owed to the owner, and asks of the owner |
 | `leases.md` | The lease table of the clankers |
@@ -34,4 +34,4 @@ The init skill writes each file of this folder that does not exist yet in the le
 
 1. In `mode.md`, it replaces the value of each `key: value` line with the init answer of the same key (`mode`, `p1_batch_minutes`, `p1_batch_size`, `review_round_cap`). It sets `changed` to the UTC time of the init and `reason` to `init`.
 2. It replaces `priorities.md` with the default `priorities.md` of the plugin, and it writes the answer `delegated_p1_classes` into its section "Delegated P1 classes", one item for each class.
-3. It adds one row to the table of `grants.md` for each item of the answer `merge_grants`.
+3. It adds one row to the table "Merge grants" of `grants.md`, the last table of the file, for each item of the answer `merge_grants`.

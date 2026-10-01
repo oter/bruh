@@ -182,6 +182,12 @@ func shq(s string) string { return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'
 
 // mcpAllowRules lists the allow rules of the bruh MCP tools. init_apply is left out, so an
 // agent cannot write user settings without the user.
+// workflowAllowRules are the allow rules of the plugin workflows that the role sessions launch.
+var workflowAllowRules = []string{
+	"Workflow(bruh:deliver)", "Workflow(bruh:tickets)", "Workflow(bruh:implement-tickets)",
+	"Workflow(bruh:review-and-fix)", "Workflow(bruh:review-only)",
+}
+
 func mcpAllowRules(slack bool) []string {
 	var rules []string
 	for _, t := range AllTools() {
@@ -225,7 +231,7 @@ func planSettings(old []byte, a InitAnswers, tap string) ([]byte, error) {
 	}
 	perms := top.child("permissions")
 	allow, _ := perms.vals["allow"].([]any)
-	for _, r := range append([]string{"Workflow(bruh:deliver)"}, mcpAllowRules(slices.Contains(a.Channels, "slack"))...) {
+	for _, r := range append(slices.Clone(workflowAllowRules), mcpAllowRules(slices.Contains(a.Channels, "slack"))...) {
 		if !slices.Contains(allow, any(r)) {
 			allow = append(allow, r)
 		}

@@ -39,7 +39,7 @@ jobs:
           globs: '**/*.md'
       - uses: lycheeverse/lychee-action@e7477775783ea5526144ba13e8db5eec57747ce8 # v2.9.0
         with:
-          args: --no-progress './**/*.md'
+          args: --no-progress --accept '200..=299,429' './**/*.md'
   plugin-validate:
     runs-on: ubuntu-latest
     steps:
@@ -60,4 +60,4 @@ jobs:
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: 22
-      - run: node --test plugins/bruh/agents/agents_test.mjs plugins/bruh/workflows/deliver.test.mjs
+      - run: node --test plugins/bruh/agents/agents_test.mjs plugins/bruh/workflows/deliver.test.mjs plugins/bruh/workflows/implement.test.mjs

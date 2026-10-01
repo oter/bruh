@@ -13,5 +13,6 @@ func AllTools() []Tool {
 	tools = append(tools, sessionTools()...)
 	tools = append(tools, initTools()...)
 	tools = append(tools, reposTools()...)
+	tools = append(tools, resultTools()...)
 	return tools
 }

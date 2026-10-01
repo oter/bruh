@@ -45,6 +45,21 @@ flowchart LR
 
 The full process is in [docs/flow.md](docs/flow.md) as diagrams.
 
+## Implement and review
+
+The skill `/bruh:implement` is the procedure for each code change and each review. The orchestrating session does not edit code. An implementer agent writes the change from a brief, and a separate reviewer agent checks it with the review guides, in a fix loop. For a settled spec with many changes, the skill uses four workflows:
+
+| Workflow | What it does |
+|---|---|
+| `/bruh:tickets` | Breaks a settled spec into function-sized TDD tickets and execution waves, reviewed in a fix loop |
+| `/bruh:implement-tickets` | Implements the tickets wave by wave, in parallel lanes (`scripts/lane.sh`), with a reviewer for each ticket and a whole-branch gate |
+| `/bruh:review-and-fix` | Reviews an own change with several lenses and the gates, refutes each finding, and fixes the confirmed findings one area at a time |
+| `/bruh:review-only` | Reviews and refutes a pull request of another author, and changes nothing |
+
+No workflow posts on a pull request. A workflow returns its findings. You post them with `scripts/post-findings.sh` (GitLab through `glab`, GitHub through `gh`): run it with `--dry-run` first, then with `--yes` in your own session. In a role session, a clerk saves the result with the MCP tool `result_save` and posts only with your approval, which bigm relays as `ANSWER Q-<n>: post <owner/repo>#<number> at <head SHA> approved` (`--answer Q-<n>`), or under a post grant in `grants.md` of the ledger. Each post starts with "Agent review" and carries the marker line `<!-- bruh:<role key> -->`. A rerun posts only the comments that are not on the pull request yet.
+
+In a role session, a clerk runs the skill. In your own session, you are the orchestrator: start with `/bruh:implement` and answer the questions of the session.
+
 ## Install
 
 Steps 4, 5, and 6 are optional. Create the ledger repository (step 3) before you answer question 2 of the init skill.
@@ -199,6 +214,8 @@ bigm starts a clanker for each project that has work. Tell bigm what to do. For 
 | Go 1.26 or later | Claude Code starts the bruh MCP server with `go run` |
 | `jq` | The hook scripts |
 | `git` | Worktrees, branches, and the ledger |
+| `rsync` | The lanes of `/bruh:implement-tickets` (`scripts/lane.sh`) |
+| `glab` or `gh` | Posts of review results (`scripts/post-findings.sh`) only |
 | Orca | Remote machines only |
 | Bun | The Telegram channel plugin only |
 | macOS or Linux | Native Windows is not supported |

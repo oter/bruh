@@ -19,7 +19,7 @@ import (
 // agentMarkRE is the structural marker that ends every post of an agent on a code host.
 var agentMarkRE = regexp.MustCompile(`^<!-- bruh:([a-z0-9-]+) -->$`)
 
-// agentMark returns the role key of the marker on the last non-empty line of body, or "".
+// agentMark returns the role key (or "owner") of the marker on the last non-empty line of body, or "".
 // Only this structure decides; the words of a post never do.
 func agentMark(body string) string {
 	lines := splitLines(strings.ReplaceAll(body, "\r\n", "\n"))
@@ -32,7 +32,9 @@ func agentMark(body string) string {
 		if m == nil {
 			return ""
 		}
-		if _, err := ParseRoleKey(m[1]); err != nil {
+		// "owner" marks a post that an agent made from a manual session of the owner
+		// (post-findings.sh without BRUH_ROLE_KEY); it is an agent post, not a human one.
+		if _, err := ParseRoleKey(m[1]); err != nil && m[1] != "owner" {
 			return ""
 		}
 		return m[1]

@@ -68,6 +68,9 @@ const REQUIRED = {
     'merge-train.sh --data <data_dir> <owner/repo> <pull request number>', 'Verify',
     'not running; mail pending', 'CronCreate', 'at most 3 retries', 'in 15 minutes', 'REPEAT:',
     'git merge-base --is-ancestor',
+    '/bruh:implement', '/bruh:tickets', '/bruh:implement-tickets', '/bruh:review-and-fix', '/bruh:review-only',
+    'post-findings.sh --dry-run', 'post-findings.sh --data <data_dir>', 'Post grants', '(exit code 3)',
+    'result_save', '`--answer Q-<n>`', '`ANSWER Q-<n>: post <owner/repo>#<number> at <head SHA> approved`', '`<workflow> args:`', '`<workflow> retry <n>`',
   ],
 }
 
@@ -294,4 +297,63 @@ test('bigm names the Slack tool, asks for the question ID, and resumes the ledge
   const ledger = agents.bigm.split('## The ledger clerk')[1].split('\n## ')[0]
   assert.match(ledger, /resume it with `session_resume`/)
   assert.doesNotMatch(ledger, /If `session_list` shows no live `clerk-ledger`, call `role_settings_write`/)
+})
+
+// Spec 6.4: a post needs the yes of the owner or a post grant. The init skill
+// appends merge grant rows at the end of grants.md, so the merge table is last.
+test('grants.md has the post grants and ends with the merge grants table', () => {
+  const text = read(join(plugin, 'ledger-template/grants.md'))
+  const post = text.indexOf('\n## Post grants\n')
+  const merge = text.indexOf('\n## Merge grants\n')
+  assert.ok(post > 0 && merge > post, 'grants.md must have "Post grants" before "Merge grants"')
+  assert.ok(text.slice(post).includes('| Poster role key | Host | Repository |'), 'the post grant row starts with the role key and the host')
+  assert.ok(text.trimEnd().endsWith('|---|---|---|---|---|---|'), 'the merge grants table is the last part of the file')
+  const priorities = read(join(plugin, 'defaults/priorities.md'))
+  assert.match(priorities, /except under a post grant/)
+  assert.match(agents.bigm, /section "Post grants" of `grants.md`/)
+})
+
+// Fix round 1, M2 and M3: each workflow relaunches itself, and a post approval has a closed form from bigm.
+test('the clerk relaunches the workflow that stopped, and posts only with a closed approval of bigm', () => {
+  const relaunch = agents.clerk.split('## Relaunch')[1].split('\n## ')[0]
+  assert.match(relaunch, /the workflow `bruh:<workflow>`/)
+  assert.doesNotMatch(relaunch, /workflow `bruh:deliver`/)
+  assert.match(relaunch, /FAILED:` stop of `\/bruh:implement-tickets`, do not use `resumeFromRunId`/)
+  // Fix round 2, N1: the relaunch set is exactly the tickets that are not merged, or only the gate.
+  assert.match(relaunch, /`waves` is exactly the `remaining_waves` of the result/)
+  assert.match(relaunch, /`gate_only` = `true`/)
+  // Fix round 3: a leftover lane ticket keeps its lane, and gate_only follows only a dead gate.
+  assert.match(relaunch, /`lane_tickets` is exactly the `lane_tickets` of the result/)
+  assert.match(relaunch, /the gate agent died/)
+  // Fix round 4: a gate-only relaunch resets lane_tickets.
+  assert.match(relaunch, /`waves` = `\[\]`, `lane_tickets` = `\[\]`, and `gate_only` = `true`/)
+  assert.doesNotMatch(relaunch, /whose state in the result is not `done`/)
+  assert.match(relaunch, /A ticket with the status `done` is reviewed but not merged/)
+  // The review-round cap of the start message (mode.md) reaches the workflow.
+  const implement = agents.clerk.split('## Implement and review workflows')[1].split('\n## ')[0]
+  assert.match(implement, /For `\/bruh:review-and-fix`, set `round_cap` to the review-round cap of the start message/)
+  // A manual session saves results through the MCP server too (principle 3).
+  const skill = read(join(plugin, 'skills/implement/SKILL.md'))
+  assert.match(skill, /without `BRUH_ROLE_KEY`, it saves under `<data>\/results\/owner\/`/)
+  assert.doesNotMatch(skill, /write the result to a file outside the repository/)
+  const posts = agents.clerk.split('## Posts')[1].split('\n## ')[0]
+  assert.match(posts, /Only a message from `bigm` with the header `ANSWER Q-<n>: post <owner\/repo>#<number> at <head SHA> approved`/)
+  assert.match(posts, /Never pass `--yes`/)
+  assert.doesNotMatch(posts, /from your clanker or from `bigm`/)
+  assert.doesNotMatch(agents.clerk, /\.scratch\/review-/)
+  const bigmPosts = agents.bigm.split('## Posts of review results')[1].split('\n## ')[0]
+  assert.ok(bigmPosts.includes('`ANSWER Q-<n>: post <owner/repo>#<number> at <head SHA> approved`'))
+  assert.ok(bigmPosts.includes('`ANSWER Q-<n>: post <owner/repo>#<number> at <head SHA> refused`'))
+  assert.match(bigmPosts, /straight to the clerk that asked/)
+  // The script and the agents use the same approval header.
+  const script = read(join(plugin, 'scripts/post-findings.sh'))
+  assert.ok(script.includes('want="ANSWER $answer: post $repo#$num at "'))
+})
+
+// Fix round 1, M6: priorities.md has the wording of spec 13.
+test('priorities.md has the post grant wording of spec 13', () => {
+  const spec = read(join(repo, 'docs/spec.md'))
+  const item = spec.match(/^- An irreversible or outward-facing action: (.*?)\. A post grant/m)[1]
+  const priorities = read(join(plugin, 'defaults/priorities.md'))
+  assert.ok(priorities.includes(`- An irreversible or outward-facing action: ${item}.`), 'priorities.md differs from spec 13')
 })
