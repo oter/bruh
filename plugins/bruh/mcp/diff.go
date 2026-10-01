@@ -19,13 +19,14 @@ type diffOp struct {
 	ai, bi int // lines of a and b before this op
 }
 
-// maxLCSCells caps the table of the longest common subsequence. Above it, the diff
-// shows the whole old file removed and the whole new file added.
-const maxLCSCells = 4_000_000
+// maxLCSLines caps each side of the table of the longest common subsequence, so the
+// table has at most about 4,000,000 cells. Above it, the diff shows the whole old file
+// removed and the whole new file added.
+const maxLCSLines = 2000
 
 // unifiedDiff returns a unified diff with three lines of context, or "" when nothing changed.
-// ponytail: O(n*m) longest common subsequence, capped at maxLCSCells; fine for settings and
-// template files, a whole-file replace for anything larger.
+// ponytail: O(n*m) longest common subsequence, capped at maxLCSLines on each side;
+// fine for settings and template files, a whole-file replace for anything larger.
 func unifiedDiff(from, to, old, new string) string {
 	if old == new {
 		return ""
@@ -33,7 +34,7 @@ func unifiedDiff(from, to, old, new string) string {
 	a, b := splitLines(old), splitLines(new)
 	n, m := len(a), len(b)
 	var ops []diffOp
-	if n > 0 && m > maxLCSCells/n {
+	if n > maxLCSLines || m > maxLCSLines {
 		for i, line := range a {
 			ops = append(ops, diffOp{'-', line, i, 0})
 		}
