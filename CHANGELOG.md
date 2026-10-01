@@ -10,6 +10,7 @@ The first release, `v0.1.0`, contains all parts of the [specification](docs/spec
 
 ### Added
 
+- Go fuzz tests of the role key parser, the sender policy of `mail_post`, and the handoff check. CodeQL scans each push and pull request. CI installs Claude Code from a lockfile with hashes (OpenSSF Scorecard).
 - Plugin marketplace `bruh` with one plugin, `bruh` (spec 17).
 - Role agents `bruh:bigm`, `bruh:clanker`, and `bruh:clerk`, with the launch settings of spec 3.1 and the role keys of spec 3.2.
 - The bruh MCP server in Go (standard library only), started with `go run`. Tools: `mail_post`, `mail_read`, `handoff_write`, `handoff_read`, `answer_write`, `answer_wait`, `report_write`, `report_read`, `role_settings_write`, `lease_define`, `lease_request`, `lease_grant`, `lease_release`, `lease_list`, `question_open`, `session_launch`, `session_resume`, `session_list`, `init_plan`, `init_apply`, `repos_set`, `result_save`, and `bruh_info`.
