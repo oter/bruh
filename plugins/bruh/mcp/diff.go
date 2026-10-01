@@ -12,14 +12,36 @@ func splitLines(s string) []string {
 	return strings.Split(strings.TrimSuffix(s, "\n"), "\n")
 }
 
+// diffOp is one line of a diff: ' ', '-', or '+'.
+type diffOp struct {
+	kind   byte
+	text   string
+	ai, bi int // lines of a and b before this op
+}
+
+// maxLCSCells caps the table of the longest common subsequence. Above it, the diff
+// shows the whole old file removed and the whole new file added.
+const maxLCSCells = 4_000_000
+
 // unifiedDiff returns a unified diff with three lines of context, or "" when nothing changed.
-// ponytail: O(n*m) longest common subsequence; fine for settings and template files.
+// ponytail: O(n*m) longest common subsequence, capped at maxLCSCells; fine for settings and
+// template files, a whole-file replace for anything larger.
 func unifiedDiff(from, to, old, new string) string {
 	if old == new {
 		return ""
 	}
 	a, b := splitLines(old), splitLines(new)
 	n, m := len(a), len(b)
+	var ops []diffOp
+	if n > 0 && m > maxLCSCells/n {
+		for i, line := range a {
+			ops = append(ops, diffOp{'-', line, i, 0})
+		}
+		for j, line := range b {
+			ops = append(ops, diffOp{'+', line, n, j})
+		}
+		return formatHunks(from, to, ops)
+	}
 	lcs := make([][]int, n+1)
 	for i := range lcs {
 		lcs[i] = make([]int, m+1)
@@ -33,25 +55,24 @@ func unifiedDiff(from, to, old, new string) string {
 			}
 		}
 	}
-	type op struct {
-		kind   byte
-		text   string
-		ai, bi int // lines of a and b before this op
-	}
-	var ops []op
 	for i, j := 0, 0; i < n || j < m; {
 		switch {
 		case i < n && j < m && a[i] == b[j]:
-			ops = append(ops, op{' ', a[i], i, j})
+			ops = append(ops, diffOp{' ', a[i], i, j})
 			i, j = i+1, j+1
 		case i < n && (j == m || lcs[i+1][j] >= lcs[i][j+1]):
-			ops = append(ops, op{'-', a[i], i, j})
+			ops = append(ops, diffOp{'-', a[i], i, j})
 			i++
 		default:
-			ops = append(ops, op{'+', b[j], i, j})
+			ops = append(ops, diffOp{'+', b[j], i, j})
 			j++
 		}
 	}
+	return formatHunks(from, to, ops)
+}
+
+// formatHunks writes the ops as unified diff hunks with three lines of context.
+func formatHunks(from, to string, ops []diffOp) string {
 	const ctx = 3
 	var out strings.Builder
 	fmt.Fprintf(&out, "--- %s\n+++ %s\n", from, to)
