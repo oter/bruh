@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 )
@@ -23,6 +24,24 @@ func TestUnifiedDiff(t *testing.T) {
 	new = strings.Replace(strings.Replace(old, "2\n", "two\n", 1), "7\n", "seven\n", 1)
 	if got := unifiedDiff("f", "f", old, new); strings.Count(got, "@@ -") != 1 {
 		t.Fatalf("got:\n%s", got)
+	}
+}
+
+// A file too large for the LCS table becomes one hunk that replaces the whole file,
+// so init_plan cannot allocate a table of n*m cells for a huge settings file.
+func TestUnifiedDiffLargeFileReplacesWhole(t *testing.T) {
+	var a strings.Builder
+	for i := range 3000 {
+		fmt.Fprintf(&a, "line %d\n", i)
+	}
+	old := a.String()
+	new := strings.Replace(old, "line 1500\n", "changed\n", 1)
+	got := unifiedDiff("f", "f", old, new)
+	if !strings.HasPrefix(got, "--- f\n+++ f\n@@ -1,3000 +1,3000 @@\n-line 0\n") || strings.Count(got, "@@ -") != 1 {
+		t.Fatalf("got the head:\n%s", got[:min(len(got), 200)])
+	}
+	if strings.Count(got, "\n-line ") != 3000 || strings.Count(got, "\n+line ") != 2999 {
+		t.Fatal("the whole old file must be removed and the whole new file added")
 	}
 }
 
