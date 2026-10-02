@@ -158,6 +158,7 @@ Decisions:
   - bigm writes `workspace.md` and the "Knowledge" section of each project file from the JSON, and commits.
   - A clanker starts from the JSON of its project and of the linked projects, and reads the code only for its task. Premise changed: step 3 of the start of the clanker read the full project each time.
 - L15: for a project that has no clanker, the watcher only updates the live status. It sends events (pushes, replies, red pipelines, merges) to a report file only when the project has a clanker. Owner decision 2026-10-02. Rejected: events for each learned repository.
+- L16 (F1): the title of each plugin option starts with "bruh: ", for example "bruh: Your name". The keys do not change. Owner decision 2026-10-02. Rejected: a `bruh_` prefix on the keys. Verify: a row of the `/config` panel shows the title of the option. If it shows the key, the decision falls back to the key prefix, and init moves the saved values to the new keys (agent-derived, needs owner decision).
 
 Open items (each is agent-derived, needs owner decision):
 
