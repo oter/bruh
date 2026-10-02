@@ -151,6 +151,13 @@ Decisions:
   - The owner is present during init, so init writes no new read rule into the user settings. Verify: a workflow agent that an interactive session starts can read the root in `auto` mode, or shows its permission prompt to the owner. If neither is true, the init skill gets a read rule for the root that applies only while the skill runs.
   - bigm learns a stale project again at the sweep, so the role settings of bigm get the read-only allow rule `Read(//<root>/**)`. A global `additionalDirectories` entry is rejected, because it also allows writes to the root in every session.
   - The allow list that init writes gets `Workflow(bruh:learn)`.
+- L14: refresh and use of the knowledge. Agent-derived, needs owner decision.
+  - When the owner confirms the tree, init calls `repos_set` for each selected repository on a supported code host, and makes the project file of each selected project. Premise changed: `repos_set` ran only when bigm started a clanker, and the project file was made at the first work (spec 8.1). Both now happen at the confirm.
+  - The watcher of spec 9.2 makes the live status. It already polls each repository of `repos_set`. It also reads the open pull requests, the open issues, and the latest release or deployment, and writes the live part of `learn/projects/<key>.json` only when a value changes. There is no second poller.
+  - At each sweep, bigm calls `learn_refresh`. The tool reads the remotes and the default branch again from the local git data, and calculates the hashes of the cited gate files again. A changed hash marks the project as stale, and bigm runs `bruh:learn` for the stale projects only.
+  - bigm writes `workspace.md` and the "Knowledge" section of each project file from the JSON, and commits.
+  - A clanker starts from the JSON of its project and of the linked projects, and reads the code only for its task. Premise changed: step 3 of the start of the clanker read the full project each time.
+- L15: for a project that has no clanker, the watcher only updates the live status. It sends events (pushes, replies, red pipelines, merges) to a report file only when the project has a clanker. Owner decision 2026-10-02. Rejected: events for each learned repository.
 
 Open items (each is agent-derived, needs owner decision):
 
