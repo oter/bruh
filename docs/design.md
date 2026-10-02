@@ -159,6 +159,7 @@ Decisions:
   - A clanker starts from the JSON of its project and of the linked projects, and reads the code only for its task. Premise changed: step 3 of the start of the clanker read the full project each time.
 - L15: for a project that has no clanker, the watcher only updates the live status. It sends events (pushes, replies, red pipelines, merges) to a report file only when the project has a clanker. Owner decision 2026-10-02. Rejected: events for each learned repository.
 - L16 (F1): the title of each plugin option starts with "bruh: ", for example "bruh: Your name". The keys do not change. Owner decision 2026-10-02. Rejected: a `bruh_` prefix on the keys. Verify: a row of the `/config` panel shows the title of the option. If it shows the key, the decision falls back to the key prefix, and init moves the saved values to the new keys (agent-derived, needs owner decision).
+- L17 (F3): `question_open` gets an optional `options` field: 2 to 4 options, each with a label and a description. bigm shows each P1 question that has options as a select with `AskUserQuestion`, and each question without options as text. `p1_batch_size` keeps its value. When a batch has more than 4 questions with options, bigm shows them on more than one screen, at most 4 questions on each screen. Owner decision 2026-10-02. Rejected: a maximum batch size of 4.
 
 Open items (each is agent-derived, needs owner decision):
 
