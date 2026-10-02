@@ -5,7 +5,7 @@ Status: version 0.6 is a draft for the review of the owner (2026-10-02). The own
 This specification is the input for the implementation plan. The decision log is in [design.md](design.md). The verified facts and the field lessons are in [knowledge.md](knowledge.md). The process is shown as diagrams in [flow.md](flow.md). Each decision in this file has one tag:
 
 - "Owner decision <date>": the owner made the decision.
-- "Delegated ruling <date>": the owner gave the decision to a subagent, and the subagent made it.
+- "Owner decision <date> (delegated ruling)": the owner gave the decision to a subagent, and the subagent made it.
 - "Agent-derived, accepted 2026-09-30": the agent proposed it, and the owner accepted all such items as a set on 2026-09-30, to test them in practice.
 - "Agent-derived, needs owner decision": the agent proposed it, and the owner has not decided it.
 - "Verify": a fact that the implementation must prove with a test before it depends on it.
@@ -79,7 +79,7 @@ Each role has a stable role key: `bigm`, `clanker-<project>`, `clerk-<project>-<
 
   For remote work, bigm runs in an Orca terminal. A channel runs only when the session starts with `--channels`. Agent-derived, accepted 2026-09-30.
 - bigm starts a clanker for each project that has work. It starts as many clankers as necessary and does not rotate them. Owner decision 2026-09-27. The concurrency caps of section 3.7 apply. Agent-derived, accepted 2026-09-30.
-- bigm is the only writer of the ledger, except the files of the learn step (section 8.5), which plugin code writes. bigm is the only role that commits the ledger, and it commits after each change. The setup of the owner confirmed that one writer kept the ledger consistent. Agent-derived, accepted 2026-09-30. The exception for the learn step: owner decision 2026-10-02.
+- bigm is the only writer of the ledger, except the files of the learn step (section 8.5), which plugin code writes. bigm commits after each change. The setup of the owner confirmed that one writer kept the ledger consistent. Agent-derived, accepted 2026-09-30. The exception for the learn step: owner decision 2026-10-02. bigm is also the only role that commits the files of the learn step: agent-derived, needs owner decision.
 - bigm runs the sweep of section 9.1 and reconciles all sessions at each sweep and at the start of each turn. Agent-derived, accepted 2026-09-30.
 - bigm answers status questions from the ledger. It reads the source again for each claim of principle 1. Agent-derived, accepted 2026-09-30.
 - bigm keeps an "Owed to owner" list. Each ask of the owner, and each item that bigm owes the owner, goes on the list before bigm acts or relays. In the field run, two such items were lost. Agent-derived, accepted 2026-09-30.
@@ -90,11 +90,11 @@ Each role has a stable role key: `bigm`, `clanker-<project>`, `clerk-<project>-<
 ### 3.5 Clanker
 
 - A clanker works in one project folder and knows the full picture of that project. It does no hands-on work. Owner decision 2026-09-27.
-- A clanker starts from the stored knowledge of its project and of the linked projects (section 8.5). It reads the code for its task, and the gates that the knowledge marks `unknown` or `convention`. Agent-derived, needs owner decision.
+- A clanker starts from the stored knowledge of its project and of the linked projects (section 8.5). It reads the code for its task, and the gates that the knowledge marks `unknown` or `convention`. Owner decision 2026-10-02 (delegated ruling): the clanker reads these gates. The rest is agent-derived, needs owner decision.
 - A clanker writes no file. Its handoff and its reports go through the bruh MCP server. Agent-derived, accepted 2026-09-30.
 - A clanker divides the work into tasks and starts one clerk for each task. Owner decision 2026-09-27.
 - The start message of a clerk contains: the task, the acceptance criteria, the project context that the task needs, the role key of the clanker, the text of `priorities.md` and `rules.md`, the base SHA, the files that the task will touch, and the known overlaps with other tasks. Agent-derived, accepted 2026-09-30.
-- A clanker starts each clerk from the main checkout of the project, so that each clerk gets its own worktree. Agent-derived, accepted 2026-09-30.
+- A clanker starts each clerk from the main checkout of the project, so that each clerk gets its own worktree. Agent-derived, accepted 2026-09-30. Since version 0.6, a project can have more than one repository, so the clerk starts from the main checkout of the repository that its task changes (section 8.5). Agent-derived, needs owner decision.
 - A clanker answers P2 questions, and P1 questions of the delegated classes of `priorities.md`. It sends the other P1 questions and all P0 questions to bigm. Owner decision 2026-09-27 (P2) and 2026-09-29 (delegated classes).
 - A clanker sends each answer to the clerk that asked, as an `ANSWER`, and writes a copy to its report file. Routine status goes only to the report file. In the setup of the owner, one coordinator sent about 469 messages to the owner session (an estimate), and only about 36 were decision asks. Agent-derived, accepted 2026-09-30.
 - A clanker keeps the lease table of its clerks (section 8.4). Owner decision 2026-09-29.
@@ -254,6 +254,8 @@ learn/tree.json       the hierarchy (section 8.5)
 learn/projects/<key>.json  the knowledge of each project (section 8.5)
 ```
 
+Version 0.6 adds `learn/`: owner decision 2026-10-02. `workspace.md` is open (section 22).
+
 ### 8.1 Project file
 
 Agent-derived, accepted 2026-09-30.
@@ -293,42 +295,66 @@ Owner decision 2026-10-02: bruh learns the projects of the owner before the owne
 
 Hierarchy. Owner decision 2026-10-02: the hierarchy has the folder tree (root, group folder, project, repository), projects with more than one repository, and links between projects. Machines are not part of it.
 
-- The root is a folder that the owner selects, default `~/workspace`. A group folder is a folder below the root that is not a repository and that contains repositories. Agent-derived, needs owner decision: the definition of a group folder.
-- The scan proposes the projects of a group and the links between projects from structure only: a shared name prefix (`app` and `app-mobile`), dependency manifests (`go.mod`, `package.json`, `pubspec.yaml`), `.gitmodules`, and the `FROM` lines of a Dockerfile. It never classifies text by its meaning. The owner confirms each proposal. Owner decision 2026-10-02.
-- The project key is the proposed project name in lower case, with each character that is not a letter or a digit changed to `-`, so that it matches the project part of a role key (section 3.2). When two groups have a project with the same name, the key gets the group name as a prefix (`hydra-ai-infra`). A key has at most 40 characters, so that `clerk-<key>-<task>` stays inside 64. Agent-derived, needs owner decision.
-- A project with more than one repository has one main repository. The clanker works in the folder of the main repository, and a clerk starts in the repository that its task changes. Agent-derived, needs owner decision.
+- The root is a folder that the owner selects, default `~/workspace`. Owner decision 2026-10-02.
+- The scan looks for repositories to a depth that is a runtime setting, default 4, because repositories of the owner are at depth 4. A group folder is a folder between the root and a repository that is not a repository itself. A nested group folder shows as its path, for example `gamble/platform-reference`. Agent-derived, needs owner decision.
+- The scan proposes the projects and the links from structure only. It never classifies text by its meaning. The owner confirms each proposal. Owner decision 2026-10-02. The rules below are agent-derived, needs owner decision:
+  - Projects: two repositories of one group are one proposed project when the name of one is the full name of the other, followed by `-` or `.` (`wishmateai` and `wishmateai-app`). Each other repository is one project.
+  - Links: a link goes from a repository to a scanned repository when a manifest names that repository exactly: a module path in `go.mod` or a URL in `.gitmodules` that is equal to the remote of the scanned repository, a package name in `package.json` or `pubspec.yaml` that is equal to the package name of the scanned repository, or a Dockerfile `FROM` image whose last path part without the tag is equal to the name of the scanned repository.
+- The project key is the proposed project name in lower case ASCII. Each run of characters that are not a letter or a digit becomes one `-`, and a `-` at the start or at the end is removed, so that the key matches the project part of a role key (section 3.2). When two groups have a project with the same name, the key gets the group name as a prefix (`hydra-ai-infra`). A key has at most 40 characters. A role key has at most 64 characters (`mcp/env.go`), so with a key of 40 characters a clanker gives a task name of at most 17 characters. Agent-derived, needs owner decision.
+- A project with more than one repository has one main repository, which the owner can change at the confirm. The clanker works in the folder of the main repository. A clerk starts from the main checkout of the repository that its task changes, and a task changes one repository only: the clanker divides a change of two repositories into two tasks. Agent-derived, needs owner decision.
 
 Knowledge. Owner decision 2026-10-02: for each project, bruh stores the repositories and their code hosts, and the stack and the gates. It stores no live status. bigm reads the open pull requests, the issues, and the pipelines from the code host when the owner asks or when work needs it (principle 1).
 
-- For each repository: the path, the remotes, the host kind, and the default branch. The scan removes the user information (a user name or a token) from each remote URL before it stores or shows the URL. Agent-derived, needs owner decision.
-- Delegated ruling 2026-10-02: the Go scan finds the stack and the gates, with no model call and no workflow. The sources, in this order: the task names of `Taskfile.yml` or `Taskfile.yaml`, the target names of a Makefile, the `scripts` of `package.json`, and a convention from `go.mod` or `pubspec.yaml`. Exact names map to gates: `build`, `test`, `lint`, `check`. The CI system comes from the CI paths `.github/workflows/`, `.gitlab-ci.yml`, and `.gitea/workflows/`. Each gate records its source (`declared`, `convention`, or `unknown`) and its file and line.
-- The scan reads files only. It never runs `task`, `make`, or any other command of a repository, because these can run code of the repository. It reads the top level of each repository only. A clanker reads the `includes:` of a Taskfile and the parts of a monorepo. Delegated ruling 2026-10-02.
-- The scan skips a `.git` file (a linked worktree), `.claude/` folders, a repository inside a repository, the ledger, and the folders that the owner excludes, default `archive/`. Agent-derived, needs owner decision.
+- For each repository: the path, the remotes, the host, the host kind, the API root, and the default branch. The scan removes the user information (a user name or a token) from each remote URL before it stores or shows the URL. Agent-derived, needs owner decision.
+- Owner decision 2026-10-02 (delegated ruling): the Go scan finds the stack and the gates, with no model call and no workflow. The sources, in this order: the task names of `Taskfile.yml` or `Taskfile.yaml`, the target names of a Makefile, the `scripts` of `package.json`, and a convention from `go.mod` or `pubspec.yaml`. Exact names map to gates: `build`, `test`, `lint`, `check`. The CI system comes from the CI paths `.github/workflows/`, `.gitlab-ci.yml`, and `.gitea/workflows/`. Each gate records its source (`declared`, `convention`, or `unknown`) and its file and line.
+- The scan reads files only, and only the top level of each repository. It never runs `task`, `make`, or another command of a repository, because these can run code of the repository. A clanker reads the `includes:` of a Taskfile and the parts of a monorepo. Owner decision 2026-10-02 (delegated ruling).
+- The details below are agent-derived, needs owner decision:
+  - A gate value is the call, for example `task test`, `make test`, or `npm run test`, not the body of the task.
+  - The MCP server uses the Go standard library only, so it has no YAML parser. In a Taskfile, the scan reads only the names of the keys under `tasks:`, line by line. A file that it cannot read in this way gives the source `unknown`.
+  - The scan never runs `git` in a repository, because the git configuration of a repository can run commands. It reads `.git/config` and `.git/HEAD` as files.
+  - The scan skips a `.git` file (a linked worktree), `.claude/` folders, a repository inside a repository, the ledger, and the folders that the owner excludes, default `archive/`.
 
 Code hosts and activity.
 
-- The host kind comes from an exact list: `github.com` is `github`, and `gitlab.com` is `gitlab`. The owner selects the kind of each other host at the confirm. Agent-derived, needs owner decision.
 - The pick shows the last activity of each repository on its code host: GitLab `last_activity_at`, GitHub `pushed_at`, Gitea `updated_at`. The last commit of the local clone is not the activity: on 2026-10-02 the local clone of an active GitLab repository showed a commit that was two months old. Owner decision 2026-10-02.
-- bruh reads a code host through the CLI that has the login of the owner: `gh` for GitHub, `glab` for GitLab, and `tea` or a `BRUH_GITEA_TOKEN_<HOST>` variable for Gitea. It calls a host only when it has a working login for that host. For each other host, it makes no call and shows "no login". Owner decision 2026-10-02 (GitLab through `glab`). Agent-derived, needs owner decision (`tea`, and no call without a login).
+- bruh reads GitLab through `glab`. Owner decision 2026-10-02.
+- The rules below are agent-derived, needs owner decision:
+  - The host of a remote with an SSH host alias (for example `gitlab.com-work`) is the `hostname` that `ssh -G <alias>` prints. This command reads the SSH configuration and makes no connection.
+  - The host kind comes, in this order, from an exact list (`github.com` is `github`, `gitlab.com` is `gitlab`), from the hosts of the logged-in CLIs (`gh auth status`, `glab auth status`, `tea logins list`), and from the `BRUH_GITEA_TOKEN_<HOST>` variables. Init asks the kind of each other host before the pick (section 16), so that the pick can show its activity.
+  - bruh reads GitHub through `gh` and Gitea through `tea` or a `BRUH_GITEA_TOKEN_<HOST>` variable. It calls a host only when it has a working login for that host. For each other host, it makes no call and shows "no login".
+  - It runs each CLI with a working folder outside the repositories, so that no configuration of a repository applies.
+  - Each call has a timeout of 10 seconds, and at most 8 calls run at the same time. A failed call (no access, not found, a rate limit, a timeout) shows the activity as "unknown" and does not stop the scan.
+  - Verify: the `tea` command that reads `updated_at` of a repository.
 
-Storage. Owner decision 2026-10-02: the result is JSON in the ledger, `learn/tree.json` and `learn/projects/<key>.json`. Plugin code writes these files, and bigm commits them. Plugin code writes a file only when a value changes, so a sweep with no change makes no commit.
+Storage. Owner decision 2026-10-02: the result is JSON in the ledger, `learn/tree.json` and `learn/projects/<key>.json`. Plugin code writes these files, and bigm commits them. The rules below are agent-derived, needs owner decision:
 
-- The MCP server also writes `workspace.md`, a Markdown view of the tree and the links, from the same data. bigm does not copy the JSON into Markdown. Agent-derived, needs owner decision.
+- Plugin code writes a file only when a value changes, so a sweep with no change makes no commit.
+- A project that the owner removes moves to `learn/archive/<key>.json`. Its project file stays.
+- Whether bruh also writes `workspace.md`, a Markdown view of the tree, is open (section 22).
 
 Use.
 
 - bigm answers questions about the projects from the JSON, and reads the code host again for each status claim (principle 1). Owner decision 2026-10-02.
-- When bigm starts a clanker, it takes the repositories, the host kinds, and the API roots for `repos_set` from the JSON. The init skill does not call `repos_set`, so the watcher polls only the repositories of projects with a clanker. Agent-derived, needs owner decision.
+- The rules below are agent-derived, needs owner decision:
+  - When bigm starts a clanker, it puts the JSON of the project and of the linked projects into the start message, so that the clanker reads no ledger file.
+  - bigm takes the input of `repos_set` (the repositories, the host kinds, and the API roots) from the JSON. The init skill does not call `repos_set`, so the watcher polls only the repositories of the projects that have a clanker.
+  - The role settings of the clanker get a read-only allow rule for each other repository of its project.
 
-Refresh. Owner decision 2026-10-02: the refresh depends on the cost.
+Refresh. Owner decision 2026-10-02: the refresh depends on the cost, and it runs at each sweep with no model call. The details are agent-derived, needs owner decision:
 
-- At each sweep, bigm calls `learn_refresh`. The tool reads the remotes and the default branches again from local git, and calculates the hashes of the files that the scan read. A changed hash makes the scan read the gates of that project again. There is no model call. Owner decision 2026-10-02 and delegated ruling 2026-10-02.
-- The owner runs `/bruh:init` again to add or remove projects. A second run shows the current selection as the default. Agent-derived, needs owner decision.
+- At each sweep, bigm calls `learn_refresh`. The tool reads the remotes and the default branch again from the files in `.git`, and calculates one hash for each project over the names and the contents of the gate files that exist. A new, changed, or removed gate file makes the scan read the gates of that project again.
+- A repository that is no longer at its path gets the state `missing`, and bigm sends one P1 for each missing repository.
+- A second run of `/bruh:init` changes the projects (section 16).
+
+Tool rules. Agent-derived, needs owner decision:
+
+- `learn_scan` refuses a caller that has a role key, so only the init skill in a session of the owner calls it. It takes the root from the init answers.
+- `learn_refresh` refuses each caller except bigm.
 
 Verify:
 
 - The scan of the root takes less than 2 seconds when it makes no code host call.
-- A fixture Makefile with `$(shell touch x)` does not make the file `x`.
+- A fixture Makefile with `$(shell touch x)` does not make the file `x`, and a fixture repository with `core.fsmonitor` in its `.git/config` runs nothing.
 - The MCP server reads the root without a permission prompt.
 - The output of the scan on the repositories of the owner matches a list made by hand.
 
@@ -342,7 +368,7 @@ Agent-derived, accepted 2026-09-30.
 - The sweep reads all report files, reconciles `claude agents --json --all` and Orca `worker-list`, reads the source for each row past its next check, sends the P1 batch when it is due, and updates the ledger.
 - A `Monitor`, a background command, and a self-paced `/loop` are not restored on resume. So on a resume, bigm starts the watcher (section 9.2) and the Orca receive loop again. In the setup of the owner, the sweep loop died on a usage limit, and nobody restarted it.
 - Verify: `CronCreate` tasks run in an interactive bigm while the owner is away from the terminal.
-- At each sweep, bigm calls `learn_refresh` (section 8.5) and commits a change of the files of the learn step. Owner decision 2026-10-02.
+- At each sweep, bigm calls `learn_refresh` (section 8.5) and commits a change of the files of the learn step. Owner decision 2026-10-02: the refresh at each sweep. Agent-derived, needs owner decision: the tool and the commit.
 
 ### 9.2 Watcher
 
@@ -368,7 +394,7 @@ Agent-derived, accepted 2026-09-30.
 
 Owner decision 2026-09-29: bruh keeps all its files in the plugin data folder `${CLAUDE_PLUGIN_DATA}`, and plugin code writes them. Claude Code guards `~/.claude` against writes by Claude, but not against writes by plugin code. The only files outside the plugin data folder are the settings keys that the init skill writes after the owner approves the diff, and the private ledger repository.
 
-The plugin ships a stdio MCP server written in Go with the standard library only. Claude Code starts it with `go run -C ${CLAUDE_PLUGIN_ROOT}/mcp .` and `GOTOOLCHAIN=local`, so the repository holds no binaries. Owner decision 2026-09-30. Its tools: `mail_post`, `mail_read`, `handoff_write`, `handoff_read`, `answer_write`, `answer_wait`, `report_write`, `role_settings_write`, `lease_request`, `lease_grant`, `lease_release`. It reads the role key of its caller from `BRUH_ROLE_KEY`. Agent-derived, accepted 2026-09-30. Verify: an MCP server started by a session gets the `env` values of its `--settings` file. Version 0.6 adds the tools `learn_scan` and `learn_refresh` (section 8.5), and the field `options` of `question_open` (section 14.2). Owner decision 2026-10-02.
+The plugin ships a stdio MCP server written in Go with the standard library only. Claude Code starts it with `go run -C ${CLAUDE_PLUGIN_ROOT}/mcp .` and `GOTOOLCHAIN=local`, so the repository holds no binaries. Owner decision 2026-09-30. Its tools: `mail_post`, `mail_read`, `handoff_write`, `handoff_read`, `answer_write`, `answer_wait`, `report_write`, `role_settings_write`, `lease_request`, `lease_grant`, `lease_release`. It reads the role key of its caller from `BRUH_ROLE_KEY`. Agent-derived, accepted 2026-09-30. Verify: an MCP server started by a session gets the `env` values of its `--settings` file. Version 0.6 adds the tools `learn_scan` and `learn_refresh` (section 8.5; agent-derived, needs owner decision), and the field `options` of `question_open` (section 14.2; owner decision 2026-10-02).
 
 ### 10.2 Local and container
 
@@ -435,7 +461,8 @@ Owner decision 2026-09-29: `priorities.md` lists the delegated P1 classes that a
 - bigm shows a P0 at once, at the top of its next reply and through the channel. Owner decision 2026-09-27.
 - A P0 for a permission prompt carries the command `claude attach <id>`. A P0 for a classifier refusal carries the exact command and the refusal category, and gives the owner two options: run it, or add a scoped allow rule. Agent-derived, accepted 2026-09-30.
 - bigm queues P1 questions and shows them as a batch. Owner decision 2026-09-27. The interval and the maximum batch size are runtime settings in `mode.md`, asked by the init skill and changeable at any time. Owner decision 2026-09-29. Agent-derived, accepted 2026-09-30: the defaults are an interval of 60 minutes and at most 5 items; a batch goes out early when 5 items are queued; an empty queue sends nothing; a P0 never waits for a batch.
-- Owner decision 2026-10-02: `question_open` takes an optional field `options`: 2 to 4 options, each with a label and a description. The question file keeps them. bigm shows each P1 question that has options as a select (`AskUserQuestion`), at most 4 questions on one screen, and more screens when the batch has more. bigm shows each question without options as text. This replaces "bigm shows the items of a batch one for each message" of version 0.5.
+- Owner decision 2026-10-02: `question_open` takes an optional field `options`: 2 to 4 options, each with a label and a description. The question file of the asker keeps them. bigm shows each P1 question that has options as a select (`AskUserQuestion`), at most 4 questions on one screen, and more screens when the batch has more. bigm shows each question without options as text. This replaces "bigm shows the items of a batch one for each message" of version 0.5.
+- The options travel in the body of the message, one line for each option in the closed form `OPTION <n>: <label> | <description>`, because bigm cannot read the question file of another role and a remote clanker is on another machine. A clanker or a clerk that relays a question copies these lines word for word. bigm reads the options only from these lines. Agent-derived, needs owner decision.
 - Owner decision 2026-10-02: bigm shows the selects only in a reply to a message of the owner. At another time, bigm shows the batch as text and tells the owner to reply to answer it with selects. An open select holds the turn of bigm, so the sweep and a new P0 would wait. Verify: an open select holds the turn of bigm.
 - When the clanker sent a `REC` for a question, the recommended option is first and its label says "(Recommended)". Agent-derived, needs owner decision.
 - bigm sends the answer to the session that asked, as an `ANSWER`, and records the question and the answer in the ledger. Agent-derived, accepted 2026-09-30.
@@ -453,27 +480,30 @@ Agent-derived, accepted 2026-09-30, except where tagged.
 
 ## 16. Init skill
 
-Owner decision 2026-09-27: the plugin has an init skill that asks the user questions. Owner decision 2026-10-02: the init skill also runs the learn step (section 8.5); each question tells in one line what its answer controls; and each question with fixed answers is a select (`AskUserQuestion`) with the default first. The owner gave this feedback after the first run of version 0.5: the 13 questions did not tell what each answer controls, there was no step to see and select the projects, and the questions were not interactive.
+Owner decision 2026-09-27: the plugin has an init skill that asks the user questions. Owner decision 2026-10-02: the init skill also runs the learn step (section 8.5). The owner gave this feedback after the first run of version 0.5: the 13 questions did not tell what each answer controls, there was no step to see and select the projects, and the questions were not interactive. Agent-derived, needs owner decision: the answer to the feedback, which is one line for each question that tells what its answer controls, and a select (`AskUserQuestion`) with the default first for each question with fixed answers.
 
-Before init: the `userConfig` dialog of the plugin asks `user_name`, `handoff_percent`, and `max_busy_clerks` when the owner installs the plugin, and the owner changes them in `/config`. The init skill does not ask them. Owner decision 2026-10-02. The first run of version 0.5 showed the problem: the install dialog had set `handoff_percent` to 55 and `max_busy_clerks` to 30, and init asked again and replaced both. The title of each option starts with "bruh: ", for example "bruh: Your name", and the keys do not change. Owner decision 2026-10-02. Verify: a row of `/config` shows the title of the option. If it shows the key, the keys get the prefix `bruh_`, and init moves the saved values (agent-derived, needs owner decision).
+Before init: the `userConfig` dialog of the plugin asks the plugin options when the owner installs the plugin, among them `user_name`, `handoff_percent`, and `max_busy_clerks`. The owner changes them in `/config`. The init skill does not ask them, and `init_plan` does not write them. Owner decision 2026-10-02. The first run of version 0.5 showed the problem: the install dialog had set `handoff_percent` to 55 and `max_busy_clerks` to 30, and init asked again and replaced both. The title of each option starts with "bruh: ", for example "bruh: Your name", and the keys do not change. Owner decision 2026-10-02. Verify: a row of `/config` shows the title of the option. If it shows the key, the keys get the prefix `bruh_`, and init moves the saved values (agent-derived, needs owner decision).
 
-`/bruh:init` has these steps:
+`/bruh:init` has these steps. Each step is agent-derived, needs owner decision, except where tagged.
 
-1. Ledger: a select of the detected ledger folders (a repository with `mode.md`), or another path. The skill creates the layout of section 8 for each file that does not exist. Agent-derived, needs owner decision: the detection.
+1. Ledger: a select of the ledger folders that the skill finds (a repository with `mode.md`) in the current folder and below the default root, plus another path. When the skill finds none, it asks for the path as text. The skill creates the layout of section 8 for each file that does not exist.
 2. Mode: human or autonomous. Agent-derived, accepted 2026-09-30.
 3. P1 batch interval, P1 batch size, and review-round cap: one select each, with the default first. Owner decision 2026-10-02, which keeps the owner decision of 2026-09-29 that init asks the batch interval and size.
-4. "Defaults for the rest" or "customize". "Customize" asks the auto-compact window, the status line tap (the skill shows the current and the new value), and the channels. Agent-derived, needs owner decision.
-5. Root folder: `~/workspace`, or another path. Agent-derived, needs owner decision.
-6. Pick (section 8.5). Screen 1 shows the groups and the single repositories, each with a count, for example "12 repos, 4 active in 30 days". For each selected group, the owner selects "active in 30 days", "all", or "pick". Only "pick" opens screens of repositories, most active first, with at most 4 questions of 4 options on a screen. Owner decision 2026-10-02.
-7. Confirm. For each group, the proposed projects and links, with the selects "accept", "split", and "skip". Then the kind of each host that is not on the exact list of section 8.5. Agent-derived, needs owner decision.
-8. Diff. The skill shows the changes outside the ledger in plain words first, then the full diff, and waits for a yes. The diff contains each write of init: the settings, the role settings, the ledger layout, the files of the learn step, and the project file of each selected project. Nothing is written before the yes. Agent-derived, needs owner decision: the summary before the diff.
-9. Trust. The skill lists the selected repositories that need the trust dialog (section 4.1). The owner selects "now" or "at the first work". "Now": the skill guides the owner through one interactive `claude` for each repository, with a counter. "At the first work": bigm sends a P0 with the folder when a clanker cannot start there. Owner decision 2026-10-02. Not offered: a write of the trust flag into `~/.claude.json`, because it is not documented and it turns on the hooks and the MCP servers of each selected repository.
+4. "Defaults for the rest" or "customize". "Customize" asks the auto-compact window, the status line tap (the skill shows the current and the new value), and the channels. "Defaults" keeps each value that the settings already have, and sets only the missing ones.
+5. Root folder: `~/workspace`, or another path. Owner decision 2026-10-02.
+6. Host kinds: the kind of each host that section 8.5 cannot find, so that the pick can show its activity.
+7. Pick (section 8.5). Screen 1 shows the groups and the single repositories, each with a count, for example "12 repos, 4 active in 30 days". More than 16 items go on more screens. For each selected group, the owner selects "active in 30 days", "all", or "pick". Only "pick" opens screens of repositories, most active first, with at most 4 questions of 4 options on a screen. Owner decision 2026-10-02.
+8. Confirm. For each group, the proposed projects and links, with the selects "accept", "split", and "skip", and the main repository of each project with more than one repository.
+9. Diff. Nothing is written before the yes of the owner. The diff contains each write of init: the settings, the role settings, the ledger layout, the files of the learn step, and the project file of each selected project. How the skill shows a diff of this size is open (section 22).
+10. Trust. The skill lists each selected repository, and shows for each one whether it has `.claude/settings.json` or `.mcp.json`, because the trust dialog turns on the hooks and the MCP servers of the repository. The owner selects "now" or "at the first work". "Now": the skill guides the owner through one interactive `claude` for each repository, with a counter, and a repository that is already trusted opens with no dialog. "At the first work": bigm sends a P0 with the folder when a clanker or a clerk cannot start there. Owner decision 2026-10-02 (the trust step, "now" and "at the first work"). The skill does not read or write the trust flags in `~/.claude.json`, because they are not documented.
 
-These are no longer init questions: merge grants, delegated P1 classes, and remote machines. The owner tells bigm, and bigm records each one: a merge grant in `grants.md` (section 8.3), a delegated class in `priorities.md` (section 14.1), and a remote machine on the line `remote_environments:` of `mode.md`. Agent-derived, needs owner decision.
+A second run of the skill asks first: "change projects" or "full init". "Change projects" shows the selected projects and asks "add" or "remove" with selects, because a select of `AskUserQuestion` has no option that is selected at the start. A removed project goes to `learn/archive/`, and its project file stays. "Full init" shows each current value as the default, and each changed ledger value is in the diff.
 
-The skill adds the allow rules `Workflow(bruh:deliver)` and the allow rules of the MCP tools to user settings, and writes the defaults of the role settings files (section 3.1). After the apply, it shows only the notes that match the answers: for example, no Telegram note when the answer has no channel. Agent-derived, needs owner decision: the matching notes.
+These are no longer init questions: merge grants, delegated P1 classes, and remote machines. The owner tells bigm, and bigm records each one: a merge grant in `grants.md` (section 8.3), a delegated class in `priorities.md` (section 14.1), and a remote machine on the new line `remote_environments:` of `mode.md`.
 
-Non-interactive form: for a container, the init skill reads the same answers from a file or from environment variables, prints the diff, and writes the files. The keys `root` and `projects` give the selected projects. Agent-derived, needs owner decision.
+The skill adds the allow rules `Workflow(bruh:deliver)` and the allow rules of the MCP tools to user settings, and writes the defaults of the role settings files (section 3.1). Agent-derived, accepted 2026-09-30. After the apply, it shows only the notes that match the answers: for example, no Telegram note when the answer has no channel.
+
+Non-interactive form: for a container, the init skill reads the same answers from a file or from environment variables, prints the diff, and writes the files. The keys `root` and `projects` give the selected projects. A container has no install dialog, so the keys `user_name`, `handoff_percent`, and `max_busy_clerks` set the plugin options there.
 
 ## 17. Plugin layout
 
@@ -574,7 +604,6 @@ Agent-derived, accepted 2026-09-30.
 
 - Native Windows.
 - Per-agent identities and several Claude accounts. Owner decision 2026-09-29: later.
-- The merge train on GitLab. A merge of a GitLab repository stays a P1 to the owner. bruh reads GitLab for the pick, the status on demand, and the watcher, and posts on GitLab already work through `scripts/post-findings.sh`. Agent-derived, needs owner decision.
 
 ## 22. Open questions for the owner
 
@@ -582,8 +611,12 @@ All numbered questions of version 0.3 are decided. Their answers are in design.m
 
 1. The ledger clerk (section 3.6): the reading of "clerks do all pushes" for the ledger.
 2. Each item in this file tagged "Agent-derived, accepted 2026-09-30".
-3. Each item in this file tagged "Agent-derived, needs owner decision". Version 0.6 has them in sections 3.5, 8.1, 8.5, 10.2, 14, 16, 20, and 21.
-4. Found in the review of 2026-10-02, and not changed by version 0.6: section 9.2 says that the watcher writes each event to the report file of the project, but the code writes all events to one file, `reports/watcher.jsonl`. The init answer `remote_environments` of version 0.5 is checked, but no file that bigm reads keeps it.
+3. Each item in this file tagged "Agent-derived, needs owner decision". Version 0.6 has them in sections 3.4, 3.5, 8.1, 8.5, 9.1, 10.1, 10.2, 14, 16, 18, and 20.
+4. Found in the review of 2026-10-02: section 9.2 says that the watcher writes each event to the report file of the project, but the code writes all events to one file, `reports/watcher.jsonl`. Version 0.6 does not change this. The init answer `remote_environments` of version 0.5 was checked, but no file that bigm reads kept it. Version 0.6 moves it to `mode.md` (section 16).
+5. GitLab scope. Version 0.6 reads GitLab for the pick and the status on demand (section 8.5), but `repos_set`, the watcher, and the merge train support only `github` and `gitea` (`mcp/codehost.go`), and the owner decision of 2026-09-30 says that nothing moves to a later version to cut scope. Options, ranked: (1) GitLab gets the same support as GitHub and Gitea, with the merge train, through `glab`; (2) GitLab gets the watcher and the status on demand, and a GitLab merge stays a P1 to the owner, as an explicit exception to the decision of 2026-09-30; (3) bigm does not call `repos_set` for a GitLab repository, and GitLab has no watcher.
+6. `workspace.md`. L7 of design.md (owner decision 2026-10-02) has bigm write a Markdown view of the tree. Options, ranked: (1) no `workspace.md`: bigm shows the tree from the JSON when the owner asks; (2) the MCP server writes it from the JSON; (3) bigm writes it, as L7 says.
+7. Projects on a remote machine (section 4.2). The scan reads only the root on the machine of bigm. Options, ranked: (1) the init skill on the remote machine scans its own root and sends the JSON to bigm through Orca; (2) the owner adds a remote project to the ledger by hand; (3) remote projects are not learned.
+8. The diff of init (section 16, step 9). With about 20 projects, the diff has more than 80 new ledger files. Options, ranked: (1) the full diff for the files outside the ledger, a table for the ledger part (key, repositories, stack, gates with their source), and the full ledger diff when the owner selects "show all", with one `diff_sha256` over all of it; (2) the full diff of all files, as the init skill of version 0.5 shows it.
 
 ## 23. Changes from version 0.3
 
@@ -610,13 +643,15 @@ All numbered questions of version 0.3 are decided. Their answers are in design.m
 The owner ran `/bruh:init` for the first time on 2026-10-02. The changes come from the feedback of the owner, the decisions L1 to L27 of design.md ("Learn step and onboarding"), and a review by four subagents (an adversarial reviewer, a checker of the claims against the code, a walk through the journey of the owner, and a search of the Claude Code docs).
 
 - Owner decision 2026-10-02: bruh learns the projects before the owner asks for work (sections 1 and 8.5). The init skill scans a root folder, the owner selects the projects with selects, and the Go scan stores the hierarchy, the repositories and their code hosts, and the stack and the gates as JSON in the ledger.
-- Delegated ruling 2026-10-02: the Go scan finds the gates from exact task and target names. There is no learn workflow, so no role other than a clerk starts a workflow (section 3).
+- Owner decision 2026-10-02 (delegated ruling): the Go scan finds the gates from exact task and target names. There is no learn workflow, so no role other than a clerk starts a workflow (section 3).
 - Owner decision 2026-10-02: bruh stores no live status. bigm reads it from the code host on demand (section 8.5).
-- Owner decision 2026-10-02: bruh reads GitLab through `glab` (section 8.5).
-- Owner decision 2026-10-02: the init skill has new steps, a purpose line for each question, and selects (section 16). It does not ask the three plugin options of the install dialog, and it ends with a trust step (sections 4.1 and 16).
+- Owner decision 2026-10-02: bruh reads GitLab through `glab` (section 8.5). The scope of the GitLab support is open (section 22).
+- The init skill has new steps (section 16): the pick and the trust step are owner decisions of 2026-10-02; the purpose line for each question and the selects are agent-derived, needs owner decision. It does not ask the three plugin options of the install dialog, and it ends with a trust step (sections 4.1 and 16).
 - Owner decision 2026-10-02: P1 questions can have options, and bigm shows them as selects in a reply to a message of the owner (section 14.2). A channel shows them as numbered text (section 12).
 - Premise changed: bigm learned about a project only from the first work request. Dependent decisions re-decided: the project file is made by the init skill, not at the first work (section 8.1); a clanker starts from the stored knowledge (section 3.5); bigm takes the input of `repos_set` from the stored knowledge (section 8.5); the sweep calls `learn_refresh` (section 9.1).
 - Premise changed: bigm was the only writer of the ledger. Dependent decisions re-decided: plugin code writes the files of the learn step, and bigm stays the only role that commits (principle 3, section 3.4).
+- Premise changed: init wrote `user_name`, `handoff_percent`, and `max_busy_clerks` into `pluginConfigs`. Dependent decisions re-decided: the install dialog asks them, `init_plan` does not write them, and the non-interactive form sets them in a container (section 16).
+- Premise changed: the trust list of init had only the ledger. Dependent decisions re-decided: the trust step covers the selected repositories, and the P0 at the first work covers a clanker and a clerk (sections 4.1 and 16).
 - Premise changed: init asked 13 questions, one for each message. Dependent decisions re-decided: merge grants, delegated P1 classes, and remote machines go to bigm, which records them in `grants.md`, `priorities.md`, and `mode.md` (sections 14.1 and 16); the README asks for the ledger before the init skill (section 18).
 - Premise changed: bigm showed the P1 items one for each message. Dependent decision re-decided: at most 4 questions with options on one select screen, and the text form at other times (section 14.2).
-- Corrected in the decision log: the watcher is its own process that polls every 60 seconds, not a step of the sweep; bruh already uses `glab` for posts on GitLab; the plugin has 6 options, not 3; 15 repositories of the owner are on `gitlab.com`.
+- Corrected in the decision log: the watcher is its own process that polls every 60 seconds, not a step of the sweep; bruh already uses `glab` for posts on GitLab; the plugin has 6 options, not 3; about 20 repositories of the owner are on `gitlab.com`, some through an SSH host alias.
