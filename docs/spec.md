@@ -249,12 +249,11 @@ questions.md          open P1 questions, oldest first, with age and what they bl
 owed.md               items owed to the owner, and asks of the owner
 leases.md             the lease table of the clankers (section 8.4)
 projects/<project>.md one file for each project
-workspace.md          the tree of groups, projects, repositories, and links (section 8.5)
 learn/tree.json       the hierarchy (section 8.5)
 learn/projects/<key>.json  the knowledge of each project (section 8.5)
 ```
 
-Version 0.6 adds `learn/`: owner decision 2026-10-02. `workspace.md` is open (section 22).
+Version 0.6 adds `learn/`: owner decision 2026-10-02.
 
 ### 8.1 Project file
 
@@ -295,6 +294,7 @@ Owner decision 2026-10-02: bruh learns the projects of the owner before the owne
 
 Hierarchy. Owner decision 2026-10-02: the hierarchy has the folder tree (root, group folder, project, repository), projects with more than one repository, and links between projects. Machines are not part of it.
 
+- Projects on a remote machine (section 4.2) are not learned in version 0.6. bigm learns about them from the first work request, as in version 0.5. Owner decision 2026-10-02.
 - The root is a folder that the owner selects, default `~/workspace`. Owner decision 2026-10-02.
 - The scan looks for repositories to a depth that is a runtime setting, default 4, because repositories of the owner are at depth 4. A group folder is a folder between the root and a repository that is not a repository itself. A nested group folder shows as its path, for example `gamble/platform-reference`. Agent-derived, needs owner decision.
 - The scan proposes the projects and the links from structure only. It never classifies text by its meaning. The owner confirms each proposal. Owner decision 2026-10-02. The rules below are agent-derived, needs owner decision:
@@ -330,7 +330,7 @@ Storage. Owner decision 2026-10-02: the result is JSON in the ledger, `learn/tre
 
 - Plugin code writes a file only when a value changes, so a sweep with no change makes no commit.
 - A project that the owner removes moves to `learn/archive/<key>.json`. Its project file stays.
-- Whether bruh also writes `workspace.md`, a Markdown view of the tree, is open (section 22).
+- bruh writes no Markdown view of the tree. bigm shows the tree from the JSON when the owner asks. Owner decision 2026-10-02.
 
 Use.
 
@@ -494,7 +494,7 @@ Before init: the `userConfig` dialog of the plugin asks the plugin options when 
 6. Host kinds: the kind of each host that section 8.5 cannot find, so that the pick can show its activity.
 7. Pick (section 8.5). Screen 1 shows the groups and the single repositories, each with a count, for example "12 repos, 4 active in 30 days". More than 16 items go on more screens. For each selected group, the owner selects "active in 30 days", "all", or "pick". Only "pick" opens screens of repositories, most active first, with at most 4 questions of 4 options on a screen. Owner decision 2026-10-02.
 8. Confirm. For each group, the proposed projects and links, with the selects "accept", "split", and "skip", and the main repository of each project with more than one repository.
-9. Diff. Nothing is written before the yes of the owner. The diff contains each write of init: the settings, the role settings, the ledger layout, the files of the learn step, and the project file of each selected project. How the skill shows a diff of this size is open (section 22).
+9. Diff. Nothing is written before the yes of the owner. The diff contains each write of init: the settings, the role settings, the ledger layout, the files of the learn step, and the project file of each selected project. The skill shows the full diff of the files outside the ledger, and a table for the ledger part: the project key, the repositories, the stack, and the gates with their source. When the owner selects "show all", it shows the full diff of the ledger part. One `diff_sha256` covers all files. Owner decision 2026-10-02 (the table and "show all").
 10. Trust. The skill lists each selected repository, and shows for each one whether it has `.claude/settings.json` or `.mcp.json`, because the trust dialog turns on the hooks and the MCP servers of the repository. The owner selects "now" or "at the first work". "Now": the skill guides the owner through one interactive `claude` for each repository, with a counter, and a repository that is already trusted opens with no dialog. "At the first work": bigm sends a P0 with the folder when a clanker or a clerk cannot start there. Owner decision 2026-10-02 (the trust step, "now" and "at the first work"). The skill does not read or write the trust flags in `~/.claude.json`, because they are not documented.
 
 A second run of the skill asks first: "change projects" or "full init". "Change projects" shows the selected projects and asks "add" or "remove" with selects, because a select of `AskUserQuestion` has no option that is selected at the start. A removed project goes to `learn/archive/`, and its project file stays. "Full init" shows each current value as the default, and each changed ledger value is in the diff.
@@ -614,9 +614,6 @@ All numbered questions of version 0.3 are decided. Their answers are in design.m
 3. Each item in this file tagged "Agent-derived, needs owner decision". Version 0.6 has them in sections 3.4, 3.5, 8.1, 8.5, 9.1, 10.1, 10.2, 14, 16, 18, and 20.
 4. Found in the review of 2026-10-02: section 9.2 says that the watcher writes each event to the report file of the project, but the code writes all events to one file, `reports/watcher.jsonl`. Version 0.6 does not change this. The init answer `remote_environments` of version 0.5 was checked, but no file that bigm reads kept it. Version 0.6 moves it to `mode.md` (section 16).
 5. GitLab scope. Version 0.6 reads GitLab for the pick and the status on demand (section 8.5), but `repos_set`, the watcher, and the merge train support only `github` and `gitea` (`mcp/codehost.go`), and the owner decision of 2026-09-30 says that nothing moves to a later version to cut scope. Options, ranked: (1) GitLab gets the same support as GitHub and Gitea, with the merge train, through `glab`; (2) GitLab gets the watcher and the status on demand, and a GitLab merge stays a P1 to the owner, as an explicit exception to the decision of 2026-09-30; (3) bigm does not call `repos_set` for a GitLab repository, and GitLab has no watcher.
-6. `workspace.md`. L7 of design.md (owner decision 2026-10-02) has bigm write a Markdown view of the tree. Options, ranked: (1) no `workspace.md`: bigm shows the tree from the JSON when the owner asks; (2) the MCP server writes it from the JSON; (3) bigm writes it, as L7 says.
-7. Projects on a remote machine (section 4.2). The scan reads only the root on the machine of bigm. Options, ranked: (1) the init skill on the remote machine scans its own root and sends the JSON to bigm through Orca; (2) the owner adds a remote project to the ledger by hand; (3) remote projects are not learned.
-8. The diff of init (section 16, step 9). With about 20 projects, the diff has more than 80 new ledger files. Options, ranked: (1) the full diff for the files outside the ledger, a table for the ledger part (key, repositories, stack, gates with their source), and the full ledger diff when the owner selects "show all", with one `diff_sha256` over all of it; (2) the full diff of all files, as the init skill of version 0.5 shows it.
 
 ## 23. Changes from version 0.3
 
@@ -646,6 +643,7 @@ The owner ran `/bruh:init` for the first time on 2026-10-02. The changes come fr
 - Owner decision 2026-10-02 (delegated ruling): the Go scan finds the gates from exact task and target names. There is no learn workflow, so no role other than a clerk starts a workflow (section 3).
 - Owner decision 2026-10-02: bruh stores no live status. bigm reads it from the code host on demand (section 8.5).
 - Owner decision 2026-10-02: bruh reads GitLab through `glab` (section 8.5). The scope of the GitLab support is open (section 22).
+- Owner decisions 2026-10-02, after the review of version 0.6: no Markdown view of the tree in the ledger; projects on a remote machine are not learned in version 0.6; the init diff shows a table for the ledger part, and the full ledger diff on request (sections 8.5 and 16).
 - The init skill has new steps (section 16): the pick and the trust step are owner decisions of 2026-10-02; the purpose line for each question and the selects are agent-derived, needs owner decision. It does not ask the three plugin options of the install dialog, and it ends with a trust step (sections 4.1 and 16).
 - Owner decision 2026-10-02: P1 questions can have options, and bigm shows them as selects in a reply to a message of the owner (section 14.2). A channel shows them as numbered text (section 12).
 - Premise changed: bigm learned about a project only from the first work request. Dependent decisions re-decided: the project file is made by the init skill, not at the first work (section 8.1); a clanker starts from the stored knowledge (section 3.5); bigm takes the input of `repos_set` from the stored knowledge (section 8.5); the sweep calls `learn_refresh` (section 9.1).
