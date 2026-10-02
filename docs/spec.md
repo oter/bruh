@@ -52,7 +52,7 @@ Each role runs as a plugin agent: `--agent bruh:bigm`, `--agent bruh:clanker`, `
 Every role starts with these flags. Agent-derived, accepted 2026-09-30, except where tagged.
 
 - `--permission-mode auto`. A plugin agent ignores `permissionMode` in its definition, so the mode is set at launch. All sessions of the setup of the owner ran in `auto` mode, and no message was held. Owner decision 2026-09-30.
-- `--settings <file>`, a settings file for the role that the parent writes through the MCP server. It holds `env.BRUH_ROLE_KEY` (section 3.2), the deny rules of section 13, and the tool account variables of section 4.1. The `--settings` flag carries through the restarts of a background session, but variables exported in the shell do not reach a background session.
+- `--settings <file>`, a settings file for the role that the parent writes through the MCP server. It holds `env.BRUH_ROLE_KEY` (section 3.2), the deny rules of section 13, and the tool account variables of section 4.1. Since version 0.6, the file of a clanker also holds read-only allow rules for the other repositories of its project (section 8.5; agent-derived, needs owner decision). The `--settings` flag carries through the restarts of a background session, but variables exported in the shell do not reach a background session.
 
 ### 3.2 Role key
 
@@ -419,7 +419,7 @@ Agent-derived, accepted 2026-09-30.
 
 Owner decision 2026-09-29: bruh keeps all its files in the plugin data folder `${CLAUDE_PLUGIN_DATA}`, and plugin code writes them. Claude Code guards `~/.claude` against writes by Claude, but not against writes by plugin code. The only files outside the plugin data folder are the settings keys that the init skill writes after the owner approves the diff, and the private ledger repository.
 
-The plugin ships a stdio MCP server written in Go with the standard library only. Claude Code starts it with `go run -C ${CLAUDE_PLUGIN_ROOT}/mcp .` and `GOTOOLCHAIN=local`, so the repository holds no binaries. Owner decision 2026-09-30. Its tools: `mail_post`, `mail_read`, `handoff_write`, `handoff_read`, `answer_write`, `answer_wait`, `report_write`, `role_settings_write`, `lease_request`, `lease_grant`, `lease_release`. It reads the role key of its caller from `BRUH_ROLE_KEY`. Agent-derived, accepted 2026-09-30. Verify: an MCP server started by a session gets the `env` values of its `--settings` file. Version 0.6 adds the tools `learn_scan` and `learn_refresh` (section 8.5; agent-derived, needs owner decision), and the field `options` of `question_open` (section 14.2; owner decision 2026-10-02).
+The plugin ships a stdio MCP server written in Go with the standard library only. Claude Code starts it with `go run -C ${CLAUDE_PLUGIN_ROOT}/mcp .` and `GOTOOLCHAIN=local`, so the repository holds no binaries. Owner decision 2026-09-30. Its tools: `mail_post`, `mail_read`, `handoff_write`, `handoff_read`, `answer_write`, `answer_wait`, `report_write`, `role_settings_write`, `lease_request`, `lease_grant`, `lease_release`. It reads the role key of its caller from `BRUH_ROLE_KEY`. Agent-derived, accepted 2026-09-30. Verify: an MCP server started by a session gets the `env` values of its `--settings` file. Version 0.6 adds the tools `learn_scan` and `learn_refresh` (section 8.5; agent-derived, needs owner decision), the field `options` of `question_open` (section 14.2; owner decision 2026-10-02), and the input `allow` of `role_settings_write` (section 8.5; agent-derived, needs owner decision).
 
 ### 10.2 Local and container
 
