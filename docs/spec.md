@@ -259,11 +259,12 @@ Version 0.6 adds `learn/`: owner decision 2026-10-02.
 
 Agent-derived, accepted 2026-09-30.
 
-Sections: Summary; In progress; Merged; Live; Decisions; Questions and answers; Sessions (role key, session ID, session name, machine, state, compaction count); Identities (the account or identity of each credential, checked before its first write); Shared resources and clerk leases (section 8.4); Waiting on others.
+Sections: Summary; In progress; Merged; Live; Decisions; Sessions (role key, session ID, session name, machine, state, compaction count); Identities (the account or identity of each credential, checked before its first write); Shared resources and clerk leases (section 8.4); Waiting on others.
 
 - Each row has: owner, task, expected deliverable, state, next check (UTC), link, and the source read of principle 1. The setup of the owner used these columns, with the rules "a dispatch is a row" and "a report is an update".
 - An owner action is a row too.
 - Merged and Live are separate. bigm rebuilds In progress, Merged, and Live from git and the code host after each merge and at each sweep, and stamps each row with its own "as of" time.
+- Version 0.6 removes the section "Questions and answers". An answer is in the commit that closes the question and in the `ANSWER` message. An answer that stays binding goes into "Decisions" (section 8.6). Owner decision 2026-10-02 (delegated to the agent).
 - The init skill makes the project file of each selected project, in its diff (section 16). Before version 0.6, bigm made it at the first work. Agent-derived, needs owner decision.
 
 ### 8.2 Commits and pushes
@@ -318,6 +319,7 @@ Code hosts and activity.
 
 - The pick shows the last activity of each repository on its code host: GitLab `last_activity_at`, GitHub `pushed_at`, Gitea `updated_at`. The last commit of the local clone is not the activity: on 2026-10-02 the local clone of an active GitLab repository showed a commit that was two months old. Owner decision 2026-10-02.
 - bruh reads GitLab through `glab`. Owner decision 2026-10-02.
+- GitLab gets the same support as GitHub and Gitea: the pick, the status on demand, `repos_set`, the watcher, and the merge train, all through `glab`. Owner decision 2026-10-02. Posts on GitLab already work through `scripts/post-findings.sh`.
 - The rules below are agent-derived, needs owner decision:
   - The host of a remote with an SSH host alias (for example `gitlab.com-work`) is the `hostname` that `ssh -G <alias>` prints. This command reads the SSH configuration and makes no connection.
   - The host kind comes, in this order, from an exact list (`github.com` is `github`, `gitlab.com` is `gitlab`), from the hosts of the logged-in CLIs (`gh auth status`, `glab auth status`, `tea logins list`), and from the `BRUH_GITEA_TOKEN_<HOST>` variables. Init asks the kind of each other host before the pick (section 16), so that the pick can show its activity.
@@ -329,7 +331,7 @@ Code hosts and activity.
 Storage. Owner decision 2026-10-02: the result is JSON in the ledger, `learn/tree.json` and `learn/projects/<key>.json`. Plugin code writes these files, and bigm commits them. The rules below are agent-derived, needs owner decision:
 
 - Plugin code writes a file only when a value changes, so a sweep with no change makes no commit.
-- A project that the owner removes moves to `learn/archive/<key>.json`. Its project file stays.
+- When the owner removes a project, plugin code deletes its JSON, and git keeps the old version (section 8.6). The project file goes when it has no open item.
 - bruh writes no Markdown view of the tree. bigm shows the tree from the JSON when the owner asks. Owner decision 2026-10-02.
 
 Use.
@@ -357,6 +359,16 @@ Verify:
 - A fixture Makefile with `$(shell touch x)` does not make the file `x`, and a fixture repository with `core.fsmonitor` in its `.git/config` runs nothing.
 - The MCP server reads the root without a permission prompt.
 - The output of the scan on the repositories of the owner matches a list made by hand.
+
+### 8.6 Ledger size
+
+Owner decision 2026-10-02, delegated to the agent: the owner said "i want to avoid situation that every new interaction with bigm will be polluting the .md files, constantly growing ... decide how to overcome that". The decision: the Markdown files of the ledger hold only the current state, and git is the history.
+
+- Each Markdown file of the ledger shows only open or live items. When an item closes, bigm deletes its row in the same commit: a task that is done, a question that has an answer, an item of `owed.md` that the owner got, a session that ended, a decision that a newer decision replaces, a lease that ended. Version 0.5 kept these rows with a closed state.
+- A row in "Merged" or "Live" goes at the first sweep after a status report has shown it to the owner (section 9.4).
+- The commit that deletes a row names the item in a closed form: `close <kind> <id>: <subject>`, where `<kind>` is `task`, `question`, `owed`, `session`, `decision`, or `lease`. So `git log --grep` finds each closed item, and nothing is lost.
+- `rules.md` and `grants.md` keep their rows, because each row is a standing answer of the owner. A rule goes only when the owner retires it (section 9.3).
+- Mechanical stop (principle 2): the init skill installs a `pre-commit` hook in the ledger repository only. The hook refuses a commit when a Markdown file of the ledger has more lines than `ledger_max_lines` in `mode.md`, default 300. bigm then deletes the closed rows before it commits again. The cap is a runtime setting in `mode.md`. Agent-derived, needs owner decision: the default of 300.
 
 ## 9. Loops
 
@@ -497,7 +509,7 @@ Before init: the `userConfig` dialog of the plugin asks the plugin options when 
 9. Diff. Nothing is written before the yes of the owner. The diff contains each write of init: the settings, the role settings, the ledger layout, the files of the learn step, and the project file of each selected project. The skill shows the full diff of the files outside the ledger, and a table for the ledger part: the project key, the repositories, the stack, and the gates with their source. When the owner selects "show all", it shows the full diff of the ledger part. One `diff_sha256` covers all files. Owner decision 2026-10-02 (the table and "show all").
 10. Trust. The skill lists each selected repository, and shows for each one whether it has `.claude/settings.json` or `.mcp.json`, because the trust dialog turns on the hooks and the MCP servers of the repository. The owner selects "now" or "at the first work". "Now": the skill guides the owner through one interactive `claude` for each repository, with a counter, and a repository that is already trusted opens with no dialog. "At the first work": bigm sends a P0 with the folder when a clanker or a clerk cannot start there. Owner decision 2026-10-02 (the trust step, "now" and "at the first work"). The skill does not read or write the trust flags in `~/.claude.json`, because they are not documented.
 
-A second run of the skill asks first: "change projects" or "full init". "Change projects" shows the selected projects and asks "add" or "remove" with selects, because a select of `AskUserQuestion` has no option that is selected at the start. A removed project goes to `learn/archive/`, and its project file stays. "Full init" shows each current value as the default, and each changed ledger value is in the diff.
+A second run of the skill asks first: "change projects" or "full init". "Change projects" shows the selected projects and asks "add" or "remove" with selects, because a select of `AskUserQuestion` has no option that is selected at the start. A removed project loses its JSON, and its project file goes when it has no open item (section 8.6). "Full init" shows each current value as the default, and each changed ledger value is in the diff.
 
 These are no longer init questions: merge grants, delegated P1 classes, and remote machines. The owner tells bigm, and bigm records each one: a merge grant in `grants.md` (section 8.3), a delegated class in `priorities.md` (section 14.1), and a remote machine on the new line `remote_environments:` of `mode.md`.
 
@@ -613,7 +625,6 @@ All numbered questions of version 0.3 are decided. Their answers are in design.m
 2. Each item in this file tagged "Agent-derived, accepted 2026-09-30".
 3. Each item in this file tagged "Agent-derived, needs owner decision". Version 0.6 has them in sections 3.4, 3.5, 8.1, 8.5, 9.1, 10.1, 10.2, 14, 16, 18, and 20.
 4. Found in the review of 2026-10-02: section 9.2 says that the watcher writes each event to the report file of the project, but the code writes all events to one file, `reports/watcher.jsonl`. Version 0.6 does not change this. The init answer `remote_environments` of version 0.5 was checked, but no file that bigm reads kept it. Version 0.6 moves it to `mode.md` (section 16).
-5. GitLab scope. Version 0.6 reads GitLab for the pick and the status on demand (section 8.5), but `repos_set`, the watcher, and the merge train support only `github` and `gitea` (`mcp/codehost.go`), and the owner decision of 2026-09-30 says that nothing moves to a later version to cut scope. Options, ranked: (1) GitLab gets the same support as GitHub and Gitea, with the merge train, through `glab`; (2) GitLab gets the watcher and the status on demand, and a GitLab merge stays a P1 to the owner, as an explicit exception to the decision of 2026-09-30; (3) bigm does not call `repos_set` for a GitLab repository, and GitLab has no watcher.
 
 ## 23. Changes from version 0.3
 
@@ -642,7 +653,8 @@ The owner ran `/bruh:init` for the first time on 2026-10-02. The changes come fr
 - Owner decision 2026-10-02: bruh learns the projects before the owner asks for work (sections 1 and 8.5). The init skill scans a root folder, the owner selects the projects with selects, and the Go scan stores the hierarchy, the repositories and their code hosts, and the stack and the gates as JSON in the ledger.
 - Owner decision 2026-10-02 (delegated ruling): the Go scan finds the gates from exact task and target names. There is no learn workflow, so no role other than a clerk starts a workflow (section 3).
 - Owner decision 2026-10-02: bruh stores no live status. bigm reads it from the code host on demand (section 8.5).
-- Owner decision 2026-10-02: bruh reads GitLab through `glab` (section 8.5). The scope of the GitLab support is open (section 22).
+- Owner decision 2026-10-02: bruh supports GitLab through `glab` in the same way as GitHub and Gitea: the pick, the status on demand, `repos_set`, the watcher, and the merge train (section 8.5).
+- Owner decision 2026-10-02, delegated to the agent: the Markdown files of the ledger hold only the current state, git is the history, and a `pre-commit` hook caps their size (section 8.6). Premise changed: bigm kept each row with a closed state, and the project file kept each question and answer. Dependent decisions re-decided: a closed row is deleted in its commit, the section "Questions and answers" goes (section 8.1), and a removed project loses its JSON (section 8.5).
 - Owner decisions 2026-10-02, after the review of version 0.6: no Markdown view of the tree in the ledger; projects on a remote machine are not learned in version 0.6; the init diff shows a table for the ledger part, and the full ledger diff on request (sections 8.5 and 16).
 - The init skill has new steps (section 16): the pick and the trust step are owner decisions of 2026-10-02; the purpose line for each question and the selects are agent-derived, needs owner decision. It does not ask the three plugin options of the install dialog, and it ends with a trust step (sections 4.1 and 16).
 - Owner decision 2026-10-02: P1 questions can have options, and bigm shows them as selects in a reply to a message of the owner (section 14.2). A channel shows them as numbered text (section 12).
