@@ -121,6 +121,34 @@ An adversarial review and an invariant check of the first spec draft found these
 
 - Owner decision 2026-09-30: the owner accepted, as a set, the recommended option of each decision that plans 2 to 6 tagged "agent-derived, needs owner decision" (see the [plan index](superpowers/plans/2026-09-30-bruh-v0.1-index.md)). The owner said "go go go" to the push and the pull request of the build.
 
+## Learn step and onboarding (owner, 2026-10-02)
+
+The owner ran `/bruh:init` for the first time on 2026-10-02 and gave this feedback:
+
+- F1: the plugin options in `/config` (`user_name`, `handoff_percent`, `max_busy_clerks`) do not show that they belong to bruh. The owner suggested a `bruh_` prefix. Open: see "Open items" below.
+- F2: the 13 init questions do not tell what each answer controls.
+- F3: the owner wants to answer questions with selects: the P1 questions of bigm and the init questions.
+- F4: init has no step that finds the projects and lets the owner select the projects that bruh works on.
+
+Premise changed: version 0.5 lets bigm learn about a project only from the first work request of the owner. The dependent decisions get a new decision in spec version 0.6: section 3.5 (a clanker knows the full picture of its project), section 8.1 (bigm makes the project file at the first work), section 16 (the init questions), the step "Work requests of the owner" of bigm (`repos_set` runs only when a clanker starts), step 3 of the start of the clanker (it reads the full project again each time), and the rules that bigm is the only writer of the ledger and that a clanker writes no file.
+
+Decisions:
+
+- L1: bruh learns the projects before the owner asks for work. A learn step makes the hierarchy and the knowledge. Owner decision 2026-10-02.
+- L2: the hierarchy has three parts: the folder tree (workspace, group folder, project, repository), projects with more than one repository, and links between projects. Machines are not part of the hierarchy. Owner decision 2026-10-02.
+- L3: the knowledge of each project has three parts: the repositories and their code hosts, the gates and the stack (language, build, test, and lint commands, CI), and the live status (open pull requests and issues, recent activity, deployments). The map of the docs and the rules is not part of the knowledge. Owner decision 2026-10-02.
+- L4: init scans a root folder (default `~/workspace`), shows the tree of groups and repositories, and the owner selects the projects that bruh learns. A second run adds projects. Owner decision 2026-10-02.
+- L5: the learn step proposes the projects of a group and the links between projects from structure only: a shared name prefix, dependency manifests, submodules, and container base images. It does not classify text by its meaning. The owner confirms or changes each proposal. Owner decision 2026-10-02.
+- L6: the refresh depends on the cost. The MCP server refreshes the repositories, the code hosts, and the live status at each sweep of bigm, with no model call. The gates and the stack are learned again only when their source files change (for example a Makefile, a CI file, or a manifest), or when the owner runs the learn step again. Owner decision 2026-10-02.
+- L7: approach A. Go code in the MCP server scans the root and proposes the tree. A `bruh:learn` workflow runs one agent for each confirmed project, which reads the gates and the stack and returns a fixed JSON shape. An MCP tool stores the result. bigm writes `workspace.md` and the knowledge section of each project file from the stored data, so bigm stays the only writer of the ledger. Owner decision 2026-10-02. Rejected: one learn clerk for each project (about 45 sessions, the busy clerk cap, and a trust dialog for each project folder), and bigm reads each project itself (context cost, no automatic refresh).
+
+Open items (each is agent-derived, needs owner decision):
+
+- The live status of a GitLab repository. `repos_set` accepts only `github` and `gitea`, and one repository of the owner is on GitLab.
+- F1: a `bruh_` prefix on the option keys, or a "bruh: " prefix on the option titles. A key change also changes `${user_config.<key>}` in the agent files, the `CLAUDE_PLUGIN_OPTION_<KEY>` variables of the hooks, and the saved values in `pluginConfigs`.
+- F3: `AskUserQuestion` takes at most 4 questions in one call. The default P1 batch size is 5.
+- Verify: an agent of a workflow that bigm starts in the ledger folder can read a project folder outside the ledger folder without a permission prompt.
+
 ## Knowledge
 
 The verified facts that these decisions depend on are in [knowledge.md](knowledge.md).
