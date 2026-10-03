@@ -35,7 +35,7 @@ Commands:
 
 func main() {
 	if len(os.Args) < 2 {
-		srv := NewServer("bruh", "0.1.0-dev", AllTools())
+		srv := NewServer("bruh", "0.9.0", AllTools())
 		if err := srv.Serve(EnvFromOS(), os.Stdin, os.Stdout); err != nil {
 			log.Fatal(err)
 		}
