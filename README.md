@@ -122,7 +122,7 @@ The ledger is Markdown in a separate private repository. It describes all your o
 gh repo create <owner>/<ledger repository> --private --clone
 ```
 
-When the folder is empty, the init skill creates the layout: `README.md`, `mode.md`, `priorities.md`, `rules.md`, `grants.md`, `questions.md`, `owed.md`, `leases.md`, and `projects/`. bigm is the only writer of the ledger. The ledger clerk pushes it after each commit of bigm.
+When the folder is empty, the init skill creates the layout: `README.md`, `mode.md`, `priorities.md`, `rules.md`, `grants.md`, `questions.md`, `owed.md`, `leases.md`, and `projects/`. It also writes `.claude/settings.json`, the start settings of bigm (step 7). bigm is the only writer of the ledger, except `.claude/settings.json`, which the init skill writes. The ledger clerk pushes the ledger after each commit of bigm.
 
 ### 4. Set up a channel (optional)
 
@@ -158,7 +158,7 @@ The bot allows only one reader. Each session that loads the Telegram plugin star
 
 On the remote machine:
 
-1. Install Claude Code, then do steps 1 and 2. The init skill asks for a ledger path. Give it an empty local folder that is not your ledger, for example `~/bruh-remote-ledger`. bigm writes only the ledger on its own machine.
+1. Install Claude Code, then do steps 1 and 2. The init skill asks for a ledger path. Give it an empty local folder that is not your ledger, for example `~/bruh-remote-ledger`. bigm writes only the ledger on its own machine. Init also writes the bigm start settings `.claude/settings.json` into that folder, so a plain `claude` in that folder starts a bigm on the remote machine. Do not keep a session there: quit with `/exit` after the trust dialog.
 2. Start the Orca runtime:
 
    ```bash
@@ -193,15 +193,23 @@ In the container, do step 1, then the non-interactive form of step 2. In a conta
 
 ### 7. Start bigm
 
-Start bigm in the folder of your ledger repository:
+Start bigm in the folder of your ledger repository, in one of two ways:
 
-```bash
-claude --agent bruh:bigm --name bigm --permission-mode auto \
-  --settings ~/.claude/plugins/data/bruh-bruh/roles/bigm.json \
-  --channels plugin:telegram@claude-plugins-official
-```
+- The full command:
 
-For Slack, add `--dangerously-load-development-channels plugin:bruh@bruh`. Without Telegram, remove the `--channels` line. `~/.claude/plugins/data/bruh-bruh/` is the plugin data folder of the plugin `bruh@bruh`. bigm stays an interactive session. Do not start it with `--bg`.
+  ```bash
+  claude --agent bruh:bigm --name bigm --permission-mode auto \
+    --channels plugin:telegram@claude-plugins-official
+  ```
+
+  For Slack, add `--dangerously-load-development-channels plugin:bruh@bruh`. Without Telegram, remove the `--channels` line.
+- Plain `claude`. The init skill writes `.claude/settings.json` into the ledger, and its key `agent` makes the session bigm. This session runs in the default permission mode, not in `auto` mode, and has no name `bigm` and no channel. After a plain start, run `/rename bigm`: clankers and clerks send their nudges to the session name `bigm`, and without the name a message waits for the next sweep.
+
+When you set up Slack or Telegram (step 4), start bigm only with the full command. A plain start reads the channel messages and drops them: the Slack server of bruh polls Slack in each bigm session, and the Telegram server takes the bot, but only the channel flags deliver the messages to the session.
+
+Run one bigm at a time. Each other `claude` in the ledger folder is a second bigm, which reads the mailbox of bigm and starts a second sweep. To open another session in the ledger folder, use `claude --setting-sources user`.
+
+The ledger settings file holds the role key, the env values, and the deny rules of bigm. If you installed bruh before this file existed, run `/bruh:init` again to write it. bigm stays an interactive session. Do not start it with `--bg`.
 
 bigm starts a clanker for each project that has work. Tell bigm what to do. For each project, tell bigm its code host repositories (`owner/name` and the host, GitHub or Gitea). bigm records them with the `repos_set` tool of bruh, so that the watcher and the merge train know them.
 

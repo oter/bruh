@@ -425,8 +425,12 @@ else
 	sed 's/^mode: .*/mode: autonomous/' "$ledger/mode.md" >"$ledger/mode.md.new" && mv "$ledger/mode.md.new" "$ledger/mode.md"
 	grep -q '^mode: autonomous$' "$ledger/mode.md" || die "setup: mode.md of the ledger template has no 'mode:' line"
 fi
+# The agent key and the role key are start settings of bigm that /bruh:init
+# writes into the ledger (spec 3.4).
 write_file "$ledger/.claude/settings.json" <<'EOF'
 {
+  "agent": "bruh:bigm",
+  "env": {"BRUH_ROLE_KEY": "bigm"},
   "permissions": {
     "allow": ["mcp__plugin_bruh_bruh", "SendMessage"],
     "deny": ["Bash(git push:*)"]
@@ -437,6 +441,20 @@ EOF
 commit_all "$ledger" "Create the smoke test ledger"
 
 # --- steps ------------------------------------------------------------------
+
+# A plain claude in the ledger starts as bigm through the agent key of the
+# ledger settings. With no tool and no MCP server, the probe only answers. The
+# step does not probe the role key: when it is missing, each bruh tool call of
+# bigm fails with "BRUH_ROLE_KEY is not set".
+plain=$(run_in "$ledger" claude -p --strict-mcp-config --tools "" --max-turns 1 --plugin-dir "$plugin" \
+	"Do not use any tool and do not follow any start-of-turn procedure. Reply with exactly one line: the role name that your system instructions give you, or NONE if they give you no role name.")
+if [ "$DRY" = 1 ]; then
+	result DRY plain-start
+elif [ "$plain" = bigm ]; then
+	result PASS plain-start "a plain claude in the ledger answered bigm"
+else
+	fail plain-start "a plain claude in the ledger answered '$(printf '%s' "$plain" | head -1)', not bigm"
+fi
 
 bigm_settings=$(mcp_call role_settings_write '{"role_key":"bigm"}' | jq -r '.path // empty')
 if [ "$DRY" = 1 ]; then
@@ -482,8 +500,10 @@ idle_resume() {
 		return 1
 	fi
 	# A short -p session nudges bigm. bigm, not the driver, sends the message to
-	# the clanker and must bring it back by itself.
-	run_in "$ledger" claude -p --model haiku --permission-mode auto \
+	# the clanker and must bring it back by itself. The nudge loads only the user
+	# settings, so the agent key of the ledger settings does not make it a bigm.
+	# It has no Bash, because it does not get the push block of the ledger settings.
+	run_in "$ledger" claude -p --model haiku --permission-mode auto --setting-sources user --allowedTools SendMessage --disallowedTools Bash \
 		"Use the SendMessage tool once to send this exact text to the session named bigm, then stop: SMOKE-IDLE $idle_nonce" \
 		>"$(ev idle-nudge.txt)" || true
 	verify idle-resume "$step_min" clanker_resumed

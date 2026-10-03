@@ -21,6 +21,7 @@ This repository is the ledger of bruh. It describes all other repositories. Keep
 | `owed.md` | Items owed to the owner, and asks of the owner |
 | `leases.md` | The lease table of the clankers |
 | `projects/<project>.md` | One file for each project, made from `projects/_template.md` |
+| `.claude/settings.json` | The start settings of bigm: the agent `bruh:bigm`, the role key, the env values, and the deny rules. The init skill writes it. |
 
 ## Rules for each row
 
@@ -30,7 +31,7 @@ This repository is the ledger of bruh. It describes all other repositories. Keep
 
 ## How the init skill fills this template
 
-The init skill writes each file of this folder that does not exist yet in the ledger repository, and it never changes an existing file. In the files that it writes, it makes these changes, and no others:
+The init skill writes each file of this folder that does not exist yet in the ledger repository, and it never changes an existing file. It also writes `.claude/settings.json`, which is not a file of this folder. When that file exists, init changes only the start settings of bigm in it, and keeps each other key. In the files that it writes, it makes these changes, and no others:
 
 1. In `mode.md`, it replaces the value of each `key: value` line with the init answer of the same key (`mode`, `p1_batch_minutes`, `p1_batch_size`, `review_round_cap`). It sets `changed` to the UTC time of the init and `reason` to `init`.
 2. It replaces `priorities.md` with the default `priorities.md` of the plugin, and it writes the answer `delegated_p1_classes` into its section "Delegated P1 classes", one item for each class.

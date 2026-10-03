@@ -121,10 +121,14 @@ func TestInitApplyWritesPlannedContent(t *testing.T) {
 	}))
 	applied := apply(t, env, p)
 	data, _ := filepath.Abs(env.DataDir)
-	for _, want := range []string{env.SettingsFile, filepath.Join(data, "bin", "statusline-tap.sh"), filepath.Join(data, "roles", "bigm.json"), filepath.Join(ledger, "mode.md"), filepath.Join(ledger, "projects", "_template.md")} {
+	for _, want := range []string{env.SettingsFile, filepath.Join(data, "bin", "statusline-tap.sh"), filepath.Join(ledger, ".claude", "settings.json"), filepath.Join(ledger, "mode.md"), filepath.Join(ledger, "projects", "_template.md")} {
 		if !slices.Contains(applied, want) {
 			t.Errorf("not applied: %s (applied %v)", want, applied)
 		}
+	}
+	// The ledger settings file replaces roles/bigm.json as the start settings of bigm.
+	if _, err := os.Stat(filepath.Join(data, "roles", "bigm.json")); err == nil {
+		t.Error("init_apply wrote roles/bigm.json, want no such file")
 	}
 	s := readSettings(t, env)
 	allow := s["permissions"].(map[string]any)["allow"].([]any)
@@ -147,12 +151,15 @@ func TestInitApplyWritesPlannedContent(t *testing.T) {
 	if fi, err := os.Stat(filepath.Join(data, "bin", "statusline-tap.sh")); err != nil || fi.Mode().Perm() != 0o755 {
 		t.Fatalf("tap: %v %v", fi, err)
 	}
-	var bigm struct {
-		Env map[string]string `json:"env"`
+	ls := ledgerSettings(t, ledger)
+	lenv, _ := ls["env"].(map[string]any)
+	lperms, _ := ls["permissions"].(map[string]any)
+	ldeny, _ := lperms["deny"].([]any)
+	if ls["agent"] != "bruh:bigm" || lenv["BRUH_ROLE_KEY"] != "bigm" || lenv["CLAUDE_CODE_WORKFLOW_MAX_CONCURRENT_AGENTS"] != "16" || !slices.Equal(ldeny, defaultDeny(t, env)) {
+		t.Fatalf("init_apply: ledger settings = %v, want agent bruh:bigm, BRUH_ROLE_KEY bigm, CLAUDE_CODE_WORKFLOW_MAX_CONCURRENT_AGENTS 16, deny %v", ls, defaultDeny(t, env))
 	}
-	readJSON(t, filepath.Join(data, "roles", "bigm.json"), &bigm)
-	if bigm.Env["BRUH_ROLE_KEY"] != "bigm" || bigm.Env["CLAUDE_CODE_WORKFLOW_MAX_CONCURRENT_AGENTS"] != "16" {
-		t.Fatalf("bigm env = %v", bigm.Env)
+	if fi, err := os.Stat(filepath.Join(ledger, ".claude", "settings.json")); err != nil || fi.Mode().Perm() != 0o644 {
+		t.Fatalf("init_apply: ledger settings file = %v (%v), want mode 0644", fi, err)
 	}
 	mode, _ := os.ReadFile(filepath.Join(ledger, "mode.md"))
 	for _, want := range []string{"\nmode: autonomous\n", "\nreason: init\n", "\np1_batch_minutes: 30\n", "\np1_batch_size: 5\n", "\nreview_round_cap: 2\n", "\nstatus_cadence: on-change\n", "\nchanged: 20"} {
@@ -168,8 +175,9 @@ func TestInitApplyWritesPlannedContent(t *testing.T) {
 	if !strings.Contains(string(grants), "|---|\n| owner/repo | clerk-repo-merge | CI green \\| two rounds | CI green \\| two rounds | 20") || !strings.HasSuffix(string(grants), " | init |\n") {
 		t.Fatalf("grants.md:\n%s", grants)
 	}
-	if !strings.Contains(p["launch_command"].(string), "--settings '"+filepath.Join(data, "roles", "bigm.json")+"' --channels plugin:telegram@claude-plugins-official --dangerously-load-development-channels plugin:bruh@bruh") {
-		t.Fatalf("launch = %v", p["launch_command"])
+	wantLaunch := "cd " + shq(ledger) + " && claude --agent bruh:bigm --name bigm --permission-mode auto --channels plugin:telegram@claude-plugins-official --dangerously-load-development-channels plugin:bruh@bruh"
+	if lc := p["launch_command"].(string); lc != wantLaunch {
+		t.Fatalf("init_plan launch_command = %q, want %q", lc, wantLaunch)
 	}
 	_, err := call(t, env, "init_apply", map[string]any{"plan_id": p["plan_id"], "diff_sha256": p["diff_sha256"]})
 	mustErr(t, err, "no plan")
@@ -182,6 +190,103 @@ func TestInitApplyWritesPlannedContent(t *testing.T) {
 	p2 := plan(t, env, answers(ledger, map[string]any{"mode": "autonomous", "p1_batch_minutes": 30, "channels": []string{"slack", "telegram"}}))
 	if p2["diff"] != "" {
 		t.Fatalf("second diff:\n%s", p2["diff"])
+	}
+}
+
+// ledgerSettings reads the start settings of bigm in the ledger folder.
+func ledgerSettings(t *testing.T, ledger string) map[string]any {
+	t.Helper()
+	var m map[string]any
+	readJSON(t, filepath.Join(ledger, ".claude", "settings.json"), &m)
+	return m
+}
+
+// defaultDeny returns the deny rules of defaults/role-settings.json.
+func defaultDeny(t *testing.T, env Env) []any {
+	t.Helper()
+	var d struct {
+		Permissions struct {
+			Deny []any `json:"deny"`
+		} `json:"permissions"`
+	}
+	readJSON(t, filepath.Join(env.PluginRoot, "defaults", "role-settings.json"), &d)
+	return d.Permissions.Deny
+}
+
+func TestInitMergesLedgerSettings(t *testing.T) {
+	env, ledger := initEnv(t)
+	deny := defaultDeny(t, env)
+	file := filepath.Join(ledger, ".claude", "settings.json")
+	if err := os.MkdirAll(filepath.Dir(file), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	old, _ := json.Marshal(map[string]any{"agent": "other", "env": map[string]any{"A": "1"},
+		"permissions": map[string]any{"allow": []any{"Read(x)"}, "deny": []any{"Bash(rm:*)", deny[1]}}})
+	if err := os.WriteFile(file, old, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	apply(t, env, plan(t, env, answers(ledger, nil)))
+	s := ledgerSettings(t, ledger)
+	lenv, _ := s["env"].(map[string]any)
+	perms, _ := s["permissions"].(map[string]any)
+	allow, _ := perms["allow"].([]any)
+	gotDeny, _ := perms["deny"].([]any)
+	// The existing rules keep their order; a default rule that is there already is not added again.
+	want := append([]any{"Bash(rm:*)", deny[1], deny[0]}, deny[2:]...)
+	if s["agent"] != "bruh:bigm" || lenv["A"] != "1" || lenv["BRUH_ROLE_KEY"] != "bigm" || lenv["CLAUDE_CODE_WORKFLOW_MAX_CONCURRENT_AGENTS"] != "16" ||
+		!slices.Equal(allow, []any{"Read(x)"}) || !slices.Equal(gotDeny, want) {
+		t.Fatalf("init_apply over %s: ledger settings = %v, want agent bruh:bigm, env A 1 plus the defaults, allow [Read(x)], deny %v", old, s, want)
+	}
+	// A second init changes nothing.
+	if d := plan(t, env, answers(ledger, nil))["diff"]; d != "" {
+		t.Fatalf("second init_plan: diff = %q, want empty", d)
+	}
+}
+
+func TestInitEmptyLedgerSettings(t *testing.T) {
+	env, ledger := initEnv(t)
+	file := filepath.Join(ledger, ".claude", "settings.json")
+	if err := os.MkdirAll(filepath.Dir(file), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(file, []byte("\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	apply(t, env, plan(t, env, answers(ledger, nil)))
+	s := ledgerSettings(t, ledger)
+	lenv, _ := s["env"].(map[string]any)
+	perms, _ := s["permissions"].(map[string]any)
+	deny, _ := perms["deny"].([]any)
+	if s["agent"] != "bruh:bigm" || lenv["BRUH_ROLE_KEY"] != "bigm" || !slices.Equal(deny, defaultDeny(t, env)) {
+		t.Fatalf("init_apply over an empty file: ledger settings = %v, want agent bruh:bigm, BRUH_ROLE_KEY bigm, deny %v", s, defaultDeny(t, env))
+	}
+}
+
+func TestInitRefusesBadLedgerSettings(t *testing.T) {
+	env, ledger := initEnv(t)
+	file := filepath.Join(ledger, ".claude", "settings.json")
+	if err := os.MkdirAll(filepath.Dir(file), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range []struct{ name, text string }{
+		{name: "invalid JSON", text: "{"},
+		{name: "not an object", text: "[]"},
+		{name: "env is not an object", text: `{"env":"x"}`},
+		{name: "permissions is not an object", text: `{"permissions":[]}`},
+		{name: "deny is not an array", text: `{"permissions":{"deny":{}}}`},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			if err := os.WriteFile(file, []byte(c.text), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			_, err := call(t, env, "init_plan", map[string]any{"answers": answers(ledger, nil)})
+			if err == nil || !strings.Contains(err.Error(), "ledger settings file") {
+				t.Errorf("init_plan with the ledger settings %s: error = %v, want an error about the ledger settings file", c.text, err)
+			}
+			if b, _ := os.ReadFile(file); string(b) != c.text {
+				t.Errorf("init_plan with the ledger settings %s: file = %s, want it unchanged", c.text, b)
+			}
+		})
 	}
 }
 

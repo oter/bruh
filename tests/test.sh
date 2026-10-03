@@ -126,6 +126,7 @@ check "smoke dry run exits 0" eq "$(BRUH_TRUSTED_REPO="$tmp/repo" SMOKE_RUN=dry1
 check "smoke dry run starts bigm with the documented flags" contains "$out" "claude --bg --agent bruh:bigm --name bigm --permission-mode auto --settings"
 check "smoke dry run loads the plugin of the checkout" contains "$out" "--plugin-dir $(cd "$here/.." && pwd)/plugins/bruh"
 check "smoke dry run writes the bigm role settings" contains "$out" '"name":"role_settings_write","arguments":{"role_key":"bigm"}'
+check "smoke dry run asks a plain claude in the ledger for its role name" contains "$out" "claude -p --strict-mcp-config --tools '' --max-turns 1 --plugin-dir"
 check "smoke dry run stops the clanker to simulate the idle stop" contains "$out" "claude stop '<clanker id>'"
 check "smoke dry run lets bigm, not the driver, message the clanker" contains "$out" "session named bigm, then stop: SMOKE-IDLE idle"
 check "smoke dry run does not call session_resume itself" not contains "$out" '"name":"session_resume"'
@@ -213,7 +214,7 @@ stop)
 	jq --arg i "$2" 'map(if .id == $i then del(.pid) else . end)' "$FAKE_AGENTS" >"$FAKE_AGENTS.new" && mv "$FAKE_AGENTS.new" "$FAKE_AGENTS"
 	;;
 logs) ;;
-*)
+--bg)
 	if [ -n "${FAKE_AGENTS_AFTER:-}" ] && [ -f "$FAKE_AGENTS_AFTER" ]; then
 		mv "$FAKE_AGENTS_AFTER" "$FAKE_AGENTS"
 		mkdir -p "$BRUH_TEST_DATA/mail/clerk-ledger" && echo '{}' >"$BRUH_TEST_DATA/roles/clerk-ledger.json"

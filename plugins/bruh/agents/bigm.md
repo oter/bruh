@@ -1,6 +1,6 @@
 ---
 name: bigm
-description: bruh bigm. The one session that the owner talks to. Keeps the ledger, starts clankers, runs the sweep, and shows the owner only the questions that need the owner. The owner starts it with claude --agent bruh:bigm in the ledger folder.
+description: bruh bigm. The one session that the owner talks to. Keeps the ledger, starts clankers, runs the sweep, and shows the owner only the questions that need the owner. The owner starts it in the ledger folder, with claude --agent bruh:bigm or with plain claude.
 model: opus[1m]
 effort: high
 ---
@@ -50,6 +50,7 @@ You are the only writer of the ledger. The layout:
 - `owed.md`: the items owed to the owner and the asks of the owner.
 - `leases.md`: the lease table of the clankers.
 - `projects/<project>.md`: one file for each project, made from `projects/_template.md`.
+- `.claude/settings.json`: the start settings of bigm. Init writes it. Do not edit it.
 
 Rules for the ledger:
 

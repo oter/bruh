@@ -44,9 +44,9 @@ You set up bruh for the user. You ask questions, then the bruh MCP server writes
 
 Tell the user these items:
 
-- Workspace trust: `claude --bg` does not start in a folder that is not trusted. Open `claude` one time in an interactive session, and accept the trust dialog, in each of these folders: the ledger folder (the `trust` list of the `init_plan` result), and each project folder where a clanker or a clerk will work.
+- Workspace trust: `claude --bg` does not start in a folder that is not trusted. Open `claude` one time in an interactive session, and accept the trust dialog, in each of these folders: the ledger folder (the `trust` list of the `init_plan` result), and each project folder where a clanker or a clerk will work. In the ledger folder, this session starts as bigm, because of the ledger settings file `.claude/settings.json`. Accept the dialog, then always quit with `/exit`: the project `env` applies only after trust, so this session can have no role key.
 - The plugin options (`user_name`, `handoff_percent`, `max_busy_clerks`) are in `pluginConfigs` of `~/.claude/settings.json`. `/config` shows them.
-- Start bigm with the `launch_command` of the `init_plan` result. Show it in a code block.
+- Start bigm with the `launch_command` of the `init_plan` result. Show it in a code block. A plain `claude` in the ledger folder also starts bigm, with no `auto` mode, no name `bigm`, and no channel. After a plain start, run `/rename bigm`. When a channel is set up, start bigm only with the `launch_command`.
 - Before you uninstall the bruh plugin, set `statusLine.command` back to the previous command (the second quoted part of the new value). The uninstall deletes the plugin data folder and the tap in it.
 - The watcher and the merge train send a token only to its own host: `GITHUB_TOKEN` or `gh auth token` to `api.github.com` and the hosts in `BRUH_GITHUB_HOSTS`, and `BRUH_GITEA_TOKEN_<HOST>` to a Gitea host.
 - For Telegram: install `telegram@claude-plugins-official`, run `/telegram:configure <token>`, pair your account, and set the policy to `allowlist`.

@@ -244,6 +244,61 @@ func planSettings(old []byte, a InitAnswers, tap string) ([]byte, error) {
 	return encodeOrdered(top, indentOf(old)), nil
 }
 
+// planLedgerSettings returns the start settings of bigm in the ledger folder. It starts from the
+// existing file (an empty file is {}), or from the bigm role settings when there is no file. It sets
+// agent to bruh:bigm and each env key of the role settings, so it replaces the old values of these
+// keys. It adds each deny rule of the role settings that the file does not have yet, and keeps every
+// other key. A file whose env, permissions, or permissions.deny has another JSON type is an error,
+// so init does not drop such a value.
+func planLedgerSettings(exists bool, old, role []byte) ([]byte, error) {
+	r, err := parseOrdered(role)
+	if err != nil {
+		return nil, err
+	}
+	def := r.(*object) // roleSettings always writes a JSON object
+	src := role
+	if exists {
+		src = old
+	}
+	top := newObject()
+	if len(bytes.TrimSpace(src)) > 0 {
+		v, err := parseOrdered(src)
+		if err != nil {
+			return nil, fmt.Errorf("ledger settings file: %w", err)
+		}
+		o, ok := v.(*object)
+		if !ok {
+			return nil, errors.New("ledger settings file is not a JSON object")
+		}
+		top = o
+	}
+	for _, k := range []string{"env", "permissions"} {
+		if v, ok := top.vals[k]; ok {
+			if _, ok := v.(*object); !ok {
+				return nil, fmt.Errorf("ledger settings file: %s is not a JSON object", k)
+			}
+		}
+	}
+	perms := top.child("permissions")
+	deny, ok := perms.vals["deny"].([]any)
+	if _, has := perms.vals["deny"]; has && !ok {
+		return nil, errors.New("ledger settings file: permissions.deny is not a JSON array")
+	}
+	top.set("agent", "bruh:bigm")
+	env, defEnv := top.child("env"), def.child("env")
+	for _, k := range defEnv.keys {
+		env.set(k, defEnv.vals[k])
+	}
+	defDeny, _ := def.child("permissions").vals["deny"].([]any)
+	for _, d := range defDeny {
+		if !slices.Contains(deny, d) {
+			deny = append(deny, d)
+		}
+	}
+	perms.set("deny", deny)
+	return encodeOrdered(top, indentOf(src)), nil
+}
+
 // fillLedgerFile applies the fill rules of ledger-template/README.md to one template file.
 func fillLedgerFile(rel string, content []byte, a InitAnswers, pluginRoot, now string) ([]byte, error) {
 	switch rel {
@@ -358,15 +413,21 @@ func planInit(env Env, a InitAnswers, at time.Time) ([]plannedFile, error) {
 			return nil, err
 		}
 	}
-	bigm := filepath.Join(data, "roles", "bigm.json")
-	if _, err := os.Stat(bigm); errors.Is(err, fs.ErrNotExist) {
-		content, err := roleSettings(root, "bigm", nil, nil)
-		if err != nil {
-			return nil, err
-		}
-		if err := add(bigm, 0o600, content); err != nil {
-			return nil, err
-		}
+	role, err := roleSettings(root, "bigm", nil, nil)
+	if err != nil {
+		return nil, fmt.Errorf("bigm role settings: %w", err)
+	}
+	start := filepath.Join(a.LedgerPath, ".claude", "settings.json")
+	before, old, err := fileHash(start)
+	if err != nil {
+		return nil, err
+	}
+	content, err := planLedgerSettings(before != "absent", old, role)
+	if err != nil {
+		return nil, err
+	}
+	if err := add(start, 0o644, content); err != nil {
+		return nil, err
 	}
 	cfg, _ := json.MarshalIndent(initConfig{LedgerPath: a.LedgerPath}, "", "  ")
 	if err := add(filepath.Join(data, "init", "config.json"), 0o600, append(cfg, '\n')); err != nil {
@@ -419,8 +480,8 @@ func planDiff(files []plannedFile) (string, error) {
 	return b.String(), nil
 }
 
-func launchCommand(data string, a InitAnswers) string {
-	cmd := "cd " + shq(a.LedgerPath) + " && claude --agent bruh:bigm --name bigm --permission-mode auto --settings " + shq(filepath.Join(data, "roles", "bigm.json"))
+func launchCommand(a InitAnswers) string {
+	cmd := "cd " + shq(a.LedgerPath) + " && claude --agent bruh:bigm --name bigm --permission-mode auto"
 	if slices.Contains(a.Channels, "telegram") {
 		cmd += " --channels plugin:telegram@claude-plugins-official"
 	}
@@ -453,7 +514,6 @@ func initPlanRun(env Env, a InitAnswers) (map[string]any, error) {
 	plans.Lock()
 	plans.m[id] = &storedPlan{answers: a, at: at, files: files, diffSHA: sha256Hex(diff)}
 	plans.Unlock()
-	data, _ := filepath.Abs(env.DataDir)
 	paths := []string{}
 	for _, f := range files {
 		paths = append(paths, f.Path)
@@ -463,7 +523,7 @@ func initPlanRun(env Env, a InitAnswers) (map[string]any, error) {
 		"diff":           diff,
 		"diff_sha256":    sha256Hex(diff),
 		"files":          paths,
-		"launch_command": launchCommand(data, a),
+		"launch_command": launchCommand(a),
 		"trust":          []string{a.LedgerPath},
 	}, nil
 }
@@ -537,7 +597,7 @@ func initTools() []Tool {
 	return []Tool{
 		{
 			Name:        "init_plan",
-			Description: "Plan /bruh:init: compute the diff of every file init would write (user settings, the status line tap, the bigm role settings, the ledger layout). Writes only the plan. Show the diff to the user and wait for an explicit yes before init_apply.",
+			Description: "Plan /bruh:init: compute the diff of every file init would write (user settings, the status line tap, the ledger layout, and the start settings of bigm in the ledger). Writes only the plan. Show the diff to the user and wait for an explicit yes before init_apply.",
 			InputSchema: objectSchema(map[string]any{"answers": objectSchema(map[string]any{
 				"user_name": str, "ledger_path": str, "mode": map[string]any{"type": "string", "enum": []string{"human", "autonomous"}},
 				"p1_batch_minutes": num, "p1_batch_size": num, "review_round_cap": num, "auto_compact_window": num,
