@@ -130,6 +130,12 @@ func TestRemoteOriginFirst(t *testing.T) {
 			config: "[core]\n\tbare = false\n",
 			chosen: "",
 		},
+		{
+			name:   "empty remote name skipped",
+			config: "[remote \"\"]\n\turl = https://h/x\n[remote \"origin\"]\n\turl = https://h/y\n",
+			want:   []remote{{Name: "origin", URL: "https://h/y"}},
+			chosen: "origin",
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

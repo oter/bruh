@@ -149,7 +149,7 @@ func readRemotes(repo string) ([]remote, error) {
 		case line[0] == '[':
 			n, ok := strings.CutPrefix(line, `[remote "`)
 			n, ok2 := strings.CutSuffix(n, `"]`)
-			name, inRemote, haveURL = n, ok && ok2, false
+			name, inRemote, haveURL = n, ok && ok2 && n != "", false
 		case inRemote && !haveURL:
 			key, value, ok := strings.Cut(line, "=")
 			if !ok || !strings.EqualFold(strings.TrimSpace(key), "url") {

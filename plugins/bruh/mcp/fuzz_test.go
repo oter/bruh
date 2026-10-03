@@ -149,6 +149,7 @@ func FuzzGitConfigRemotes(f *testing.F) {
 	f.Add("")
 	f.Add("[remote \"x\n\turl = https://u@h/x\n")
 	f.Add("[remote \"q\"]\n\turl = \"http://u:p@h/x\"\n")
+	f.Add("[remote \"\"]\n\turl = https://h/x\n")
 	f.Fuzz(func(t *testing.T, config string) {
 		repo := t.TempDir()
 		if err := os.Mkdir(filepath.Join(repo, ".git"), 0o755); err != nil {
