@@ -10,7 +10,9 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"maps"
 	"os"
+	"path"
 	"path/filepath"
 	"regexp"
 	"slices"
@@ -24,47 +26,51 @@ import (
 const pluginID = "bruh@bruh"
 
 var (
-	repoRE    = regexp.MustCompile(`^[A-Za-z0-9._-]+/[A-Za-z0-9._-]+$`)
-	envNameRE = regexp.MustCompile(`^[A-Za-z0-9._-]+$`)
+	repoRE = regexp.MustCompile(`^[A-Za-z0-9._-]+/[A-Za-z0-9._-]+$`)
+	// hostNameRE matches a host and an SSH host alias of the answers host_kinds and host_aliases.
+	hostNameRE = regexp.MustCompile(`^[A-Za-z0-9.-]+$`)
 )
 
-type MergeGrant struct {
-	Repo       string `json:"repo"`
-	Merger     string `json:"merger"`
-	Conditions string `json:"conditions"`
-}
-
-// InitAnswers are the answers of interfaces section 5. Zero values take the defaults.
+// InitAnswers are the answers of interfaces section 5. Zero values take the defaults. The plugin
+// options UserName, HandoffPercent, and MaxBusyClerks have no default: nil is not in the answers.
 type InitAnswers struct {
-	UserName           string       `json:"user_name"`
-	LedgerPath         string       `json:"ledger_path"`
-	Mode               string       `json:"mode"`
-	P1BatchMinutes     int          `json:"p1_batch_minutes"`
-	P1BatchSize        int          `json:"p1_batch_size"`
-	ReviewRoundCap     int          `json:"review_round_cap"`
-	AutoCompactWindow  int          `json:"auto_compact_window"`
-	HandoffPercent     int          `json:"handoff_percent"`
-	MaxBusyClerks      int          `json:"max_busy_clerks"`
-	WrapStatusline     *bool        `json:"wrap_statusline"`
-	Channels           []string     `json:"channels"`
-	DelegatedP1Classes []string     `json:"delegated_p1_classes"`
-	MergeGrants        []MergeGrant `json:"merge_grants"`
-	RemoteEnvironments []string     `json:"remote_environments"`
+	UserName          *string  `json:"user_name"`
+	LedgerPath        string   `json:"ledger_path"`
+	Mode              string   `json:"mode"`
+	P1BatchMinutes    int      `json:"p1_batch_minutes"`
+	P1BatchSize       int      `json:"p1_batch_size"`
+	ReviewRoundCap    int      `json:"review_round_cap"`
+	AutoCompactWindow int      `json:"auto_compact_window"`
+	HandoffPercent    *int     `json:"handoff_percent"`
+	MaxBusyClerks     *int     `json:"max_busy_clerks"`
+	WrapStatusline    *bool    `json:"wrap_statusline"`
+	Channels          []string `json:"channels"`
+	// The learn answers (spec 8.5). A nil Projects means that the answers have no projects
+	// key, so the index does not change; an empty Projects removes every project (G27).
+	Root        string            `json:"root"`
+	Depth       int               `json:"depth"`
+	Exclude     []string          `json:"exclude"`
+	HostKinds   map[string]string `json:"host_kinds"`
+	HostAliases map[string]string `json:"host_aliases"`
+	Projects    []answerProject   `json:"projects"`
 }
 
 func oneLine(s string) bool {
 	return strings.TrimSpace(s) != "" && !strings.ContainsAny(s, "\r\n") && len(s) <= 500
 }
 
-// normalize sets the defaults and checks every answer.
-func (a *InitAnswers) normalize() error {
+// normalize sets the defaults and checks every answer. home is the home folder of the user,
+// the base of the default root.
+func (a *InitAnswers) normalize(home string) error {
 	a.Mode = cmp.Or(a.Mode, "human")
+	a.Root = cmp.Or(a.Root, filepath.Join(home, "workspace"))
+	a.Depth = cmp.Or(a.Depth, 4)
+	if a.Exclude == nil {
+		a.Exclude = []string{"archive"}
+	}
 	a.P1BatchMinutes = cmp.Or(a.P1BatchMinutes, 60)
 	a.P1BatchSize = cmp.Or(a.P1BatchSize, 5)
 	a.ReviewRoundCap = cmp.Or(a.ReviewRoundCap, 2)
-	a.AutoCompactWindow = cmp.Or(a.AutoCompactWindow, 550000)
-	a.HandoffPercent = cmp.Or(a.HandoffPercent, 50)
-	a.MaxBusyClerks = cmp.Or(a.MaxBusyClerks, 8)
 	if a.WrapStatusline == nil {
 		a.WrapStatusline = new(true)
 	}
@@ -74,27 +80,94 @@ func (a *InitAnswers) normalize() error {
 			errs = append(errs, fmt.Errorf(format, args...))
 		}
 	}
-	check(oneLine(a.UserName), "user_name is required (one line)")
+	if a.UserName != nil {
+		check(oneLine(*a.UserName), "user_name must be one line: %q", *a.UserName)
+	}
 	check(ledgerPathOK(a.LedgerPath), "ledger_path must be a clean absolute path with no .., in a folder that exists or can be created: %q", a.LedgerPath)
 	check(a.Mode == "human" || a.Mode == "autonomous", "mode must be human or autonomous: %q", a.Mode)
 	check(a.P1BatchMinutes > 0 && a.P1BatchSize > 0 && a.ReviewRoundCap > 0, "p1_batch_minutes, p1_batch_size, and review_round_cap must be 1 or more")
-	check(a.AutoCompactWindow >= 100000 && a.AutoCompactWindow <= 1000000, "auto_compact_window must be 100000 to 1000000: %d", a.AutoCompactWindow)
-	check(a.HandoffPercent >= 1 && a.HandoffPercent <= 99, "handoff_percent must be 1 to 99: %d", a.HandoffPercent)
-	check(a.MaxBusyClerks >= 1, "max_busy_clerks must be 1 or more: %d", a.MaxBusyClerks)
+	if a.AutoCompactWindow != 0 { // 0 is no answer: planSettings keeps the existing value
+		check(a.AutoCompactWindow >= 100000 && a.AutoCompactWindow <= 1000000, "auto_compact_window must be 100000 to 1000000: %d", a.AutoCompactWindow)
+	}
+	if a.HandoffPercent != nil {
+		check(*a.HandoffPercent >= 1 && *a.HandoffPercent <= 99, "handoff_percent must be 1 to 99: %d", *a.HandoffPercent)
+	}
+	if a.MaxBusyClerks != nil {
+		check(*a.MaxBusyClerks >= 1, "max_busy_clerks must be 1 or more: %d", *a.MaxBusyClerks)
+	}
 	for i, ch := range a.Channels {
 		check((ch == "telegram" || ch == "slack") && !slices.Contains(a.Channels[:i], ch), "channels: %q is not telegram or slack, or is repeated", ch)
 	}
-	for _, c := range a.DelegatedP1Classes {
-		check(oneLine(c), "delegated_p1_classes: each class is one line: %q", c)
+	rootOK := filepath.IsAbs(a.Root) && filepath.Clean(a.Root) == a.Root
+	check(rootOK, "root must be a clean absolute path: %q", a.Root)
+	check(a.Depth >= 1 && a.Depth <= 8, "depth must be 1 to 8: %d", a.Depth)
+	for _, e := range a.Exclude {
+		check(e != "", "exclude: an entry is empty")
 	}
-	for _, g := range a.MergeGrants {
-		k, err := ParseRoleKey(g.Merger)
-		check(repoRE.MatchString(g.Repo), "merge_grants: repo must be owner/name: %q", g.Repo)
-		check(err == nil && k.Role == "clerk" && k.Task == "merge", "merge_grants: merger must be the merger clerk key clerk-<project>-merge: %q", g.Merger)
-		check(oneLine(g.Conditions), "merge_grants: conditions are one line: %q", g.Conditions)
+	for _, h := range slices.Sorted(maps.Keys(a.HostKinds)) {
+		k := a.HostKinds[h]
+		check(hostNameRE.MatchString(h), "host_kinds: host %q does not match %s", h, hostNameRE)
+		check(k == "github" || k == "gitlab" || k == "gitea", "host_kinds: kind %q of host %q is not github, gitlab, or gitea", k, h)
 	}
-	for _, e := range a.RemoteEnvironments {
-		check(envNameRE.MatchString(e), "remote_environments: invalid name %q", e)
+	for _, alias := range slices.Sorted(maps.Keys(a.HostAliases)) {
+		h := a.HostAliases[alias]
+		check(hostNameRE.MatchString(alias), "host_aliases: alias %q does not match %s", alias, hostNameRE)
+		check(hostNameRE.MatchString(h), "host_aliases: host %q of alias %q does not match %s", h, alias, hostNameRE)
+	}
+	if rootOK { // the repository stats need an absolute root
+		errs = append(errs, a.checkProjects())
+	}
+	return errors.Join(errs...)
+}
+
+// checkProjects checks the projects of the answers: each key, each repository, the main
+// repository, and the fills (checkFills). It reads no file of the working tree; it only stats
+// each repository folder and its .git folder, and the file of each doc fill.
+func (a *InitAnswers) checkProjects() error {
+	var errs []error
+	keys := make([]string, 0, len(a.Projects))
+	owner := map[string]string{} // repository -> key of its project
+	ledger := resolveExisting(a.LedgerPath)
+	for _, p := range a.Projects {
+		bad := func(format string, args ...any) {
+			errs = append(errs, fmt.Errorf("project %q: %s", p.Key, fmt.Sprintf(format, args...)))
+		}
+		if !projectRE.MatchString(p.Key) || len(p.Key) > 40 {
+			bad("the key must match %s and have at most 40 characters", projectRE)
+		}
+		if slices.Contains(keys, p.Key) {
+			bad("the key is there twice")
+		}
+		keys = append(keys, p.Key)
+		for _, r := range p.Repos {
+			if !relPath(r) || path.Clean(r) != r {
+				bad("repository %q is not a clean relative path with no ..", r)
+				continue
+			}
+			if k, ok := owner[r]; ok {
+				bad("repository %q is also in project %q", r, k)
+			}
+			owner[r] = p.Key
+			dir := filepath.Join(a.Root, filepath.FromSlash(r))
+			// Only stats: the check reads no file of the working tree (D5).
+			if info, err := os.Stat(dir); err != nil || !info.IsDir() {
+				bad("repository %q is not a folder under root %q", r, a.Root)
+				continue
+			}
+			if info, err := os.Stat(filepath.Join(dir, ".git")); err != nil || !info.IsDir() {
+				bad("repository %q has no .git folder", r)
+				continue
+			}
+			if resolveExisting(dir) == ledger {
+				bad("repository %q is the ledger %q", r, a.LedgerPath)
+			}
+		}
+		if !slices.Contains(p.Repos, p.Main) {
+			bad("main %q is not one of its repos", p.Main)
+		}
+	}
+	for _, p := range a.Projects {
+		errs = append(errs, checkFills(a.Root, p, keys))
 	}
 	return errors.Join(errs...)
 }
@@ -215,7 +288,9 @@ func planSettings(old []byte, a InitAnswers, tap string) ([]byte, error) {
 		}
 		top = o
 	}
-	top.set("autoCompactWindow", json.Number(strconv.Itoa(a.AutoCompactWindow)))
+	if _, ok := top.vals["autoCompactWindow"]; a.AutoCompactWindow != 0 || !ok {
+		top.set("autoCompactWindow", json.Number(strconv.Itoa(cmp.Or(a.AutoCompactWindow, 550000))))
+	}
 	if *a.WrapStatusline {
 		sl := top.child("statusLine")
 		prev, _ := sl.vals["command"].(string)
@@ -237,10 +312,19 @@ func planSettings(old []byte, a InitAnswers, tap string) ([]byte, error) {
 		}
 	}
 	perms.set("allow", allow)
-	opts := top.child("pluginConfigs").child(pluginID).child("options")
-	opts.set("user_name", a.UserName)
-	opts.set("handoff_percent", json.Number(strconv.Itoa(a.HandoffPercent)))
-	opts.set("max_busy_clerks", json.Number(strconv.Itoa(a.MaxBusyClerks)))
+	// Only the CLI sets the plugin options; init_plan refuses them (spec 16).
+	if a.UserName != nil || a.HandoffPercent != nil || a.MaxBusyClerks != nil {
+		opts := top.child("pluginConfigs").child(pluginID).child("options")
+		if a.UserName != nil {
+			opts.set("user_name", *a.UserName)
+		}
+		if a.HandoffPercent != nil {
+			opts.set("handoff_percent", json.Number(strconv.Itoa(*a.HandoffPercent)))
+		}
+		if a.MaxBusyClerks != nil {
+			opts.set("max_busy_clerks", json.Number(strconv.Itoa(*a.MaxBusyClerks)))
+		}
+	}
 	return encodeOrdered(top, indentOf(old)), nil
 }
 
@@ -323,36 +407,7 @@ func fillLedgerFile(rel string, content []byte, a InitAnswers, pluginRoot, now s
 		} else if err != nil {
 			return nil, err
 		}
-		if len(a.DelegatedP1Classes) == 0 {
-			return def, nil
-		}
-		var items strings.Builder
-		for _, c := range a.DelegatedP1Classes {
-			items.WriteString("- " + c + "\n")
-		}
-		text := string(def)
-		const head = "\n## Delegated P1 classes\n"
-		i := strings.Index(text, head)
-		if i < 0 {
-			return nil, errors.New("default priorities.md has no section \"Delegated P1 classes\"")
-		}
-		body := i + len(head)
-		end := len(text)
-		if j := strings.Index(text[body:], "\n## "); j >= 0 {
-			end = body + j + 1
-		}
-		section := strings.TrimRight(text[body:end], "\n") + "\n\n" + items.String()
-		if end < len(text) {
-			section += "\n"
-		}
-		return []byte(text[:body] + section + text[end:]), nil
-	case "grants.md":
-		text := strings.TrimRight(string(content), "\n") + "\n"
-		cell := func(s string) string { return strings.ReplaceAll(s, "|", `\|`) }
-		for _, g := range a.MergeGrants {
-			text += fmt.Sprintf("| %s | %s | %s | %s | %s | init |\n", cell(g.Repo), g.Merger, cell(g.Conditions), cell(g.Conditions), now)
-		}
-		return []byte(text), nil
+		return def, nil
 	}
 	return content, nil
 }
@@ -498,7 +553,7 @@ type initConfig struct {
 
 // initPlanRun plans init, keeps the plan in memory, and returns the tool result. It writes nothing.
 func initPlanRun(env Env, a InitAnswers) (map[string]any, error) {
-	if err := a.normalize(); err != nil {
+	if err := a.normalize(env.Home); err != nil {
 		return nil, err
 	}
 	at := env.Now()
@@ -599,18 +654,36 @@ func initTools() []Tool {
 			Name:        "init_plan",
 			Description: "Plan /bruh:init: compute the diff of every file init would write (user settings, the status line tap, the ledger layout, and the start settings of bigm in the ledger). Writes only the plan. Show the diff to the user and wait for an explicit yes before init_apply.",
 			InputSchema: objectSchema(map[string]any{"answers": objectSchema(map[string]any{
-				"user_name": str, "ledger_path": str, "mode": map[string]any{"type": "string", "enum": []string{"human", "autonomous"}},
+				"ledger_path": str, "mode": map[string]any{"type": "string", "enum": []string{"human", "autonomous"}},
 				"p1_batch_minutes": num, "p1_batch_size": num, "review_round_cap": num, "auto_compact_window": num,
-				"handoff_percent": num, "max_busy_clerks": num, "wrap_statusline": map[string]any{"type": "boolean"},
-				"channels": list, "delegated_p1_classes": list, "remote_environments": list,
-				"merge_grants": map[string]any{"type": "array", "items": objectSchema(map[string]any{"repo": str, "merger": str, "conditions": str}, "repo", "merger", "conditions")},
-			}, "user_name", "ledger_path")}, "answers"),
+				"wrap_statusline": map[string]any{"type": "boolean"}, "channels": list,
+				"root": str, "depth": num, "exclude": list,
+				"host_kinds":   map[string]any{"type": "object", "additionalProperties": map[string]any{"type": "string", "enum": []string{"github", "gitlab", "gitea"}}},
+				"host_aliases": map[string]any{"type": "object", "additionalProperties": str},
+				"projects": map[string]any{"type": "array", "items": objectSchema(map[string]any{
+					"key": str, "repos": list, "main": str,
+					"fills": map[string]any{"type": "array", "items": objectSchema(map[string]any{
+						"field": map[string]any{"type": "string", "enum": []string{"purpose", "link", "doc", "host"}},
+						"value": str, "source": map[string]any{"type": "string", "enum": []string{"agent", "owner"}},
+						"repo": str, "file": str, "line": num,
+					}, "field", "value", "source")},
+				}, "key", "repos", "main")},
+			}, "ledger_path")}, "answers"),
 			Handler: func(c *Call, raw json.RawMessage) (any, error) {
 				a, err := decode[struct {
 					Answers json.RawMessage `json:"answers"`
 				}](raw)
 				if err != nil {
 					return nil, err
+				}
+				// The install dialog asks the plugin options and /config changes them (spec 16).
+				var keys map[string]json.RawMessage
+				if json.Unmarshal(a.Answers, &keys) == nil {
+					for _, k := range []string{"user_name", "handoff_percent", "max_busy_clerks"} {
+						if _, ok := keys[k]; ok {
+							return nil, errors.New("user_name, handoff_percent, and max_busy_clerks are plugin options: the install dialog asks them, and /config changes them; init_plan does not write them")
+						}
+					}
 				}
 				answers, err := parseAnswers(a.Answers)
 				if err != nil {

@@ -47,7 +47,7 @@ func copyTree(t *testing.T, src, dst string) {
 }
 
 func answers(ledger string, extra map[string]any) map[string]any {
-	a := map[string]any{"user_name": "Sam", "ledger_path": ledger}
+	a := map[string]any{"ledger_path": ledger}
 	for k, v := range extra {
 		a[k] = v
 	}
@@ -116,8 +116,6 @@ func TestInitApplyWritesPlannedContent(t *testing.T) {
 	writeSettings(t, env, `{"theme":"dark","permissions":{"allow":["Bash(ls)"]}}`)
 	p := plan(t, env, answers(ledger, map[string]any{
 		"mode": "autonomous", "p1_batch_minutes": 30, "channels": []string{"slack", "telegram"},
-		"delegated_p1_classes": []string{"Dependency bumps", "Test-only changes"},
-		"merge_grants":         []map[string]string{{"repo": "owner/repo", "merger": "clerk-repo-merge", "conditions": "CI green | two rounds"}},
 	}))
 	applied := apply(t, env, p)
 	data, _ := filepath.Abs(env.DataDir)
@@ -144,9 +142,9 @@ func TestInitApplyWritesPlannedContent(t *testing.T) {
 			t.Errorf("the written settings do not allow %s", want)
 		}
 	}
-	opts := s["pluginConfigs"].(map[string]any)["bruh@bruh"].(map[string]any)["options"].(map[string]any)
-	if opts["user_name"] != "Sam" || opts["handoff_percent"] != 50.0 || opts["max_busy_clerks"] != 8.0 {
-		t.Fatalf("options = %v", opts)
+	// The plugin options belong to the install dialog and /config (spec 16): init_plan does not write them.
+	if pc, ok := s["pluginConfigs"]; ok {
+		t.Errorf("init_apply: settings pluginConfigs = %v, want no pluginConfigs key", pc)
 	}
 	if fi, err := os.Stat(filepath.Join(data, "bin", "statusline-tap.sh")); err != nil || fi.Mode().Perm() != 0o755 {
 		t.Fatalf("tap: %v %v", fi, err)
@@ -167,13 +165,16 @@ func TestInitApplyWritesPlannedContent(t *testing.T) {
 			t.Errorf("mode.md has no %q:\n%s", want, mode)
 		}
 	}
-	prio, _ := os.ReadFile(filepath.Join(ledger, "priorities.md"))
-	if !strings.Contains(string(prio), "one item for each class. With no items, a clanker answers no P1 question.\n\n- Dependency bumps\n- Test-only changes\n\n## Never without the owner") {
-		t.Fatalf("priorities.md:\n%s", prio)
-	}
-	grants, _ := os.ReadFile(filepath.Join(ledger, "grants.md"))
-	if !strings.Contains(string(grants), "|---|\n| owner/repo | clerk-repo-merge | CI green \\| two rounds | CI green \\| two rounds | 20") || !strings.HasSuffix(string(grants), " | init |\n") {
-		t.Fatalf("grants.md:\n%s", grants)
+	// Init asks no delegated P1 classes and no merge grants (spec 16): both files are copies.
+	for rel, src := range map[string]string{"priorities.md": "defaults/priorities.md", "grants.md": "ledger-template/grants.md"} {
+		got, _ := os.ReadFile(filepath.Join(ledger, rel))
+		want, err := os.ReadFile(filepath.Join(env.PluginRoot, src))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if string(got) != string(want) {
+			t.Errorf("init_apply: ledger %s = %q, want %s unchanged %q", rel, got, src, want)
+		}
 	}
 	wantLaunch := "cd " + shq(ledger) + " && claude --agent bruh:bigm --name bigm --permission-mode auto --channels plugin:telegram@claude-plugins-official --dangerously-load-development-channels plugin:bruh@bruh"
 	if lc := p["launch_command"].(string); lc != wantLaunch {
@@ -410,15 +411,15 @@ func TestInitPlanValidates(t *testing.T) {
 		a    map[string]any
 		want string
 	}{
-		{map[string]any{"ledger_path": ledger}, "user_name"},
 		{answers("rel/path", nil), "absolute"},
 		{answers(ledger, map[string]any{"mode": "wild"}), "mode"},
 		{answers(ledger, map[string]any{"auto_compact_window": 50}), "auto_compact_window"},
 		{answers(ledger, map[string]any{"handoff_percent": 100}), "handoff_percent"},
 		{answers(ledger, map[string]any{"channels": []string{"discord"}}), "channels"},
-		{answers(ledger, map[string]any{"merge_grants": []map[string]string{{"repo": "x", "merger": "clanker-a", "conditions": ""}}}), "merge_grants"},
-		// Final review m4: the merge train accepts only the merger clerk clerk-<project>-merge.
-		{answers(ledger, map[string]any{"merge_grants": []map[string]string{{"repo": "owner/app", "merger": "clerk-app-bot", "conditions": "CI green"}}}), "clerk-<project>-merge"},
+		// Spec 16: merge grants, delegated P1 classes, and remote machines are no longer init answers.
+		{answers(ledger, map[string]any{"merge_grants": []any{}}), "unknown field"},
+		{answers(ledger, map[string]any{"delegated_p1_classes": []any{}}), "unknown field"},
+		{answers(ledger, map[string]any{"remote_environments": []any{}}), "unknown field"},
 		{answers(ledger, map[string]any{"user_nmae": "typo"}), "unknown field"},
 	} {
 		_, err := call(t, env, "init_plan", map[string]any{"answers": c.a})
@@ -426,6 +427,45 @@ func TestInitPlanValidates(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(env.DataDir, "init")); err == nil {
 		t.Fatal("a refused plan was stored")
+	}
+}
+
+// pluginOptionsErr is the refusal of init_plan for an answer that is a plugin option (spec 16).
+const pluginOptionsErr = "user_name, handoff_percent, and max_busy_clerks are plugin options: the install dialog asks them, and /config changes them; init_plan does not write them"
+
+func TestInitPlanDoesNotWritePluginOptions(t *testing.T) {
+	env, ledger := initEnv(t)
+	const configs = `{"bruh@bruh":{"options":{"handoff_percent":55,"max_busy_clerks":30}}}`
+	writeSettings(t, env, `{"theme":"dark","pluginConfigs":`+configs+`}`)
+	apply(t, env, plan(t, env, answers(ledger, nil)))
+	got, err := json.Marshal(readSettings(t, env)["pluginConfigs"])
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != configs {
+		t.Errorf("init_plan and init_apply: pluginConfigs = %s, want %s unchanged", got, configs)
+	}
+}
+
+func TestInitPlanRefusesPluginOptionKeys(t *testing.T) {
+	for key, val := range map[string]any{"user_name": "Sam", "handoff_percent": 40, "max_busy_clerks": 8} {
+		t.Run(key, func(t *testing.T) {
+			env, ledger := initEnv(t)
+			writeSettings(t, env, `{"theme":"dark"}`)
+			out, err := call(t, env, "init_plan", map[string]any{"answers": answers(ledger, map[string]any{key: val})})
+			if out != nil || err == nil || err.Error() != pluginOptionsErr {
+				t.Fatalf("init_plan with %s: planned %t, error %v, want no plan and error %q", key, out != nil, err, pluginOptionsErr)
+			}
+			if b, _ := os.ReadFile(env.SettingsFile); string(b) != `{"theme":"dark"}` {
+				t.Errorf("init_plan with %s: settings = %s, want them unchanged", key, b)
+			}
+			if _, err := os.Stat(filepath.Join(env.DataDir, "init")); err == nil {
+				t.Errorf("init_plan with %s: a refused plan was stored", key)
+			}
+			if _, err := os.Stat(ledger); err == nil {
+				t.Errorf("init_plan with %s: the ledger was created", key)
+			}
+		})
 	}
 }
 
@@ -538,5 +578,137 @@ func TestInitApplyAcrossASecond(t *testing.T) {
 	apply(t, env, p)
 	if b, _ := os.ReadFile(filepath.Join(ledger, "mode.md")); !strings.Contains(string(b), "changed: 2026-09-30T10:00:00Z") {
 		t.Fatalf("mode.md:\n%s", b)
+	}
+}
+
+// Spec 16 step 4: the defaults keep each value that the settings already have, and set only the missing ones.
+func TestInitDefaultsKeepExistingValues(t *testing.T) {
+	// The key after autoCompactWindow keeps its line free of a new comma, so a kept value leaves the line unchanged.
+	const existing = "{\n  \"autoCompactWindow\": 400000,\n  \"theme\": \"dark\"\n}\n"
+	for _, c := range []struct {
+		name     string
+		settings string
+		answer   map[string]any
+		want     float64
+	}{
+		{"existing value and no answer", existing, nil, 400000},
+		{"no key and no answer", "{\n  \"theme\": \"dark\"\n}\n", nil, 550000},
+		{"existing value and an answer", existing, map[string]any{"auto_compact_window": 600000}, 600000},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			env, ledger := initEnv(t)
+			writeSettings(t, env, c.settings)
+			p := plan(t, env, answers(ledger, c.answer))
+			if c.settings == existing && c.answer == nil {
+				for line := range strings.Lines(p["diff"].(string)) {
+					if (strings.HasPrefix(line, "+") || strings.HasPrefix(line, "-")) && strings.Contains(line, `"autoCompactWindow"`) {
+						t.Errorf("init_plan with settings %q and no answer: diff line %q, want no change of autoCompactWindow", c.settings, line)
+					}
+				}
+			}
+			apply(t, env, p)
+			if got := readSettings(t, env)["autoCompactWindow"]; got != c.want {
+				t.Errorf("init_apply with settings %q and answers %v: autoCompactWindow = %v, want %v", c.settings, c.answer, got, c.want)
+			}
+		})
+	}
+}
+
+// repoRoot returns a root folder with a repository (a folder with a .git folder) for each path.
+func repoRoot(t *testing.T, paths ...string) string {
+	t.Helper()
+	root := t.TempDir()
+	for _, p := range paths {
+		if err := os.MkdirAll(filepath.Join(root, p, ".git"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return root
+}
+
+func project(key, main string, repos ...string) map[string]any {
+	return map[string]any{"key": key, "repos": repos, "main": main}
+}
+
+func TestInitPlanValidatesProjects(t *testing.T) {
+	root := repoRoot(t, "app", "api", "web")
+	if err := os.WriteFile(filepath.Join(root, "notes.txt"), []byte("notes\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(filepath.Join(root, "plain"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	long := strings.Repeat("a", 41)
+	badFill := project("app", "app", "app")
+	badFill["fills"] = []map[string]any{{"field": "link", "value": "nope", "source": "agent", "repo": "app", "file": "README.md", "line": 1}}
+	for _, c := range []struct {
+		name  string
+		extra map[string]any
+		want  []string // each text is in the error
+	}{
+		{"key with capitals", map[string]any{"projects": []any{project("My_App", "app", "app")}}, []string{"My_App"}},
+		{"key of 41 characters", map[string]any{"projects": []any{project(long, "app", "app")}}, []string{long}},
+		{"key twice", map[string]any{"projects": []any{project("dup", "app", "app"), project("dup", "api", "api")}}, []string{"dup"}},
+		{"parent path", map[string]any{"projects": []any{project("parent", "../x", "../x")}}, []string{"parent", "../x"}},
+		{"absolute path", map[string]any{"projects": []any{project("rooted", "/abs", "/abs")}}, []string{"rooted", "/abs"}},
+		{"repository is a file", map[string]any{"projects": []any{project("text", "notes.txt", "notes.txt")}}, []string{"text", "notes.txt"}},
+		{"repository without .git", map[string]any{"projects": []any{project("nogit", "plain", "plain")}}, []string{"nogit", "plain"}},
+		{"repository in two projects", map[string]any{"projects": []any{project("one", "app", "app"), project("two", "api", "api", "app")}}, []string{"two", "app"}},
+		{"main not in repos", map[string]any{"projects": []any{project("app", "api", "app")}}, []string{"app", "api"}},
+		{"link to an unknown key", map[string]any{"projects": []any{badFill}}, []string{"app", "nope"}},
+		{"relative root", map[string]any{"root": "rel/root"}, []string{"root", "rel/root"}},
+		{"depth 9", map[string]any{"depth": 9}, []string{"depth", "9"}},
+		{"empty exclude entry", map[string]any{"exclude": []string{"archive", ""}}, []string{"exclude"}},
+		{"unknown host kind", map[string]any{"host_kinds": map[string]string{"git.example.com": "bitbucket"}}, []string{"host_kinds", "bitbucket"}},
+		{"host alias with ;", map[string]any{"host_aliases": map[string]string{"bad;alias": "git.example.com"}}, []string{"host_aliases", "bad;alias"}},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			env, ledger := initEnv(t)
+			a := answers(ledger, map[string]any{"root": root})
+			for k, v := range c.extra {
+				a[k] = v
+			}
+			out, err := call(t, env, "init_plan", map[string]any{"answers": a})
+			if out != nil || err == nil {
+				t.Fatalf("init_plan with %v: planned %t, error %v, want no plan and an error", c.extra, out != nil, err)
+			}
+			if strings.Contains(err.Error(), "unknown field") {
+				t.Errorf("init_plan with %v: error %q, want the new keys accepted and the check named", c.extra, err)
+			}
+			for _, w := range c.want {
+				if !strings.Contains(err.Error(), w) {
+					t.Errorf("init_plan with %v: error %q does not name %q", c.extra, err, w)
+				}
+			}
+		})
+	}
+	t.Run("two valid projects", func(t *testing.T) {
+		env, ledger := initEnv(t)
+		api := project("api", "api", "api", "web")
+		api["fills"] = []map[string]any{{"field": "link", "value": "app", "source": "agent", "repo": "api", "file": "README.md", "line": 1}}
+		a := answers(ledger, map[string]any{
+			"root": root, "depth": 2, "exclude": []string{"archive"},
+			"host_kinds":   map[string]string{"git.example.com": "gitea"},
+			"host_aliases": map[string]string{"work": "git.example.com"},
+			"projects":     []any{project("app", "app", "app"), api},
+		})
+		if p := plan(t, env, a); p["plan_id"] == "" {
+			t.Errorf("init_plan with %v: plan = %v, want a plan ID", a, p)
+		}
+	})
+}
+
+func TestInitPlanRefusesLedgerRepo(t *testing.T) {
+	env, _ := initEnv(t)
+	// The root is a symbolic link to the folder of the ledger, so only resolved paths are equal.
+	real := repoRoot(t, "notes", "app")
+	root := filepath.Join(t.TempDir(), "root")
+	if err := os.Symlink(real, root); err != nil {
+		t.Fatal(err)
+	}
+	a := answers(filepath.Join(real, "notes"), map[string]any{"root": root, "projects": []any{project("app", "app", "app", "notes")}})
+	out, err := call(t, env, "init_plan", map[string]any{"answers": a})
+	if out != nil || err == nil || !strings.Contains(err.Error(), "notes") || !strings.Contains(err.Error(), "ledger") {
+		t.Fatalf("init_plan with %v: planned %t, error %v, want no plan and an error that names the ledger repository notes", a, out != nil, err)
 	}
 }
