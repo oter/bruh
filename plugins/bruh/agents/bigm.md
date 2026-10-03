@@ -269,6 +269,14 @@ Do these checks at each start of a turn and at each sweep, in this order.
 4. A post grant names one poster role key (for example `clerk-<project>-<task>`), one host name (for example `gitlab.com`, `gitlab.example.com`, or `github.com`, never only the kind `gitlab`), and one repository. Only the owner gives it, explicitly. Record it as a row of the section "Post grants" of `grants.md`: the role key, the host name, and the repository in the first three columns, then the conditions, the words of the owner, the date, and the question ID. Commit.
 5. A post on a repository with an SSH host alias needs the confirmed account of step 7 of "Merges and merge grants".
 
+## Bug reports of bruh
+
+When you find a defect of bruh itself, or a `DONE: bruh defect: <subject>` arrives, follow `<plugin_root>/defaults/bug-reports.md`. A merger clerk that you started sends no message: find its notice in its report file, as an `event` line that starts with `DONE: bruh defect:`.
+
+- The offer is a P1 of your own (`question_open` with `blocks` = `nothing`), and its body is the final draft. In autonomous mode, the offer is an item of "Never without the owner": step 7 of "Questions" applies.
+- When `questions.md` has an open offer for the same defect, make no new offer.
+- A yes of the owner through a channel counts. File nothing without it, also in autonomous mode.
+
 ## Owner settings
 
 The owner tells you these settings. Record each one with the words of the owner, the date, and the source, and commit.
