@@ -31,7 +31,7 @@ func TestMarketplaceListsBruh(t *testing.T) {
 		} `json:"plugins"`
 	}
 	readJSON(t, "../../../.claude-plugin/marketplace.json", &m)
-	if m.Name != "bruh" || len(m.Plugins) != 1 || m.Plugins[0].Name != "bruh" || m.Plugins[0].Source != "./plugins/bruh" {
+	if m.Name != "oter" || len(m.Plugins) != 1 || m.Plugins[0].Name != "bruh" || m.Plugins[0].Source != "./plugins/bruh" {
 		t.Fatalf("marketplace = %+v", m)
 	}
 }

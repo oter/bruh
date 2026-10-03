@@ -22,7 +22,7 @@ During the channels research preview, a channel that is not on the Anthropic all
 
 ```bash
 claude --agent bruh:bigm --name bigm --permission-mode auto \
-  --dangerously-load-development-channels plugin:bruh@bruh
+  --dangerously-load-development-channels plugin:bruh@oter
 ```
 
 The ledger settings file `.claude/settings.json`, which `/bruh:init` writes, holds the role key `bigm` and the other start settings. If you installed bruh before this file existed, run `/bruh:init` again to write it.

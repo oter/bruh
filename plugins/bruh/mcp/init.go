@@ -23,7 +23,7 @@ import (
 )
 
 // pluginID is the ID of the marketplace install (spec 18): the key of pluginConfigs.
-const pluginID = "bruh@bruh"
+const pluginID = "bruh@oter"
 
 var (
 	repoRE = regexp.MustCompile(`^[A-Za-z0-9._-]+/[A-Za-z0-9._-]+$`)
@@ -255,6 +255,64 @@ func fileHash(path string) (string, []byte, error) {
 // shq quotes s as one sh word.
 func shq(s string) string { return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'" }
 
+// unshq reads one word that shq quoted from the start of s. It returns the word and the rest of
+// s after the closing quote; ok is false when s does not start with such a word.
+func unshq(s string) (word, rest string, ok bool) {
+	s, ok = strings.CutPrefix(s, "'")
+	if !ok {
+		return "", "", false
+	}
+	var b strings.Builder
+	for {
+		i := strings.IndexByte(s, '\'')
+		if i < 0 {
+			return "", "", false
+		}
+		b.WriteString(s[:i])
+		s = s[i+1:]
+		after, esc := strings.CutPrefix(s, `\''`)
+		if !esc {
+			return b.String(), s, true
+		}
+		b.WriteByte('\'')
+		s = after
+	}
+}
+
+// unwrapTap removes from the front of a status line command each tap that init wrote,
+// '<tap>' or '<tap>' '<inner>': the tap of this data folder, or the tap of another bruh data
+// folder (see isDataTap). The match is on the structure only. It returns the innermost
+// command, or prev when prev is not a tap.
+func unwrapTap(prev, tap string) string {
+	for range 16 { // ponytail: a cap on the nesting depth; one init run leaves at most one more level
+		path, rest, ok := unshq(prev)
+		if !ok || (path != tap && !isDataTap(path, tap)) {
+			return prev
+		}
+		if rest == "" {
+			return ""
+		}
+		inner, tail, ok := unshq(strings.TrimPrefix(rest, " "))
+		if !ok || tail != "" || !strings.HasPrefix(rest, " ") {
+			return prev
+		}
+		prev = inner
+	}
+	return prev
+}
+
+// isDataTap reports whether path is the tap of a bruh data folder, <plugins root>/data/bruh-<id>/bin/statusline-tap.sh:
+// a sibling of the data folder of tap (also under CLAUDE_CODE_PLUGIN_CACHE_DIR), or a folder
+// under a .../plugins/data/ folder.
+func isDataTap(path, tap string) bool {
+	dir, ok := strings.CutSuffix(path, "/bin/statusline-tap.sh")
+	parent, seg := filepath.Split(dir)
+	if !ok || !strings.HasPrefix(seg, "bruh-") {
+		return false
+	}
+	return filepath.Clean(parent) == filepath.Dir(filepath.Dir(filepath.Dir(tap))) || strings.HasSuffix(parent, "/plugins/data/")
+}
+
 // workflowAllowRules are the allow rules of the plugin workflows that the role sessions launch.
 var workflowAllowRules = []string{
 	"Workflow(bruh:deliver)", "Workflow(bruh:tickets)", "Workflow(bruh:implement-tickets)",
@@ -297,11 +355,12 @@ func planSettings(old []byte, a InitAnswers, tap string) ([]byte, error) {
 		sl := top.child("statusLine")
 		prev, _ := sl.vals["command"].(string)
 		cmd := shq(tap)
+		inner := unwrapTap(prev, tap)
 		switch {
-		case prev == cmd || strings.HasPrefix(prev, cmd+" "):
-			cmd = prev // already wrapped
-		case prev != "":
-			cmd += " " + shq(prev)
+		case inner == prev && strings.HasPrefix(prev, cmd+" "):
+			cmd = prev // wrapped by the tap, in a form that init does not write
+		case inner != "":
+			cmd += " " + shq(inner)
 		}
 		sl.set("type", "command")
 		sl.set("command", cmd)
@@ -708,7 +767,7 @@ func launchCommand(a InitAnswers) string {
 		cmd += " --channels plugin:telegram@claude-plugins-official"
 	}
 	if slices.Contains(a.Channels, "slack") {
-		cmd += " --dangerously-load-development-channels plugin:bruh@bruh"
+		cmd += " --dangerously-load-development-channels plugin:" + pluginID
 	}
 	return cmd
 }

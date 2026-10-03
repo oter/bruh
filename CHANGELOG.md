@@ -6,6 +6,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Changed
+
+- The marketplace name is `oter`. Install with `claude plugin install bruh@oter`.
+
+### Fixed
+
+- Init removes a bruh status line tap of another plugin data folder before it wraps the status line command again.
+
 ## [0.9.0] - 2026-10-03
 
 This is the first release of bruh. It contains all parts of the [specification](docs/spec.md) version 0.6.

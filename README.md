@@ -68,7 +68,7 @@ Steps 4, 5, and 6 are optional. Create the ledger repository (step 2) before you
 
 ```bash
 claude plugin marketplace add oter/bruh
-claude plugin install bruh@bruh
+claude plugin install bruh@oter
 ```
 
 Install at user scope, so that all your projects get the plugin.
@@ -113,7 +113,7 @@ Each step tells what its answer controls. Each question with fixed answers is a 
 
 A second run asks first: "change projects" (add, remove, or learn again a project) or "change settings". bigm changes the mode and the P1 settings. Merge grants, delegated P1 classes, and remote machines are not init questions: tell them to bigm, and bigm records them in the ledger.
 
-Non-interactive form, for a container or a script: write the answers to a JSON file, then run the init command of the MCP server. `<plugin root>` is the folder of the installed plugin, `~/.claude/plugins/cache/bruh/bruh/<version>`. The MCP tool `bruh_info` also gives it.
+Non-interactive form, for a container or a script: write the answers to a JSON file, then run the init command of the MCP server. `<plugin root>` is the folder of the installed plugin, `~/.claude/plugins/cache/oter/bruh/<version>`. The MCP tool `bruh_info` also gives it.
 
 ```json
 {
@@ -185,7 +185,7 @@ Slack is a channel of bruh itself. During the channels research preview, a chann
 2. Add the bot token scopes `chat:write`, and `channels:history` for a public channel or `groups:history` for a private channel. Install the app, and copy the bot token (`xoxb-...`).
 3. Create a channel for bruh, invite the app to it, and copy the channel ID. Copy your own Slack member ID from your profile.
 4. Run `/plugin configure bruh` and set `slack_bot_token`, `slack_channel_id`, and `slack_owner_user_id`. Only messages from `slack_owner_user_id` reach bigm.
-5. Start bigm with `--dangerously-load-development-channels plugin:bruh@bruh` (step 7). When you also use Telegram, keep the `--channels` flag too.
+5. Start bigm with `--dangerously-load-development-channels plugin:bruh@oter` (step 7). When you also use Telegram, keep the `--channels` flag too.
 
 The details are in [plugins/bruh/channels/slack/README.md](plugins/bruh/channels/slack/README.md).
 
@@ -239,7 +239,7 @@ Start bigm in the folder of your ledger repository, in one of two ways:
     --channels plugin:telegram@claude-plugins-official
   ```
 
-  For Slack, add `--dangerously-load-development-channels plugin:bruh@bruh`. Without Telegram, remove the `--channels` line.
+  For Slack, add `--dangerously-load-development-channels plugin:bruh@oter`. Without Telegram, remove the `--channels` line.
 - Plain `claude`. The init skill writes `.claude/settings.json` into the ledger, and its key `agent` makes the session bigm. This session runs in the default permission mode, not in `auto` mode, and has no name `bigm` and no channel. After a plain start, run `/rename bigm`: clankers and clerks send their nudges to the session name `bigm`, and without the name a message waits for the next sweep.
 
 When you set up Slack or Telegram (step 4), start bigm only with the full command. A plain start reads the channel messages and drops them: the Slack server of bruh polls Slack in each bigm session, and the Telegram server takes the bot, but only the channel flags deliver the messages to the session.
