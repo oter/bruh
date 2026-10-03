@@ -566,7 +566,7 @@ idle_resume() {
 	# the clanker and must bring it back by itself. The nudge loads only the user
 	# settings, so the agent key of the ledger settings does not make it a bigm.
 	# It has no Bash, because it does not get the push block of the ledger settings.
-	run_in "$ledger" claude -p --model haiku --permission-mode auto --setting-sources user --allowedTools SendMessage --disallowedTools Bash \
+	run_in "$ledger" claude -p --permission-mode auto --setting-sources user --allowedTools SendMessage --disallowedTools Bash --model haiku \
 		"Use the SendMessage tool once to send this exact text to the session named bigm, then stop: SMOKE-IDLE $idle_nonce" \
 		>"$(ev idle-nudge.txt)" || true
 	verify idle-resume "$step_min" clanker_resumed

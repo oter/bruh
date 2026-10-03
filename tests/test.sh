@@ -127,6 +127,12 @@ check "smoke dry run starts bigm with the documented flags" contains "$out" "cla
 check "smoke dry run loads the plugin of the checkout" contains "$out" "--plugin-dir $(cd "$here/.." && pwd)/plugins/bruh"
 check "smoke dry run writes the bigm role settings" contains "$out" '"name":"role_settings_write","arguments":{"role_key":"bigm"}'
 check "smoke dry run asks a plain claude in the ledger for its role name" contains "$out" "claude -p --strict-mcp-config --tools '' --max-turns 1 --plugin-dir"
+# A variadic option of claude (<tools...>, <directories...>, <configs...>) reads
+# every next word that is not an option, so a prompt right after its value
+# becomes more values. Each printed claude command must follow the value of a
+# variadic option with another option.
+bad=$(printf '%s\n' "$out" | awk '/^\+ / { c = 0; for (i = 2; i <= NF; i++) { if ($i == "claude") c = 1; if (c && $i ~ /^--(allowedTools|allowed-tools|disallowedTools|disallowed-tools|tools|add-dir|mcp-config|betas|file)$/ && i + 2 <= NF && $(i + 2) !~ /^--/) print } }')
+check "smoke dry run puts no prompt right after a variadic claude option" eq "$bad" ""
 check "smoke dry run stops the clanker to simulate the idle stop" contains "$out" "claude stop '<clanker id>'"
 check "smoke dry run lets bigm, not the driver, message the clanker" contains "$out" "session named bigm, then stop: SMOKE-IDLE idle"
 check "smoke dry run does not call session_resume itself" not contains "$out" '"name":"session_resume"'
