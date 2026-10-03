@@ -6,7 +6,7 @@
 # one note of the fixes. A body that is already on the pull request is not posted
 # again, so a rerun after a partial failure posts only what is missing.
 #
-#   post-findings.sh [--dry-run] [--yes] [--answer Q-<id>] [--data <folder>] gitlab|github <repo> <number> <result.json>
+#   post-findings.sh [--dry-run] [--yes] [--answer Q-<id>] [--data <folder>] [--hostname <host>] gitlab|github <repo> <number> <result.json>
 #
 # A post is outward-facing and goes out under an account of the owner (spec 13).
 # Without --dry-run it needs a cover, checked by structure only:
@@ -14,8 +14,9 @@
 # - a role session: --answer Q-<id>, with a message from bigm in the mailbox of the
 #   caller whose header is exactly "ANSWER Q-<id>: post <repo>#<number> at <sha> approved",
 #   where <sha> (7 to 40 hex) is a prefix of the head_sha of the result, or
-#   a row of the section "Post grants" of grants.md for BRUH_ROLE_KEY, the host, and
-#   the repository. --yes is refused in a role session.
+#   a row of the section "Post grants" of grants.md for BRUH_ROLE_KEY, the host name
+#   (--hostname <host>, default gitlab.com or github.com), and the repository.
+#   --yes is refused in a role session.
 # It finds the mailbox and grants.md (through ledger_path in <data>/init/config.json)
 # in the data folder, as the merge train does. This is a speed bump (principle 2):
 # a session with Bash can still post by other means.
@@ -29,7 +30,7 @@
 # finding never passes through the shell, and glab gets no bracketed field names.
 set -eu
 
-usage='usage: post-findings.sh [--dry-run] [--yes] [--answer Q-<id>] [--data <folder>] gitlab|github <repo> <number> <result.json>'
+usage='usage: post-findings.sh [--dry-run] [--yes] [--answer Q-<id>] [--data <folder>] [--hostname <host>] gitlab|github <repo> <number> <result.json>'
 err() { printf 'post-findings.sh: %s\n' "$*" >&2; }
 bad() {
 	err "$*"
@@ -40,6 +41,7 @@ dry=0
 yes=0
 answer=
 data=${BRUH_DATA:-}
+hostname=
 while [ $# -gt 0 ]; do
 	case $1 in
 	--dry-run) dry=1 ;;
@@ -54,6 +56,11 @@ while [ $# -gt 0 ]; do
 		data=$2
 		shift
 		;;
+	--hostname)
+		[ $# -ge 2 ] || bad "$usage"
+		hostname=$2
+		shift
+		;;
 	-*) bad "$usage" ;;
 	*) break ;;
 	esac
@@ -66,10 +73,14 @@ num=$3
 file=$4
 case $num in '' | *[!0-9]*) bad "$usage" ;; esac
 case $host in
-gitlab) re='^([0-9]+|[A-Za-z0-9_.-]+(/[A-Za-z0-9_.-]+)+)$' cli=glab ;;
-github) re='^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$' cli=gh ;;
+gitlab) re='^([0-9]+|[A-Za-z0-9_.-]+(/[A-Za-z0-9_.-]+)+)$' cli=glab dflt=gitlab.com ;;
+github) re='^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$' cli=gh dflt=github.com ;;
 *) bad "$usage" ;;
 esac
+hostname=${hostname:-$dflt}
+case $hostname in *"
+"*) bad "bad host name: a newline" ;; esac
+printf '%s\n' "$hostname" | grep -Eqx '[A-Za-z0-9.-]+' || bad "bad host name: $hostname"
 case $repo in *"
 "*) bad "bad repository for $host: a newline" ;; esac
 printf '%s\n' "$repo" | grep -Eqx "$re" || bad "bad repository for $host: $repo"
@@ -94,12 +105,12 @@ jq -e '(.workflow == "review-only" or .workflow == "review-and-fix")
 config_ledger() { jq -r '.ledger_path // empty' "$data/init/config.json" 2>/dev/null; }
 
 # has_grant exits 0 when the "Post grants" section of grants.md has a row
-# | <role key> | <host> | <repository> | ... for BRUH_ROLE_KEY, the host, and the repository.
+# | <role key> | <host name> | <repository> | ... for BRUH_ROLE_KEY, the host name, and the repository.
 has_grant() {
 	[ -n "$data" ] || return 1
 	ledger=$(config_ledger) || return 1
 	[ -n "$ledger" ] && [ -f "$ledger/grants.md" ] || return 1
-	awk -v key="$BRUH_ROLE_KEY" -v host="$host" -v repo="$repo" '
+	awk -v key="$BRUH_ROLE_KEY" -v host="$hostname" -v repo="$repo" '
 		function cell(s) { gsub(/^[ \t`]+|[ \t`]+$/, "", s); return s }
 		/^## / { post = ($0 ~ /^## Post grants[ \t]*$/); next }
 		post && /^\|/ { split($0, c, "|"); if (cell(c[2]) == key && cell(c[3]) == host && cell(c[4]) == repo) found = 1 }
@@ -128,13 +139,52 @@ refuse() {
 	err "refused: a post is outward-facing and goes out under an account of the owner. $*"
 	exit 3
 }
+
+# check_identity refuses when the chosen remote of the repository, in the first
+# repository of a learn/projects/*.json index file of the ledger with this
+# host_path and host name, uses an SSH host alias (the host part of its scp or
+# ssh:// URL differs from the host name; an https URL has none), and no row of
+# "## Identities" of projects/<key>.md names the alias with a non-empty account
+# (spec 8.5, G10). No ledger or no index file: no check.
+check_identity() {
+	ledger=$(config_ledger) || return 0
+	[ -n "$ledger" ] || return 0
+	set -- "$ledger"/learn/projects/*.json
+	[ -f "$1" ] || return 0
+	# The key is the file name, and neither it nor the alias holds a "/".
+	found=$(jq -rn --arg repo "$repo" --arg h "$hostname" '
+		first(inputs | (input_filename | sub(".*/"; "") | sub("\\.json$"; "")) as $k
+			| .repos[]? | select(.host_path == $repo and .host.value == $h) | [$k, .])
+		| .[0] as $k | .[1] as $r
+		| ([$r.remotes[]? | select(.name == $r.remote) | .url | strings][0] // "") as $u
+		| if $u | startswith("ssh://") then $u | capture("^ssh://([^/]*@)?(?<h>[^/:@]+)").h
+			elif $u | contains("://") then empty
+			else $u | capture("^(?<p>[^:/]+):").p | sub(".*@"; "") end
+		| ascii_downcase | select(. != ($h | ascii_downcase))
+		| "\($k)/\(.)"' "$@") || {
+		err "could not read the index files in $ledger/learn/projects"
+		exit 1
+	}
+	[ -n "$found" ] || return 0
+	pkey=${found%%/*}
+	halias=${found#*/}
+	awk -v alias="$halias" '
+		function cell(s) { gsub(/^[ \t`]+|[ \t`]+$/, "", s); return s }
+		/^#/ { ids = ($0 ~ /^## Identities[ \t]*$/); next }
+		ids && /^\|/ { split($0, c, "|"); if (cell(c[2]) == alias && cell(c[3]) != "") found = 1 }
+		END { exit !found }' "$ledger/projects/$pkey.md" 2>/dev/null && return 0
+	err "refused: the remote of $repo uses the SSH host alias $halias; the owner confirms the account in \"Identities\" of projects/$pkey.md"
+	exit 3
+}
+if [ -n "${BRUH_ROLE_KEY:-}" ] && [ -n "$data" ]; then check_identity; fi
+
 if [ "$dry" = 0 ]; then
 	if [ -z "${BRUH_ROLE_KEY:-}" ]; then
 		[ "$yes" = 1 ] || refuse "In a manual session, pass --yes only after the owner said yes to this post."
 	else
 		[ "$yes" = 0 ] || refuse "--yes works only in a manual session of the owner; a role session needs --answer Q-<id> or a post grant."
 		if ! has_answer && ! has_grant; then
-			refuse "Ask bigm for the ANSWER \"ANSWER Q-<id>: post $repo#$num at <head SHA> approved\" and pass --answer Q-<id>, or ask the owner for a row in the section \"Post grants\" of grants.md for $key, $host, and $repo."
+			refuse "Ask bigm for the ANSWER \"ANSWER Q-<id>: post $repo#$num at <head SHA> approved\" and pass --answer Q-<id>, or ask the owner for a row in the section \"Post grants\" of grants.md for $key, $hostname, and $repo."
 		fi
 	fi
 fi
@@ -161,22 +211,22 @@ fetch() {
 # Read the pull request and the bodies that are on it already.
 if [ "$host" = gitlab ]; then
 	api="projects/$(jq -rn --arg p "$repo" '$p | @uri')/merge_requests/$num"
-	glab api "$api" >"$tmp/pr.json"
+	glab api --hostname "$hostname" "$api" >"$tmp/pr.json"
 	jq -e '.diff_refs.head_sha' "$tmp/pr.json" >/dev/null || {
 		err "$api has no diff_refs yet; retry when GitLab has computed the diff"
 		exit 1
 	}
 	web_url=$(jq -r '.web_url' "$tmp/pr.json")
 	head=$(jq -r '.diff_refs.head_sha' "$tmp/pr.json")
-	fetch "$tmp/page-discussions.json" glab api --paginate "$api/discussions"
+	fetch "$tmp/page-discussions.json" glab api --hostname "$hostname" --paginate "$api/discussions"
 	jq -s '[.[][] | .notes[]? | .body]' "$tmp/page-discussions.json" >"$tmp/existing.json"
 else
 	api="repos/$repo"
-	gh api "$api/pulls/$num" >"$tmp/pr.json"
+	gh api --hostname "$hostname" "$api/pulls/$num" >"$tmp/pr.json"
 	web_url=$(jq -r '.html_url' "$tmp/pr.json")
 	head=$(jq -r '.head.sha' "$tmp/pr.json")
-	fetch "$tmp/page-issue.json" gh api --paginate "$api/issues/$num/comments"
-	fetch "$tmp/page-pull.json" gh api --paginate "$api/pulls/$num/comments"
+	fetch "$tmp/page-issue.json" gh api --hostname "$hostname" --paginate "$api/issues/$num/comments"
+	fetch "$tmp/page-pull.json" gh api --hostname "$hostname" --paginate "$api/pulls/$num/comments"
 	jq -s '[.[][] | .body]' "$tmp/page-issue.json" "$tmp/page-pull.json" >"$tmp/existing.json"
 fi
 reviewed=$(jq -r '.head_sha // ""' "$file")
@@ -221,7 +271,7 @@ posted() { jq -e --slurpfile p "$1" '$p[0].body as $b | any(.[]; . == $b)' "$tmp
 # post <api path> <payload file>: exit 0 on success, 2 when the host rejects an
 # inline position (GitLab 400, GitHub 422), and 1 on any other failure.
 post() {
-	if "$cli" api -X POST "$1" -H 'Content-Type: application/json' --input "$2" >"$tmp/resp.json" 2>"$tmp/err.txt"; then
+	if "$cli" api --hostname "$hostname" -X POST "$1" -H 'Content-Type: application/json' --input "$2" >"$tmp/resp.json" 2>"$tmp/err.txt"; then
 		return 0
 	fi
 	if grep -Eq 'HTTP (400|422)' "$tmp/err.txt"; then return 2; fi

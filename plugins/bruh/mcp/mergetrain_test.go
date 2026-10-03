@@ -222,6 +222,103 @@ func TestMergeGate(t *testing.T) {
 		t.Fatalf("after mail_read: %v", err)
 	}
 	mustErr(t, mergeGate(env, r, "Q-repo-host-40", []int{9}), "no ANSWER Q-repo-host-40")
+	// A GitLab path with subgroups matches the first cell of its grant row as is (A13.3).
+	gitlab := r
+	gitlab.Host, gitlab.Repo = "gitlab", "group/sub/app"
+	env = gateEnv(t, gitlab, "| group/sub/app | clerk-repo-merge | CI green | CI green | 2026-09-30T10:00:00Z | init |\n")
+	if err := mergeGate(env, gitlab, "", []int{9}); err != nil {
+		t.Fatalf("GitLab grant: %v", err)
+	}
+}
+
+// TestMergeGateRefusesUncheckedAlias pins the identity rule of spec 8.5 (A13.2, G10): when the
+// chosen remote of the repository in the index uses an SSH host alias, the gate needs a confirmed
+// account for that alias in "Identities" of the project file before it checks the grant.
+func TestMergeGateRefusesUncheckedAlias(t *testing.T) {
+	r := repoConfig{Repo: "owner/repo", Host: "gitlab", Project: "repo", MergeMethod: "merge"}
+	const (
+		alias    = "git@gitlab.com-work:owner/repo.git"
+		aliasErr = `the remote of owner/repo uses the SSH host alias gitlab.com-work, so its account is not checked; the owner confirms the account in "Identities" of projects/repo.md (a row for gitlab.com-work)`
+		head     = "# repo\n\n## Identities\n\n| Alias | Account | Confirmed |\n|---|---|---|\n"
+	)
+	gitlabCom := "gitlab.com"
+	for _, c := range []struct {
+		name       string
+		url        string
+		host       *string
+		identities string // the project file; "" writes none
+		noIndex    bool
+		wantErr    string // "" means no error
+	}{
+		{"alias, no row", alias, &gitlabCom, head, false, aliasErr},
+		{"alias, no project file", alias, &gitlabCom, "", false, aliasErr},
+		{"alias, empty identity", alias, &gitlabCom, head + "| `gitlab.com-work` |  | 2026-10-01 |\n", false, aliasErr},
+		{"alias, confirmed", alias, &gitlabCom, head + "| `gitlab.com-work` | work-account | 2026-10-01 |\n", false, ""},
+		{"alias, host null", alias, nil, head, false, aliasErr},
+		{"https remote", "https://gitlab.com/owner/repo.git", &gitlabCom, head, false, ""},
+		{"no index file", alias, &gitlabCom, head, true, ""},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			env := gateEnv(t, r, "| owner/repo | clerk-repo-merge | CI green | CI green | 2026-09-30T10:00:00Z | init |\n")
+			ledger, err := ledgerPath(env)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !c.noIndex {
+				pf := &projectFile{Key: "repo", Main: "repo", Repos: []indexRepo{{
+					Path:     "repo",
+					Remotes:  []remote{{Name: "origin", URL: c.url}},
+					Remote:   "origin",
+					Host:     hostValue{Value: c.host, Source: "git"},
+					Kind:     "gitlab",
+					HostPath: "owner/repo",
+					State:    "ok",
+				}}}
+				if _, err := writeLearnFile(filepath.Join(ledger, "learn", "projects", "repo.json"), pf); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if c.identities != "" {
+				if err := os.MkdirAll(filepath.Join(ledger, "projects"), 0o755); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.WriteFile(filepath.Join(ledger, "projects", "repo.md"), []byte(c.identities), 0o600); err != nil {
+					t.Fatal(err)
+				}
+			}
+			err = mergeGate(env, r, "", []int{9})
+			if c.wantErr == "" {
+				if err != nil {
+					t.Fatalf("mergeGate(%s) = %v, want nil", c.name, err)
+				}
+				return
+			}
+			if err == nil || err.Error() != c.wantErr {
+				t.Fatalf("mergeGate(%s) = %v, want %q", c.name, err, c.wantErr)
+			}
+		})
+	}
+}
+
+// TestMergeTrainRefusesEntryWithoutProject pins G2: a repos.json entry of version 0.5 with no
+// project gets no merge, and the train calls no code host.
+func TestMergeTrainRefusesEntryWithoutProject(t *testing.T) {
+	f, r := newFakeForge(t, "github")
+	f.addPull(9, "s9")
+	f.green("s9")
+	env := gateEnv(t, r, "| owner/repo | clerk-repo-merge | CI green | CI green | 2026-09-30T10:00:00Z | init |\n")
+	repos := `{"repos":[{"repo":"owner/repo","host":"github","api_url":"` + r.APIURL + `","merge_method":"squash"}]}`
+	if err := os.WriteFile(filepath.Join(env.DataDir, "repos.json"), []byte(repos), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	var out, errOut bytes.Buffer
+	code := runCLI([]string{"merge-train", "--data", env.DataDir, "owner/repo", "9"}, env, &out, &errOut)
+	if want := "owner/repo: no project; bigm calls repos_set with project"; code == 0 || !strings.Contains(errOut.String(), want) {
+		t.Fatalf("runCLI(merge-train owner/repo 9) = exit %d, stderr %q; want non-zero exit and stderr with %q", code, errOut.String(), want)
+	}
+	if len(f.calls) != 0 {
+		t.Fatalf("code host calls = %v", f.calls)
+	}
 }
 
 // Final review M2: the ANSWER must approve these exact pull requests of this repository.
@@ -271,5 +368,77 @@ func TestLaunchScripts(t *testing.T) {
 		if err == nil || !strings.Contains(string(out), "flag provided but not defined: -no-such-flag") {
 			t.Fatalf("%s: %v\n%s", script, err, out)
 		}
+	}
+}
+
+// TestMergeTrainGitLab pins the G8 rule of the merge train on GitLab (spec 8.5, A13.1): it merges
+// only on detailed_merge_status mergeable, waits on checking, skips each other value, and confirms
+// the merge by a read of state merged.
+func TestMergeTrainGitLab(t *testing.T) {
+	const head = "0123456789abcdef0123456789abcdef01234567"
+	r := repoConfig{Repo: "group/sub/shop", Host: "gitlab", APIURL: "https://gitlab.example.com/api/v4", Project: "shop", MergeMethod: "merge"}
+	for _, c := range []struct {
+		name          string
+		first, then   string // detailed_merge_status of the first two reads, and of each later read
+		result        string
+		reason, value string
+		puts          int
+		pipelineReads int
+	}{
+		{"mergeable", "mergeable", "mergeable", "merged", "", "merged: true", 1, 1},
+		{"not approved", "not_approved", "not_approved", "skipped", "detailed_merge_status_not_approved", "detailed_merge_status: not_approved", 0, 1},
+		// The first read is the one before the checks; the second, after a green pipeline, still
+		// says checking, so the train must read the pipeline again before it merges.
+		{"checking then mergeable", "checking", "mergeable", "merged", "", "merged: true", 1, 2},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			// The merge call logs its stdin and marks the merge request merged; a read of the merge
+			// request counts itself in the file reads.
+			log := fakeCLI(t, &glabBin, `dir=$(dirname "$log")
+case "$4" in
+projects/group%2Fsub%2Fshop/merge_requests/7/merge)
+	case "$*" in *"-X PUT"*) ;; *) echo 'not a PUT' >&2; exit 1 ;; esac
+	echo "stdin: $(cat)" >> "$log"
+	echo PUT >> "$dir/puts"
+	: > "$dir/merged"
+	echo '{}' ;;
+projects/group%2Fsub%2Fshop/merge_requests/7)
+	n=$(( $(cat "$dir/reads" 2>/dev/null || echo 0) + 1 ))
+	echo "$n" > "$dir/reads"
+	if [ -e "$dir/merged" ]; then
+		echo '{"iid":7,"state":"merged","sha":"`+head+`","merge_commit_sha":"m7"}'
+		exit 0
+	fi
+	status=`+c.then+`
+	[ "$n" -gt 2 ] || status=`+c.first+`
+	echo '{"iid":7,"state":"opened","draft":false,"sha":"`+head+`","detailed_merge_status":"'"$status"'"}' ;;
+projects/group%2Fsub%2Fshop/pipelines\?*)
+	echo pipeline >> "$dir/pipelines"
+	echo '[{"status":"success"}]' ;;
+*) echo '404 Not Found' >&2; exit 1 ;;
+esac`)
+			dir := filepath.Dir(log)
+			rs, ok := runTrain(t, nil, r, 5*time.Second, 7)
+			if len(rs) != 1 || rs[0].Result != c.result || rs[0].Reason != c.reason || rs[0].Source.Value != c.value || ok != (c.result == "merged") {
+				t.Fatalf("ok %v, lines %+v", ok, rs)
+			}
+			count := func(name string) int {
+				data, _ := os.ReadFile(filepath.Join(dir, name))
+				return strings.Count(string(data), "\n")
+			}
+			if got := count("puts"); got != c.puts {
+				t.Fatalf("PUT calls = %d, want %d", got, c.puts)
+			}
+			if got := count("pipelines"); got != c.pipelineReads {
+				t.Errorf("pipeline reads = %d, want %d", got, c.pipelineReads)
+			}
+			data, _ := os.ReadFile(log)
+			if stdin := `stdin: {"sha":"` + head + `"}`; c.puts == 1 && !strings.Contains(string(data), stdin+"\n") {
+				t.Errorf("log %q has no %q", data, stdin)
+			}
+			if c.result == "merged" && (rs[0].MergeSHA != "m7" || !strings.HasSuffix(rs[0].Source.Call, "/merge_requests/7")) {
+				t.Errorf("confirmation = %+v", rs[0])
+			}
+		})
 	}
 }

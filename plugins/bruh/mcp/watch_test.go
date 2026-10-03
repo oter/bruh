@@ -8,6 +8,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -447,5 +448,106 @@ func TestRunWatchReadsReposAgainEachPoll(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(env.DataDir, "watch", "state.json")); err != nil {
 		t.Fatalf("the second poll must read the new repos.json: %v", err)
+	}
+}
+
+func TestWatchGitLabBaselineThenEvents(t *testing.T) {
+	r := repoConfig{Repo: "group/sub/shop", Host: "gitlab", APIURL: "https://gitlab.example.com/api/v4", Project: "shop", MergeMethod: "merge"}
+	h, err := newHost(r)
+	if err != nil {
+		t.Fatalf("newHost: %v", err)
+	}
+	var out bytes.Buffer
+	w := &watcher{env: testEnv(t, ""), out: &out}
+	cfg := reposConfig{IntervalSeconds: 60, Repos: []repoConfig{r}}
+
+	const p = "projects/group%2Fsub%2Fshop/"
+	web := "https://gitlab.example.com/group/sub/shop/-/merge_requests/"
+	branches := p + "repository/branches?per_page=100"
+	opened := p + "merge_requests?state=opened&order_by=updated_at&sort=desc&per_page=30"
+	merged := p + "merge_requests?state=merged&order_by=updated_at&sort=desc&per_page=30"
+	notes := p + "merge_requests/4/notes?sort=asc&order_by=updated_at&per_page=100"
+	pipelines := func(sha string) string { return p + "pipelines?sha=" + sha + "&order_by=id&sort=desc&per_page=1" }
+	later := time.Now().Add(time.Minute).UTC().Format(time.RFC3339)
+	mr := `{"iid":4,"state":"opened","sha":"f1","updated_at":"` + later + `","web_url":"` + web + `4"}`
+	note := `{"id":41,"body":"Done.\n\n<!-- bruh:clerk-shop-t1 -->\n","system":false,"author":{"username":"owner-account"},"updated_at":"` + later + `"}`
+
+	var all []watchEvent
+	// poll calls fakeGlab with the fixtures, polls once, and returns the printed events.
+	poll := func(fixtures map[string]string) []watchEvent {
+		t.Helper()
+		fakeGlab(t, fixtures)
+		if err := w.pollAll(t.Context(), cfg, []codeHost{h}); err != nil {
+			t.Fatalf("pollAll: %v", err)
+		}
+		evs := events(t, &out)
+		all = append(all, evs...)
+		return evs
+	}
+	base := watchEvent{Repo: r.Repo, Project: r.Project}
+	ev := func(f func(*watchEvent)) watchEvent {
+		e := base
+		f(&e)
+		return e
+	}
+	for _, step := range []struct {
+		name     string
+		fixtures map[string]string
+		want     []watchEvent
+	}{{
+		name:     "baseline",
+		fixtures: map[string]string{branches: `[{"name":"main","commit":{"id":"m1"}}]`, merged: `[]`},
+	}, {
+		name: "new branch head",
+		fixtures: map[string]string{
+			branches: `[{"name":"main","commit":{"id":"m2"}}]`, pipelines("m2"): `[{"id":1,"status":"success"}]`,
+			opened: `[]`, merged: `[]`,
+		},
+		want: []watchEvent{ev(func(e *watchEvent) { e.Type, e.Ref, e.SHA = "push", "main", "m2" })},
+	}, {
+		name: "note with the marker",
+		fixtures: map[string]string{
+			branches: `[{"name":"main","commit":{"id":"m2"}}]`,
+			opened:   `[` + mr + `]`, notes: `[` + note + `]`, merged: `[]`,
+		},
+		want: []watchEvent{ev(func(e *watchEvent) {
+			e.Type, e.Number, e.URL, e.Author, e.By, e.RoleKey = "comment", 4, web+"4#note_41", "owner-account", "agent", "clerk-shop-t1"
+		})},
+	}, {
+		name: "failed pipeline of a new head",
+		fixtures: map[string]string{
+			branches:        `[{"name":"main","commit":{"id":"m2"}},{"name":"feat","commit":{"id":"f1"}}]`,
+			pipelines("f1"): `[{"id":2,"status":"failed"}]`,
+			opened:          `[` + mr + `]`, notes: `[` + note + `]`, merged: `[]`,
+		},
+		want: []watchEvent{
+			ev(func(e *watchEvent) { e.Type, e.Ref, e.SHA = "push", "feat", "f1" }),
+			ev(func(e *watchEvent) { e.Type, e.Ref, e.SHA = "red", "feat", "f1" }),
+		},
+	}, {
+		name: "merged merge request",
+		fixtures: map[string]string{
+			branches: `[{"name":"main","commit":{"id":"m2"}},{"name":"feat","commit":{"id":"f1"}}]`,
+			opened:   `[]`,
+			merged:   `[{"iid":4,"state":"merged","sha":"f1","merge_commit_sha":"mc4","web_url":"` + web + `4"}]`,
+		},
+		want: []watchEvent{ev(func(e *watchEvent) { e.Type, e.Number, e.URL, e.SHA = "merge", 4, web+"4", "mc4" })},
+	}} {
+		if got := poll(step.fixtures); !slices.Equal(got, step.want) {
+			t.Errorf("%s: events = %+v, want %+v", step.name, got, step.want)
+		}
+	}
+
+	for _, e := range all {
+		if e.Type == "review" {
+			t.Errorf("event %+v has the type review; GitLab gives no review events", e)
+		}
+	}
+	b, err := os.ReadFile(filepath.Join(w.env.DataDir, "reports", "clanker-shop.jsonl"))
+	if err != nil {
+		t.Fatalf("report file of shop: %v", err)
+	}
+	if got := events(t, bytes.NewBuffer(b)); !slices.Equal(got, all) {
+		t.Errorf("events in reports/clanker-shop.jsonl = %+v, want %+v", got, all)
 	}
 }
