@@ -162,7 +162,7 @@ func runCLI(args []string, env Env, stdout, stderr io.Writer) int {
 }
 
 // cliAnswers reads the answers file (optional) and applies BRUH_INIT_<KEY> variables. The
-// values of user_name, ledger_path, and mode are text; the other values are JSON.
+// values of user_name, ledger_path, mode, and root are text; the other values are JSON.
 func cliAnswers(file string, environ []string) (InitAnswers, error) {
 	m := map[string]any{}
 	if file != "" {
@@ -181,7 +181,7 @@ func cliAnswers(file string, environ []string) (InitAnswers, error) {
 			continue
 		}
 		key = strings.ToLower(key)
-		if slices.Contains([]string{"user_name", "ledger_path", "mode"}, key) {
+		if slices.Contains([]string{"user_name", "ledger_path", "mode", "root"}, key) {
 			m[key] = val
 			continue
 		}
