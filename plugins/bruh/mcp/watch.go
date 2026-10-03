@@ -44,7 +44,7 @@ func agentMark(body string) string {
 
 // feedState is the read position of one list of comments or reviews.
 type feedState struct {
-	Since string  `json:"since"` // RFC 3339, UTC
+	Since string  `json:"since"` // RFC 3339 with an optional fraction, UTC
 	Seen  []int64 `json:"seen"`  // IDs updated exactly at Since
 }
 
@@ -76,12 +76,17 @@ type watchEvent struct {
 }
 
 type watcher struct {
-	env Env
-	out io.Writer
+	env    Env
+	out    io.Writer
+	errOut io.Writer // the log of skipped entries; runWatch sets os.Stderr
 }
 
-// emit prints one report line and appends it to reports/watcher.jsonl.
+// emit prints one report line and appends it to reports/clanker-<project>.jsonl, the report
+// file of the project of the event, in one write.
 func (w *watcher) emit(ev watchEvent, text, call, value string) error {
+	if !projectRE.MatchString(ev.Project) {
+		return fmt.Errorf("invalid project of %s: %q", ev.Repo, ev.Project)
+	}
 	at := w.env.Stamp()
 	raw, _ := json.Marshal(ev)
 	line, _ := json.Marshal(ReportLine{At: at, From: "watcher", Kind: "event", Text: text, Source: &Source{Call: call, Value: value, At: at}, Event: raw})
@@ -93,7 +98,7 @@ func (w *watcher) emit(ev watchEvent, text, call, value string) error {
 	if err != nil {
 		return err
 	}
-	f, err := os.OpenFile(filepath.Join(dir, "watcher.jsonl"), os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
+	f, err := os.OpenFile(filepath.Join(dir, "clanker-"+ev.Project+".jsonl"), os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
 	if err != nil {
 		return err
 	}
@@ -226,7 +231,7 @@ func (w *watcher) emitFeed(r repoConfig, base watchEvent, feed string, items []h
 			since, fs.Seen = at, nil
 		}
 		fs.Seen = append(fs.Seen, c.ID)
-		fs.Since = since.UTC().Format(time.RFC3339)
+		fs.Since = since.UTC().Format(time.RFC3339Nano) // GitLab notes have milliseconds
 	}
 	return nil
 }
@@ -282,7 +287,7 @@ func (w *watcher) pollAll(ctx context.Context, cfg reposConfig, hosts []codeHost
 
 // runWatch polls every interval_seconds until ctx ends, or once.
 func runWatch(ctx context.Context, env Env, out io.Writer, once bool) error {
-	w := &watcher{env: env, out: out}
+	w := &watcher{env: env, out: out, errOut: os.Stderr}
 	if once {
 		return pollOnce(ctx, env, w)
 	}
@@ -321,7 +326,22 @@ func pollOnce(ctx context.Context, env Env, w *watcher) error {
 	return pollWith(ctx, cfg, w)
 }
 
+// pollWith polls the entries of cfg that have a project. It logs each entry without one
+// and skips it, because an event needs the project of its report file.
 func pollWith(ctx context.Context, cfg reposConfig, w *watcher) error {
+	errOut := w.errOut
+	if errOut == nil {
+		errOut = os.Stderr
+	}
+	all := cfg.Repos
+	cfg.Repos = nil
+	for _, r := range all {
+		if r.Project == "" {
+			fmt.Fprintf(errOut, "%s: no project; bigm calls repos_set with project\n", r.Repo)
+			continue
+		}
+		cfg.Repos = append(cfg.Repos, r)
+	}
 	var hosts []codeHost
 	for _, r := range cfg.Repos {
 		h, err := newHost(r)

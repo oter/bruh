@@ -1,6 +1,6 @@
 # Project: <project>
 
-bigm copies this file to `projects/<project>.md` when a project gets its first work. Each row has: owner, task, expected deliverable, state, next check (UTC), link, and the source read. bigm rebuilds "In progress", "Merged", and "Live" from git and the code host after each merge and at each sweep, and stamps each row with its own "as of" time.
+The init skill makes `projects/<key>.md` from this file for each selected project. Each row has: owner, task, expected deliverable, state, next check (UTC), link, and the source read. Each row shows only an open or live item. bigm deletes the row in the commit that closes the item, with the subject `close <kind>: <subject>`. bigm adds a row to "Merged" or "Live" after it showed the merge or the deployment in a reply to a message of the owner. bigm does not rebuild these two sections.
 
 ## Summary
 
@@ -20,11 +20,6 @@ bigm copies this file to `projects/<project>.md` when a project gets its first w
 |---|---|---|---|---|---|---|
 
 ## Decisions
-
-## Questions and answers
-
-| ID | P-level | Question | Answer | By | Date (UTC) |
-|---|---|---|---|---|---|
 
 ## Sessions
 

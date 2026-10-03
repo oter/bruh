@@ -10,7 +10,9 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"maps"
 	"os"
+	"path"
 	"path/filepath"
 	"regexp"
 	"slices"
@@ -24,47 +26,51 @@ import (
 const pluginID = "bruh@bruh"
 
 var (
-	repoRE    = regexp.MustCompile(`^[A-Za-z0-9._-]+/[A-Za-z0-9._-]+$`)
-	envNameRE = regexp.MustCompile(`^[A-Za-z0-9._-]+$`)
+	repoRE = regexp.MustCompile(`^[A-Za-z0-9._-]+/[A-Za-z0-9._-]+$`)
+	// hostNameRE matches a host and an SSH host alias of the answers host_kinds and host_aliases.
+	hostNameRE = regexp.MustCompile(`^[A-Za-z0-9.-]+$`)
 )
 
-type MergeGrant struct {
-	Repo       string `json:"repo"`
-	Merger     string `json:"merger"`
-	Conditions string `json:"conditions"`
-}
-
-// InitAnswers are the answers of interfaces section 5. Zero values take the defaults.
+// InitAnswers are the answers of interfaces section 5. Zero values take the defaults. The plugin
+// options UserName, HandoffPercent, and MaxBusyClerks have no default: nil is not in the answers.
 type InitAnswers struct {
-	UserName           string       `json:"user_name"`
-	LedgerPath         string       `json:"ledger_path"`
-	Mode               string       `json:"mode"`
-	P1BatchMinutes     int          `json:"p1_batch_minutes"`
-	P1BatchSize        int          `json:"p1_batch_size"`
-	ReviewRoundCap     int          `json:"review_round_cap"`
-	AutoCompactWindow  int          `json:"auto_compact_window"`
-	HandoffPercent     int          `json:"handoff_percent"`
-	MaxBusyClerks      int          `json:"max_busy_clerks"`
-	WrapStatusline     *bool        `json:"wrap_statusline"`
-	Channels           []string     `json:"channels"`
-	DelegatedP1Classes []string     `json:"delegated_p1_classes"`
-	MergeGrants        []MergeGrant `json:"merge_grants"`
-	RemoteEnvironments []string     `json:"remote_environments"`
+	UserName          *string  `json:"user_name"`
+	LedgerPath        string   `json:"ledger_path"`
+	Mode              string   `json:"mode"`
+	P1BatchMinutes    int      `json:"p1_batch_minutes"`
+	P1BatchSize       int      `json:"p1_batch_size"`
+	ReviewRoundCap    int      `json:"review_round_cap"`
+	AutoCompactWindow int      `json:"auto_compact_window"`
+	HandoffPercent    *int     `json:"handoff_percent"`
+	MaxBusyClerks     *int     `json:"max_busy_clerks"`
+	WrapStatusline    *bool    `json:"wrap_statusline"`
+	Channels          []string `json:"channels"`
+	// The learn answers (spec 8.5). A nil Projects means that the answers have no projects
+	// key, so the index does not change; an empty Projects removes every project (G27).
+	Root        string            `json:"root"`
+	Depth       int               `json:"depth"`
+	Exclude     []string          `json:"exclude"`
+	HostKinds   map[string]string `json:"host_kinds"`
+	HostAliases map[string]string `json:"host_aliases"`
+	Projects    []answerProject   `json:"projects"`
 }
 
 func oneLine(s string) bool {
 	return strings.TrimSpace(s) != "" && !strings.ContainsAny(s, "\r\n") && len(s) <= 500
 }
 
-// normalize sets the defaults and checks every answer.
-func (a *InitAnswers) normalize() error {
+// normalize sets the defaults and checks every answer. home is the home folder of the user,
+// the base of the default root.
+func (a *InitAnswers) normalize(home string) error {
 	a.Mode = cmp.Or(a.Mode, "human")
+	a.Root = cmp.Or(a.Root, filepath.Join(home, "workspace"))
+	a.Depth = cmp.Or(a.Depth, 4)
+	if a.Exclude == nil {
+		a.Exclude = []string{"archive"}
+	}
 	a.P1BatchMinutes = cmp.Or(a.P1BatchMinutes, 60)
 	a.P1BatchSize = cmp.Or(a.P1BatchSize, 5)
 	a.ReviewRoundCap = cmp.Or(a.ReviewRoundCap, 2)
-	a.AutoCompactWindow = cmp.Or(a.AutoCompactWindow, 550000)
-	a.HandoffPercent = cmp.Or(a.HandoffPercent, 50)
-	a.MaxBusyClerks = cmp.Or(a.MaxBusyClerks, 8)
 	if a.WrapStatusline == nil {
 		a.WrapStatusline = new(true)
 	}
@@ -74,27 +80,95 @@ func (a *InitAnswers) normalize() error {
 			errs = append(errs, fmt.Errorf(format, args...))
 		}
 	}
-	check(oneLine(a.UserName), "user_name is required (one line)")
+	if a.UserName != nil {
+		check(oneLine(*a.UserName), "user_name must be one line: %q", *a.UserName)
+	}
 	check(ledgerPathOK(a.LedgerPath), "ledger_path must be a clean absolute path with no .., in a folder that exists or can be created: %q", a.LedgerPath)
 	check(a.Mode == "human" || a.Mode == "autonomous", "mode must be human or autonomous: %q", a.Mode)
 	check(a.P1BatchMinutes > 0 && a.P1BatchSize > 0 && a.ReviewRoundCap > 0, "p1_batch_minutes, p1_batch_size, and review_round_cap must be 1 or more")
-	check(a.AutoCompactWindow >= 100000 && a.AutoCompactWindow <= 1000000, "auto_compact_window must be 100000 to 1000000: %d", a.AutoCompactWindow)
-	check(a.HandoffPercent >= 1 && a.HandoffPercent <= 99, "handoff_percent must be 1 to 99: %d", a.HandoffPercent)
-	check(a.MaxBusyClerks >= 1, "max_busy_clerks must be 1 or more: %d", a.MaxBusyClerks)
+	if a.AutoCompactWindow != 0 { // 0 is no answer: planSettings keeps the existing value
+		check(a.AutoCompactWindow >= 100000 && a.AutoCompactWindow <= 1000000, "auto_compact_window must be 100000 to 1000000: %d", a.AutoCompactWindow)
+	}
+	if a.HandoffPercent != nil {
+		check(*a.HandoffPercent >= 1 && *a.HandoffPercent <= 99, "handoff_percent must be 1 to 99: %d", *a.HandoffPercent)
+	}
+	if a.MaxBusyClerks != nil {
+		check(*a.MaxBusyClerks >= 1, "max_busy_clerks must be 1 or more: %d", *a.MaxBusyClerks)
+	}
 	for i, ch := range a.Channels {
 		check((ch == "telegram" || ch == "slack") && !slices.Contains(a.Channels[:i], ch), "channels: %q is not telegram or slack, or is repeated", ch)
 	}
-	for _, c := range a.DelegatedP1Classes {
-		check(oneLine(c), "delegated_p1_classes: each class is one line: %q", c)
+	rootOK := filepath.IsAbs(a.Root) && filepath.Clean(a.Root) == a.Root
+	check(rootOK, "root must be a clean absolute path: %q", a.Root)
+	check(a.Depth >= 1 && a.Depth <= 8, "depth must be 1 to 8: %d", a.Depth)
+	for _, e := range a.Exclude {
+		check(e != "", "exclude: an entry is empty")
 	}
-	for _, g := range a.MergeGrants {
-		k, err := ParseRoleKey(g.Merger)
-		check(repoRE.MatchString(g.Repo), "merge_grants: repo must be owner/name: %q", g.Repo)
-		check(err == nil && k.Role == "clerk" && k.Task == "merge", "merge_grants: merger must be the merger clerk key clerk-<project>-merge: %q", g.Merger)
-		check(oneLine(g.Conditions), "merge_grants: conditions are one line: %q", g.Conditions)
+	for _, h := range slices.Sorted(maps.Keys(a.HostKinds)) {
+		k := a.HostKinds[h]
+		check(hostNameRE.MatchString(h), "host_kinds: host %q does not match %s", h, hostNameRE)
+		check(k == "github" || k == "gitlab" || k == "gitea", "host_kinds: kind %q of host %q is not github, gitlab, or gitea", k, h)
 	}
-	for _, e := range a.RemoteEnvironments {
-		check(envNameRE.MatchString(e), "remote_environments: invalid name %q", e)
+	for _, alias := range slices.Sorted(maps.Keys(a.HostAliases)) {
+		h := a.HostAliases[alias]
+		check(hostNameRE.MatchString(alias), "host_aliases: alias %q does not match %s", alias, hostNameRE)
+		check(hostNameRE.MatchString(h), "host_aliases: host %q of alias %q does not match %s", h, alias, hostNameRE)
+	}
+	if rootOK { // the repository stats need an absolute root
+		errs = append(errs, a.checkProjects())
+	}
+	return errors.Join(errs...)
+}
+
+// checkProjects checks the projects of the answers: each key, each repository, the main
+// repository, and the fills (checkFills). It reads no file of the working tree; it only stats
+// each repository folder and its .git folder, and the file of each doc fill.
+func (a *InitAnswers) checkProjects() error {
+	var errs []error
+	keys := make([]string, 0, len(a.Projects))
+	owner := map[string]string{} // repository -> key of its project
+	ledger := resolveExisting(a.LedgerPath)
+	for _, p := range a.Projects {
+		bad := func(format string, args ...any) {
+			errs = append(errs, fmt.Errorf("project %q: %s", p.Key, fmt.Sprintf(format, args...)))
+		}
+		if !projectRE.MatchString(p.Key) || len(p.Key) > 40 {
+			bad("the key must match %s and have at most 40 characters", projectRE)
+		}
+		if slices.Contains(keys, p.Key) {
+			bad("the key is there twice")
+		}
+		keys = append(keys, p.Key)
+		for _, r := range p.Repos {
+			if !relPath(r) || path.Clean(r) != r {
+				bad("repository %q is not a clean relative path with no ..", r)
+				continue
+			}
+			if k, ok := owner[r]; ok {
+				bad("repository %q is also in project %q", r, k)
+			}
+			owner[r] = p.Key
+			dir := filepath.Join(a.Root, filepath.FromSlash(r))
+			// Only stats: the check reads no file of the working tree (D5).
+			if info, err := os.Stat(dir); err != nil || !info.IsDir() {
+				bad("repository %q is not a folder under root %q", r, a.Root)
+				continue
+			}
+			// Lstat as in walkRepos: a .git that is a symbolic link is not a repository (G14).
+			if info, err := os.Lstat(filepath.Join(dir, ".git")); err != nil || !info.IsDir() {
+				bad("repository %q has no .git folder", r)
+				continue
+			}
+			if resolveExisting(dir) == ledger {
+				bad("repository %q is the ledger %q", r, a.LedgerPath)
+			}
+		}
+		if !slices.Contains(p.Repos, p.Main) {
+			bad("main %q is not one of its repos", p.Main)
+		}
+	}
+	for _, p := range a.Projects {
+		errs = append(errs, checkFills(a.Root, p, keys))
 	}
 	return errors.Join(errs...)
 }
@@ -104,6 +178,7 @@ type plannedFile struct {
 	Mode    uint32 `json:"mode"`
 	Before  string `json:"before"` // SHA-256 of the current content, or "absent"
 	Content string `json:"content"`
+	Delete  bool   `json:"delete"`
 }
 
 // storedPlan is a plan of init_plan. It lives only in the memory of this server process: the
@@ -125,9 +200,9 @@ func sha256Hex(s string) string {
 	return hex.EncodeToString(sum[:])
 }
 
-// ledgerPathOK accepts an absolute path with no .. element whose nearest existing ancestor is a folder.
+// ledgerPathOK accepts a clean absolute path with no .. element whose nearest existing ancestor is a folder.
 func ledgerPathOK(p string) bool {
-	if !filepath.IsAbs(p) || slices.Contains(strings.Split(filepath.ToSlash(p), "/"), "..") {
+	if !filepath.IsAbs(p) || filepath.Clean(p) != p || slices.Contains(strings.Split(filepath.ToSlash(p), "/"), "..") {
 		return false
 	}
 	for cur := filepath.Clean(p); ; cur = filepath.Dir(cur) {
@@ -180,14 +255,14 @@ func fileHash(path string) (string, []byte, error) {
 // shq quotes s as one sh word.
 func shq(s string) string { return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'" }
 
-// mcpAllowRules lists the allow rules of the bruh MCP tools. init_apply is left out, so an
-// agent cannot write user settings without the user.
 // workflowAllowRules are the allow rules of the plugin workflows that the role sessions launch.
 var workflowAllowRules = []string{
 	"Workflow(bruh:deliver)", "Workflow(bruh:tickets)", "Workflow(bruh:implement-tickets)",
 	"Workflow(bruh:review-and-fix)", "Workflow(bruh:review-only)",
 }
 
+// mcpAllowRules lists the allow rules of the bruh MCP tools. init_apply is left out, so an
+// agent cannot write user settings without the user.
 func mcpAllowRules(slack bool) []string {
 	var rules []string
 	for _, t := range AllTools() {
@@ -215,7 +290,9 @@ func planSettings(old []byte, a InitAnswers, tap string) ([]byte, error) {
 		}
 		top = o
 	}
-	top.set("autoCompactWindow", json.Number(strconv.Itoa(a.AutoCompactWindow)))
+	if _, ok := top.vals["autoCompactWindow"]; a.AutoCompactWindow != 0 || !ok {
+		top.set("autoCompactWindow", json.Number(strconv.Itoa(cmp.Or(a.AutoCompactWindow, 550000))))
+	}
 	if *a.WrapStatusline {
 		sl := top.child("statusLine")
 		prev, _ := sl.vals["command"].(string)
@@ -237,11 +314,75 @@ func planSettings(old []byte, a InitAnswers, tap string) ([]byte, error) {
 		}
 	}
 	perms.set("allow", allow)
-	opts := top.child("pluginConfigs").child(pluginID).child("options")
-	opts.set("user_name", a.UserName)
-	opts.set("handoff_percent", json.Number(strconv.Itoa(a.HandoffPercent)))
-	opts.set("max_busy_clerks", json.Number(strconv.Itoa(a.MaxBusyClerks)))
+	// Only the CLI sets the plugin options; init_plan refuses them (spec 16).
+	if a.UserName != nil || a.HandoffPercent != nil || a.MaxBusyClerks != nil {
+		opts := top.child("pluginConfigs").child(pluginID).child("options")
+		if a.UserName != nil {
+			opts.set("user_name", *a.UserName)
+		}
+		if a.HandoffPercent != nil {
+			opts.set("handoff_percent", json.Number(strconv.Itoa(*a.HandoffPercent)))
+		}
+		if a.MaxBusyClerks != nil {
+			opts.set("max_busy_clerks", json.Number(strconv.Itoa(*a.MaxBusyClerks)))
+		}
+	}
 	return encodeOrdered(top, indentOf(old)), nil
+}
+
+// planLedgerSettings returns the start settings of bigm in the ledger folder. It starts from the
+// existing file (an empty file is {}), or from the bigm role settings when there is no file. It sets
+// agent to bruh:bigm and each env key of the role settings, so it replaces the old values of these
+// keys. It adds each deny rule of the role settings that the file does not have yet, and keeps every
+// other key. A file whose env, permissions, or permissions.deny has another JSON type is an error,
+// so init does not drop such a value.
+func planLedgerSettings(exists bool, old, role []byte) ([]byte, error) {
+	r, err := parseOrdered(role)
+	if err != nil {
+		return nil, err
+	}
+	def := r.(*object) // roleSettings always writes a JSON object
+	src := role
+	if exists {
+		src = old
+	}
+	top := newObject()
+	if len(bytes.TrimSpace(src)) > 0 {
+		v, err := parseOrdered(src)
+		if err != nil {
+			return nil, fmt.Errorf("ledger settings file: %w", err)
+		}
+		o, ok := v.(*object)
+		if !ok {
+			return nil, errors.New("ledger settings file is not a JSON object")
+		}
+		top = o
+	}
+	for _, k := range []string{"env", "permissions"} {
+		if v, ok := top.vals[k]; ok {
+			if _, ok := v.(*object); !ok {
+				return nil, fmt.Errorf("ledger settings file: %s is not a JSON object", k)
+			}
+		}
+	}
+	perms := top.child("permissions")
+	deny, ok := perms.vals["deny"].([]any)
+	if _, has := perms.vals["deny"]; has && !ok {
+		return nil, errors.New("ledger settings file: permissions.deny is not a JSON array")
+	}
+	top.set("agent", "bruh:bigm")
+	env, defEnv := top.child("env"), def.child("env")
+	for _, k := range defEnv.keys {
+		env.set(k, defEnv.vals[k])
+	}
+	defDeny, _ := def.child("permissions").vals["deny"].([]any)
+	for _, d := range defDeny {
+		if !slices.Contains(deny, d) {
+			deny = append(deny, d)
+		}
+	}
+	perms.set("deny", deny)
+	return encodeOrdered(top, indentOf(src)), nil
 }
 
 // fillLedgerFile applies the fill rules of ledger-template/README.md to one template file.
@@ -268,53 +409,132 @@ func fillLedgerFile(rel string, content []byte, a InitAnswers, pluginRoot, now s
 		} else if err != nil {
 			return nil, err
 		}
-		if len(a.DelegatedP1Classes) == 0 {
-			return def, nil
-		}
-		var items strings.Builder
-		for _, c := range a.DelegatedP1Classes {
-			items.WriteString("- " + c + "\n")
-		}
-		text := string(def)
-		const head = "\n## Delegated P1 classes\n"
-		i := strings.Index(text, head)
-		if i < 0 {
-			return nil, errors.New("default priorities.md has no section \"Delegated P1 classes\"")
-		}
-		body := i + len(head)
-		end := len(text)
-		if j := strings.Index(text[body:], "\n## "); j >= 0 {
-			end = body + j + 1
-		}
-		section := strings.TrimRight(text[body:end], "\n") + "\n\n" + items.String()
-		if end < len(text) {
-			section += "\n"
-		}
-		return []byte(text[:body] + section + text[end:]), nil
-	case "grants.md":
-		text := strings.TrimRight(string(content), "\n") + "\n"
-		cell := func(s string) string { return strings.ReplaceAll(s, "|", `\|`) }
-		for _, g := range a.MergeGrants {
-			text += fmt.Sprintf("| %s | %s | %s | %s | %s | init |\n", cell(g.Repo), g.Merger, cell(g.Conditions), cell(g.Conditions), now)
-		}
-		return []byte(text), nil
+		return def, nil
 	}
 	return content, nil
 }
 
-// planInit computes every file that init would write. It writes nothing.
-// planInit computes the files of init at the time at (the ledger rows carry it). It writes nothing.
-func planInit(env Env, a InitAnswers, at time.Time) ([]plannedFile, error) {
+// mergeLedgerFile returns the new content of the existing ledger file rel (a path of
+// ledger-template/, with / separators) by the update rules of gap G24: the template text with the
+// values and the data rows of the existing file.
+func mergeLedgerFile(rel string, tmpl, existing []byte, pluginRoot string) ([]byte, error) {
+	switch rel {
+	case "README.md", "projects/_template.md":
+		return tmpl, nil
+	case "priorities.md":
+		if slices.Contains(strings.Split(string(existing), "\n"), "## Never without the owner") {
+			return existing, nil
+		}
+		return fillLedgerFile(rel, tmpl, InitAnswers{}, pluginRoot, "")
+	case "rules.md":
+		t, e := strings.Split(string(tmpl), "\n"), strings.Split(string(existing), "\n")
+		i, j := slices.Index(t, "## Rules"), slices.Index(e, "## Rules")
+		if i < 0 || j < 0 {
+			return existing, nil // no rule section to anchor on: keep the rules of the owner as they are
+		}
+		return []byte(strings.Join(append(t[:i:i], e[j:]...), "\n")), nil
+	}
+	return mergeKeysAndTables(tmpl, existing), nil
+}
+
+var (
+	// keyLineRE matches the start of a "key: value" line of a ledger file.
+	keyLineRE = regexp.MustCompile(`^[a-z0-9_]+: `)
+	// tableSepRE matches the separator line of a Markdown table.
+	tableSepRE = regexp.MustCompile(`^\|(\s*:?-+:?\s*\|)+\s*$`)
+)
+
+// mdTable is one Markdown table of a ledger file: the header line, the separator line, and
+// the data rows.
+type mdTable struct {
+	header, sep string
+	rows        []string
+}
+
+// isTableHeader reports whether lines[i] is the header line of a Markdown table.
+func isTableHeader(lines []string, i int) bool {
+	return strings.HasPrefix(lines[i], "|") && i+1 < len(lines) && tableSepRE.MatchString(lines[i+1])
+}
+
+// tableRows returns the number of data rows of the table whose separator line is lines[sep].
+func tableRows(lines []string, sep int) int {
+	n := 0
+	for sep+1+n < len(lines) && strings.HasPrefix(lines[sep+1+n], "|") {
+		n++
+	}
+	return n
+}
+
+// mergeKeysAndTables returns tmpl with the values of the key lines and the data rows of the tables
+// of existing (gap G24). A table of existing whose header line is not in tmpl goes to the end.
+func mergeKeysAndTables(tmpl, existing []byte) []byte {
+	values := map[string]string{}
+	var tables []mdTable
+	rows := map[string][]string{}
+	e := strings.Split(string(existing), "\n")
+	for i := 0; i < len(e); i++ {
+		if k := keyLineRE.FindString(e[i]); k != "" {
+			if _, ok := values[k]; !ok {
+				values[k] = e[i][len(k):]
+			}
+		} else if isTableHeader(e, i) {
+			n := tableRows(e, i+1)
+			tables = append(tables, mdTable{header: e[i], sep: e[i+1], rows: e[i+2 : i+2+n]})
+			rows[e[i]] = append(rows[e[i]], e[i+2:i+2+n]...)
+			i += 1 + n
+		}
+	}
+	t := strings.Split(string(tmpl), "\n")
+	inTmpl := map[string]bool{}
+	var out []string
+	for i := 0; i < len(t); i++ {
+		if k := keyLineRE.FindString(t[i]); k != "" {
+			if v, ok := values[k]; ok {
+				out = append(out, k+v)
+				continue
+			}
+		} else if isTableHeader(t, i) {
+			inTmpl[t[i]] = true
+			out = append(out, t[i], t[i+1])
+			if r, ok := rows[t[i]]; ok {
+				// The existing rows replace the rows of the template, so a second merge adds nothing.
+				out = append(out, r...)
+				i += 1 + tableRows(t, i+1)
+			} else {
+				i++
+			}
+			continue
+		}
+		out = append(out, t[i])
+	}
+	var extra []string
+	for _, tb := range tables {
+		if !inTmpl[tb.header] {
+			extra = append(append(extra, "", tb.header, tb.sep), tb.rows...)
+		}
+	}
+	if len(extra) > 0 {
+		if out[len(out)-1] == "" {
+			out = out[:len(out)-1]
+		}
+		out = append(append(out, extra...), "")
+	}
+	return []byte(strings.Join(out, "\n"))
+}
+
+// planInit computes the files that init writes or deletes at the time at (the ledger rows carry
+// it), and the learn plan of the projects of the answers. It writes nothing.
+func planInit(env Env, a InitAnswers, at time.Time) ([]plannedFile, learnPlan, error) {
 	if env.DataDir == "" {
-		return nil, errors.New("BRUH_DATA is not set")
+		return nil, learnPlan{}, errors.New("BRUH_DATA is not set")
 	}
 	data, err := filepath.Abs(env.DataDir)
 	if err != nil {
-		return nil, err
+		return nil, learnPlan{}, err
 	}
 	root, err := filepath.Abs(env.PluginRoot)
 	if err != nil {
-		return nil, err
+		return nil, learnPlan{}, err
 	}
 	var files []plannedFile
 	add := func(path string, mode uint32, content []byte) error {
@@ -340,37 +560,43 @@ func planInit(env Env, a InitAnswers, at time.Time) ([]plannedFile, error) {
 	tap := filepath.Join(data, "bin", "statusline-tap.sh")
 	_, old, err := fileHash(env.SettingsFile)
 	if err != nil {
-		return nil, err
+		return nil, learnPlan{}, err
 	}
 	settings, err := planSettings(old, a, tap)
 	if err != nil {
-		return nil, err
+		return nil, learnPlan{}, err
 	}
 	if err := add(env.SettingsFile, 0o600, settings); err != nil {
-		return nil, err
+		return nil, learnPlan{}, err
 	}
 	if *a.WrapStatusline {
 		src, err := os.ReadFile(filepath.Join(root, "scripts", "statusline-tap.sh"))
 		if err != nil {
-			return nil, err
+			return nil, learnPlan{}, err
 		}
 		if err := add(tap, 0o755, src); err != nil {
-			return nil, err
+			return nil, learnPlan{}, err
 		}
 	}
-	bigm := filepath.Join(data, "roles", "bigm.json")
-	if _, err := os.Stat(bigm); errors.Is(err, fs.ErrNotExist) {
-		content, err := roleSettings(root, "bigm", nil, nil)
-		if err != nil {
-			return nil, err
-		}
-		if err := add(bigm, 0o600, content); err != nil {
-			return nil, err
-		}
+	role, err := roleSettings(root, "bigm", nil, nil, nil)
+	if err != nil {
+		return nil, learnPlan{}, fmt.Errorf("bigm role settings: %w", err)
+	}
+	start := filepath.Join(a.LedgerPath, ".claude", "settings.json")
+	before, old, err := fileHash(start)
+	if err != nil {
+		return nil, learnPlan{}, err
+	}
+	content, err := planLedgerSettings(before != "absent", old, role)
+	if err != nil {
+		return nil, learnPlan{}, err
+	}
+	if err := add(start, 0o644, content); err != nil {
+		return nil, learnPlan{}, err
 	}
 	cfg, _ := json.MarshalIndent(initConfig{LedgerPath: a.LedgerPath}, "", "  ")
 	if err := add(filepath.Join(data, "init", "config.json"), 0o600, append(cfg, '\n')); err != nil {
-		return nil, err
+		return nil, learnPlan{}, err
 	}
 	now := at.UTC().Format("2006-01-02T15:04:05Z") // the time format of the ledger
 	tmpl := filepath.Join(root, "ledger-template")
@@ -383,44 +609,101 @@ func planInit(env Env, a InitAnswers, at time.Time) ([]plannedFile, error) {
 			return err
 		}
 		dest := filepath.Join(a.LedgerPath, rel)
-		if _, err := os.Lstat(dest); err == nil {
-			return nil // never change an existing ledger file
-		}
 		content, err := os.ReadFile(p)
 		if err != nil {
 			return err
 		}
-		if content, err = fillLedgerFile(filepath.ToSlash(rel), content, a, root, now); err != nil {
+		rel = filepath.ToSlash(rel)
+		existing, err := os.ReadFile(dest)
+		switch {
+		case err == nil:
+			content, err = mergeLedgerFile(rel, content, existing, root)
+		case errors.Is(err, fs.ErrNotExist):
+			content, err = fillLedgerFile(rel, content, a, root, now)
+		}
+		if err != nil {
 			return err
 		}
 		return add(dest, 0o644, content)
 	})
 	if err != nil && !errors.Is(err, fs.ErrNotExist) {
-		return nil, err
+		return nil, learnPlan{}, err
 	}
-	return files, nil
+	lp, err := planLearn(root, a)
+	if err != nil {
+		return nil, learnPlan{}, err
+	}
+	for _, p := range slices.Sorted(maps.Keys(lp.Write)) {
+		if err := add(p, 0o644, lp.Write[p]); err != nil {
+			return nil, learnPlan{}, err
+		}
+	}
+	for _, p := range lp.Delete {
+		if !targetAllowed(env, a, p) {
+			return nil, learnPlan{}, fmt.Errorf("init refuses to delete %s: it is not under the data folder or the ledger folder", p)
+		}
+		before, _, err := fileHash(p)
+		if err != nil {
+			return nil, learnPlan{}, err
+		}
+		if before != "absent" {
+			files = append(files, plannedFile{Path: p, Before: before, Delete: true})
+		}
+	}
+	return files, lp, nil
 }
 
 func planDiff(files []plannedFile) (string, error) {
 	var b strings.Builder
 	for _, f := range files {
-		from := f.Path
-		var old []byte
-		if f.Before == "absent" {
-			from = "/dev/null"
-		} else {
-			var err error
-			if old, err = os.ReadFile(f.Path); err != nil {
-				return "", err
-			}
+		d, err := fileDiff(f)
+		if err != nil {
+			return "", err
 		}
-		b.WriteString(unifiedDiff(from, f.Path, string(old), f.Content))
+		b.WriteString(d)
 	}
 	return b.String(), nil
 }
 
-func launchCommand(data string, a InitAnswers) string {
-	cmd := "cd " + shq(a.LedgerPath) + " && claude --agent bruh:bigm --name bigm --permission-mode auto --settings " + shq(filepath.Join(data, "roles", "bigm.json"))
+// fileDiff returns the unified diff of one planned file against the file on disk.
+func fileDiff(f plannedFile) (string, error) {
+	from, to := f.Path, f.Path
+	var old []byte
+	if f.Before == "absent" {
+		from = "/dev/null"
+	} else {
+		var err error
+		if old, err = os.ReadFile(f.Path); err != nil {
+			return "", err
+		}
+	}
+	if f.Delete {
+		to = "/dev/null"
+	}
+	return unifiedDiff(from, to, string(old), f.Content), nil
+}
+
+// splitDiff returns the diff of the files outside the ledger plus <ledger>/.claude/settings.json,
+// and the diff of all other files of the ledger.
+func splitDiff(files []plannedFile, ledger string) (outside, inLedger string, err error) {
+	settings := resolveExisting(filepath.Join(ledger, ".claude", "settings.json"))
+	var out, in strings.Builder
+	for _, f := range files {
+		d, err := fileDiff(f)
+		if err != nil {
+			return "", "", err
+		}
+		if inside(ledger, f.Path) && resolveExisting(f.Path) != settings {
+			in.WriteString(d)
+		} else {
+			out.WriteString(d)
+		}
+	}
+	return out.String(), in.String(), nil
+}
+
+func launchCommand(a InitAnswers) string {
+	cmd := "cd " + shq(a.LedgerPath) + " && claude --agent bruh:bigm --name bigm --permission-mode auto"
 	if slices.Contains(a.Channels, "telegram") {
 		cmd += " --channels plugin:telegram@claude-plugins-official"
 	}
@@ -435,43 +718,114 @@ type initConfig struct {
 	LedgerPath string `json:"ledger_path"`
 }
 
+// tableRow is one row of the ledger table of init_plan.
+type tableRow struct {
+	Key     string   `json:"key"`
+	Purpose string   `json:"purpose"`
+	Repos   []string `json:"repos"`
+	Links   []string `json:"links"`
+	Docs    []string `json:"docs"`
+}
+
+// ledgerTable returns one row for each project, sorted by key: the purpose text or "", the
+// repository paths, each link as "<project key> (<repo>/<file>:<line>)", and each doc pointer as
+// "<repo>/<path>".
+func ledgerTable(projects []projectFile) []tableRow {
+	rows := make([]tableRow, 0, len(projects))
+	for _, p := range projects {
+		row := tableRow{Key: p.Key, Repos: []string{}, Links: []string{}, Docs: []string{}}
+		if p.Purpose != nil {
+			row.Purpose = p.Purpose.Value
+		}
+		for _, r := range p.Repos {
+			row.Repos = append(row.Repos, r.Path)
+		}
+		for _, l := range p.Links {
+			row.Links = append(row.Links, fmt.Sprintf("%s (%s/%s:%d)", l.Project, l.Repo, l.File, l.Line))
+		}
+		for _, d := range p.Docs {
+			row.Docs = append(row.Docs, d.Repo+"/"+d.Path)
+		}
+		rows = append(rows, row)
+	}
+	slices.SortFunc(rows, func(a, b tableRow) int { return strings.Compare(a.Key, b.Key) })
+	return rows
+}
+
+// trustEntry is one folder of the trust step of init (spec 16, step 12).
+type trustEntry struct {
+	Path           string `json:"path"`
+	ClaudeSettings *bool  `json:"claude_settings,omitempty"`
+	MCP            *bool  `json:"mcp,omitempty"`
+}
+
+// trustList returns the ledger, then the absolute path of each repository of the answers, in the
+// order of the answers. For a repository, the two booleans say whether .claude/settings.json and
+// .mcp.json exist (os.Stat, no read).
+func trustList(a InitAnswers) []trustEntry {
+	exists := func(name string) *bool {
+		_, err := os.Stat(name)
+		return new(err == nil)
+	}
+	list := []trustEntry{{Path: a.LedgerPath}}
+	for _, p := range a.Projects {
+		for _, r := range p.Repos {
+			dir := filepath.Join(a.Root, filepath.FromSlash(r))
+			list = append(list, trustEntry{
+				Path:           dir,
+				ClaudeSettings: exists(filepath.Join(dir, ".claude", "settings.json")),
+				MCP:            exists(filepath.Join(dir, ".mcp.json")),
+			})
+		}
+	}
+	return list
+}
+
 // initPlanRun plans init, keeps the plan in memory, and returns the tool result. It writes nothing.
 func initPlanRun(env Env, a InitAnswers) (map[string]any, error) {
-	if err := a.normalize(); err != nil {
+	if err := a.normalize(env.Home); err != nil {
 		return nil, err
 	}
 	at := env.Now()
-	files, err := planInit(env, a, at)
+	files, lp, err := planInit(env, a, at)
 	if err != nil {
 		return nil, err
 	}
-	diff, err := planDiff(files)
+	outside, inLedger, err := splitDiff(files, a.LedgerPath)
 	if err != nil {
 		return nil, err
 	}
+	diff := outside + inLedger
 	id := strings.ToLower(rand.Text()[:16])
 	plans.Lock()
 	plans.m[id] = &storedPlan{answers: a, at: at, files: files, diffSHA: sha256Hex(diff)}
 	plans.Unlock()
-	data, _ := filepath.Abs(env.DataDir)
 	paths := []string{}
 	for _, f := range files {
 		paths = append(paths, f.Path)
 	}
+	kept := lp.Kept
+	if kept == nil {
+		kept = []string{}
+	}
 	return map[string]any{
 		"plan_id":        id,
 		"diff":           diff,
+		"outside_diff":   outside,
+		"ledger_diff":    inLedger,
 		"diff_sha256":    sha256Hex(diff),
 		"files":          paths,
-		"launch_command": launchCommand(data, a),
-		"trust":          []string{a.LedgerPath},
+		"launch_command": launchCommand(a),
+		"trust":          trustList(a),
+		"kept":           kept,
+		"ledger_table":   ledgerTable(lp.Projects),
 	}, nil
 }
 
 // initApplyRun writes the files of a plan of this process. It refuses the plan when diffSHA is
 // not the hash of the diff that init_plan returned, when a target changed since init_plan (it
 // plans again and compares), or when a target is outside the closed list.
-func initApplyRun(env Env, id, diffSHA string) ([]string, error) {
+func initApplyRun(env Env, id, diffSHA string) ([]plannedFile, error) {
 	plans.Lock()
 	p := plans.m[id]
 	plans.Unlock()
@@ -481,27 +835,47 @@ func initApplyRun(env Env, id, diffSHA string) ([]string, error) {
 	if diffSHA != p.diffSHA {
 		return nil, errors.New("diff_sha256 is not the hash of the diff of this plan; show the diff of init_plan to the user and pass its diff_sha256")
 	}
-	now, err := planInit(env, p.answers, p.at)
+	now, _, err := planInit(env, p.answers, p.at)
 	if err != nil {
 		return nil, err
 	}
-	diff, err := planDiff(now)
+	outside, inLedger, err := splitDiff(now, p.answers.LedgerPath)
 	if err != nil {
 		return nil, err
 	}
-	if sha256Hex(diff) != p.diffSHA || !slices.Equal(now, p.files) {
+	if sha256Hex(outside+inLedger) != p.diffSHA || !slices.Equal(now, p.files) {
 		return nil, errors.New("a target changed after init_plan; nothing was written; run init_plan again")
 	}
+	applied, err := writePlanned(env, p.answers, p.files)
+	if err != nil {
+		return applied, err
+	}
+	plans.Lock()
+	delete(plans.m, id)
+	plans.Unlock()
+	return applied, nil
+}
+
+// writePlanned writes or deletes each planned file, the settings file last, and returns the files
+// that it applied. It refuses a target outside the closed list of targetAllowed.
+func writePlanned(env Env, a InitAnswers, files []plannedFile) ([]plannedFile, error) {
 	// The settings file goes last, so a failed write never leaves statusLine pointing at a missing tap.
 	settings := resolveExisting(env.SettingsFile)
-	files := slices.Clone(p.files)
+	files = slices.Clone(files)
 	slices.SortStableFunc(files, func(x, y plannedFile) int {
 		return cmp.Compare(boolInt(resolveExisting(x.Path) == settings), boolInt(resolveExisting(y.Path) == settings))
 	})
-	applied := []string{}
+	applied := []plannedFile{}
 	for _, f := range files {
-		if !targetAllowed(env, p.answers, f.Path) {
+		if !targetAllowed(env, a, f.Path) {
 			return applied, fmt.Errorf("init refuses to write %s", f.Path)
+		}
+		if f.Delete {
+			if err := os.Remove(f.Path); err != nil && !errors.Is(err, fs.ErrNotExist) {
+				return applied, err
+			}
+			applied = append(applied, f)
+			continue
 		}
 		dirMode := os.FileMode(0o700)
 		if f.Mode == 0o644 {
@@ -516,11 +890,8 @@ func initApplyRun(env Env, id, diffSHA string) ([]string, error) {
 		if err := os.Chmod(f.Path, os.FileMode(f.Mode)); err != nil {
 			return applied, err
 		}
-		applied = append(applied, f.Path)
+		applied = append(applied, f)
 	}
-	plans.Lock()
-	delete(plans.m, id)
-	plans.Unlock()
 	return applied, nil
 }
 
@@ -537,20 +908,38 @@ func initTools() []Tool {
 	return []Tool{
 		{
 			Name:        "init_plan",
-			Description: "Plan /bruh:init: compute the diff of every file init would write (user settings, the status line tap, the bigm role settings, the ledger layout). Writes only the plan. Show the diff to the user and wait for an explicit yes before init_apply.",
+			Description: "Plan /bruh:init: compute the diff of every file init would write or delete (user settings, the status line tap, the ledger layout, the start settings of bigm in <ledger>/.claude/settings.json, the index files learn/tree.json and learn/projects/<key>.json, and the project files projects/<key>.md). Writes only the plan. The result splits the diff: outside_diff has the files outside the ledger plus <ledger>/.claude/settings.json, ledger_diff has all other ledger files, and diff is outside_diff + ledger_diff with its diff_sha256. Show outside_diff in full and ledger_table as a table; show ledger_diff in full on \"show all\". kept lists the project file of each removed project that has a data row; init does not delete these files. Wait for an explicit yes before init_apply.",
 			InputSchema: objectSchema(map[string]any{"answers": objectSchema(map[string]any{
-				"user_name": str, "ledger_path": str, "mode": map[string]any{"type": "string", "enum": []string{"human", "autonomous"}},
+				"ledger_path": str, "mode": map[string]any{"type": "string", "enum": []string{"human", "autonomous"}},
 				"p1_batch_minutes": num, "p1_batch_size": num, "review_round_cap": num, "auto_compact_window": num,
-				"handoff_percent": num, "max_busy_clerks": num, "wrap_statusline": map[string]any{"type": "boolean"},
-				"channels": list, "delegated_p1_classes": list, "remote_environments": list,
-				"merge_grants": map[string]any{"type": "array", "items": objectSchema(map[string]any{"repo": str, "merger": str, "conditions": str}, "repo", "merger", "conditions")},
-			}, "user_name", "ledger_path")}, "answers"),
+				"wrap_statusline": map[string]any{"type": "boolean"}, "channels": list,
+				"root": str, "depth": num, "exclude": list,
+				"host_kinds":   map[string]any{"type": "object", "additionalProperties": map[string]any{"type": "string", "enum": []string{"github", "gitlab", "gitea"}}},
+				"host_aliases": map[string]any{"type": "object", "additionalProperties": str},
+				"projects": map[string]any{"type": "array", "items": objectSchema(map[string]any{
+					"key": str, "repos": list, "main": str,
+					"fills": map[string]any{"type": "array", "items": objectSchema(map[string]any{
+						"field": map[string]any{"type": "string", "enum": []string{"purpose", "link", "doc", "host"}},
+						"value": str, "source": map[string]any{"type": "string", "enum": []string{"agent", "owner"}},
+						"repo": str, "file": str, "line": num,
+					}, "field", "value", "source")},
+				}, "key", "repos", "main")},
+			}, "ledger_path")}, "answers"),
 			Handler: func(c *Call, raw json.RawMessage) (any, error) {
 				a, err := decode[struct {
 					Answers json.RawMessage `json:"answers"`
 				}](raw)
 				if err != nil {
 					return nil, err
+				}
+				// The install dialog asks the plugin options and /config changes them (spec 16).
+				var keys map[string]json.RawMessage
+				if json.Unmarshal(a.Answers, &keys) == nil {
+					for _, k := range []string{"user_name", "handoff_percent", "max_busy_clerks"} {
+						if _, ok := keys[k]; ok {
+							return nil, errors.New("user_name, handoff_percent, and max_busy_clerks are plugin options: the install dialog asks them, and /config changes them; init_plan does not write them")
+						}
+					}
 				}
 				answers, err := parseAnswers(a.Answers)
 				if err != nil {
@@ -561,7 +950,7 @@ func initTools() []Tool {
 		},
 		{
 			Name:        "init_apply",
-			Description: "Apply a plan of init_plan of this session. Call it only after the user said yes to the diff. Pass the diff_sha256 of the init_plan result. Refuses a plan whose targets changed.",
+			Description: "Apply a plan of init_plan of this session: write and delete the planned files (among them the index files learn/tree.json and learn/projects/<key>.json and the project files projects/<key>.md). Call it only after the user said yes to the split diff (outside_diff, ledger_table, and ledger_diff on \"show all\"). Pass the diff_sha256 of the init_plan result, the hash of diff = outside_diff + ledger_diff. Refuses a plan whose targets changed. applied lists each written and each deleted path; bigm commits these paths.",
 			InputSchema: objectSchema(map[string]any{"plan_id": str, "diff_sha256": str}, "plan_id", "diff_sha256"),
 			// Claude Code prompts a person for every call, in every permission mode (mcp.md).
 			Meta: map[string]any{"anthropic/requiresUserInteraction": true},
@@ -577,7 +966,11 @@ func initTools() []Tool {
 				if err != nil {
 					return nil, err
 				}
-				return map[string]any{"applied": applied}, nil
+				paths := []string{}
+				for _, f := range applied {
+					paths = append(paths, f.Path)
+				}
+				return map[string]any{"applied": paths}, nil
 			},
 		},
 	}

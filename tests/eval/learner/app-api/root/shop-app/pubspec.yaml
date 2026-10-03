@@ -1,0 +1,9 @@
+name: shop_app
+description: A mobile app that lists items.
+version: 0.1.0
+environment:
+  sdk: ">=3.0.0 <4.0.0"
+dependencies:
+  flutter:
+    sdk: flutter
+  http: ^1.2.0

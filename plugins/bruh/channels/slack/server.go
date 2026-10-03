@@ -23,7 +23,8 @@ import (
 )
 
 var (
-	qidRE = regexp.MustCompile(`^Q-\d+$`)
+	// qidRE copies qidPattern of plugins/bruh/mcp/env.go: this module cannot import mcp.
+	qidRE = regexp.MustCompile(`^Q-[a-z0-9]+(?:-[a-z0-9]+)+-[0-9]+$`)
 	// verdictRE is the permission reply format of the channels reference: the ID alphabet is a to z without l.
 	verdictRE = regexp.MustCompile(`(?i)^\s*(y|yes|n|no)\s+([a-km-z]{5})\s*$`)
 )
@@ -140,7 +141,7 @@ func (s *server) reopen(ts string) error {
 }
 
 const instructions = `Slack channel of bruh. Only bigm uses it. Post each P0 or P1 question for the owner with post_question; each question is one Slack thread. ` +
-	`The owner answers in the thread. An answer arrives as <channel source="slack" question_id="Q-<n>" thread_ts="..." user_id="..." ts="...">; record it as the owner answer of that question ID. ` +
+	`The owner answers in the thread. An answer arrives as <channel source="slack" question_id="Q-<id>" thread_ts="..." user_id="..." ts="...">; record it as the owner answer of that question ID. ` +
 	`A top-level message of the owner arrives without question_id. Reply in a thread with the reply tool and its thread_ts. Only allowlisted senders reach this session.`
 
 func (s *server) tools() []map[string]any {
@@ -176,7 +177,7 @@ func (s *server) callTool(ctx context.Context, name string, raw json.RawMessage)
 	switch name {
 	case "post_question":
 		if !qidRE.MatchString(a.QuestionID) || strings.TrimSpace(a.Header) == "" {
-			return nil, fmt.Errorf("post_question needs a question_id Q-<n> and a header")
+			return nil, errors.New("post_question needs a question_id Q-<id> and a header")
 		}
 		text := slackEscape.Replace(a.Header+"\n\n"+a.Body) + "\n\nAnswer in this thread."
 		ts, err := s.api.post(ctx, s.cfg.Channel, "", text)

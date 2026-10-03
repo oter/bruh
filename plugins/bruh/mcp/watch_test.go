@@ -4,8 +4,11 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
+	"io/fs"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -172,28 +175,95 @@ func TestWatchSeparatesAgentPosts(t *testing.T) {
 	}
 }
 
-func TestWatchAppendsReport(t *testing.T) {
-	f, w, out, cfg, hosts := watchSetup(t, "github")
-	ctx := context.Background()
+func TestWatchWritesReportOfEachProject(t *testing.T) {
+	// Two kinds keep the watch state keys of the two owner/repo repositories apart.
+	shop, rs := newFakeForge(t, "github")
+	auth, ra := newFakeForge(t, "gitea")
+	rs.Project, ra.Project = "shop", "auth"
+	hs, _ := newHost(rs)
+	ha, _ := newHost(ra)
+	var out bytes.Buffer
+	w := &watcher{env: testEnv(t, ""), out: &out}
+	cfg := reposConfig{IntervalSeconds: 60, Repos: []repoConfig{rs, ra}}
+	hosts := []codeHost{hs, ha}
+	ctx := t.Context()
 	if err := w.pollAll(ctx, cfg, hosts); err != nil {
 		t.Fatal(err)
 	}
-	f.branches["main"] = "e1"
+	shop.branches["main"] = "s1"
+	auth.branches["main"] = "a1"
 	if err := w.pollAll(ctx, cfg, hosts); err != nil {
 		t.Fatal(err)
 	}
 	printed := out.String()
-	b, err := os.ReadFile(filepath.Join(w.env.DataDir, "reports", "watcher.jsonl"))
-	if err != nil || string(b) != printed {
-		t.Fatalf("report = %q, printed %q, %v", b, printed, err)
+	dir := filepath.Join(w.env.DataDir, "reports")
+	var files string
+	for _, c := range []struct{ project, sha string }{{"shop", "s1"}, {"auth", "a1"}} {
+		b, err := os.ReadFile(filepath.Join(dir, "clanker-"+c.project+".jsonl"))
+		if err != nil {
+			t.Fatalf("report file of %s: %v", c.project, err)
+		}
+		files += string(b)
+		evs := events(t, bytes.NewBuffer(b))
+		if len(evs) != 1 || evs[0].Type != "push" || evs[0].Project != c.project || evs[0].SHA != c.sha {
+			t.Errorf("events in clanker-%s.jsonl = %+v, want one push of %s", c.project, evs, c.sha)
+		}
 	}
-	lines, err := call(t, as(w.env, "bigm"), "report_read", map[string]any{"role_key": "watcher"})
+	if files != printed {
+		t.Errorf("report files = %q, printed %q", files, printed)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "watcher.jsonl")); !errors.Is(err, fs.ErrNotExist) {
+		t.Errorf("reports/watcher.jsonl: got %v, want it not to exist", err)
+	}
+	if _, err := call(t, as(w.env, "clanker-shop"), "report_write", map[string]any{"kind": "status", "text": "on it"}); err != nil {
+		t.Fatal(err)
+	}
+	got, err := call(t, as(w.env, "bigm"), "report_read", map[string]any{"role_key": "clanker-shop"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	l := lines.([]any)[0].(map[string]any)
-	if l["event"].(map[string]any)["type"] != "push" || !strings.Contains(l["source"].(map[string]any)["call"].(string), "/branches") {
-		t.Fatalf("line = %v", l)
+	lines := got.([]any)
+	if len(lines) != 2 {
+		t.Fatalf("report_read clanker-shop = %v, want the watcher line and the clanker line", lines)
+	}
+	l0, l1 := lines[0].(map[string]any), lines[1].(map[string]any)
+	if l0["from"] != "watcher" || l0["event"].(map[string]any)["project"] != "shop" || l1["from"] != "clanker-shop" || l1["text"] != "on it" {
+		t.Errorf("report_read clanker-shop = %v", lines)
+	}
+	if got, err := call(t, as(w.env, "bigm"), "report_read", map[string]any{"role_key": "watcher"}); err == nil {
+		t.Errorf("report_read watcher = %v, want an error", got)
+	}
+}
+
+func TestWatchSkipsEntryWithoutProject(t *testing.T) {
+	f, shop := newFakeForge(t, "github")
+	shop.Project = "shop"
+	bare := shop
+	bare.Repo, bare.Project = "owner/"+strings.ToLower(t.Name()), ""
+	var out, errOut bytes.Buffer
+	w := &watcher{env: testEnv(t, ""), out: &out, errOut: &errOut}
+	cfg := reposConfig{IntervalSeconds: 60, Repos: []repoConfig{shop, bare}}
+	want := bare.Repo + ": no project; bigm calls repos_set with project\n"
+	var evs []watchEvent
+	for poll := 1; poll <= 2; poll++ {
+		if poll == 2 {
+			f.branches["main"] = "s2"
+		}
+		if err := pollWith(t.Context(), cfg, w); err != nil {
+			t.Errorf("poll %d: pollWith: %v", poll, err)
+		}
+		if got := errOut.String(); got != want {
+			t.Errorf("poll %d: log = %q, want %q", poll, got, want)
+		}
+		errOut.Reset()
+		evs = append(evs, events(t, &out)...)
+	}
+	if len(evs) != 1 || evs[0].Type != "push" || evs[0].Repo != shop.Repo || evs[0].Project != "shop" || evs[0].SHA != "s2" {
+		t.Errorf("events = %+v, want one push of %s in project shop", evs, shop.Repo)
+	}
+	// The fake records in calls only the requests for owner/repo, and in auth every request.
+	if len(f.auth) != len(f.calls) {
+		t.Errorf("%d requests, %d of them for %s: want none for %s", len(f.auth), len(f.calls), shop.Repo, bare.Repo)
 	}
 }
 
@@ -378,5 +448,124 @@ func TestRunWatchReadsReposAgainEachPoll(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(env.DataDir, "watch", "state.json")); err != nil {
 		t.Fatalf("the second poll must read the new repos.json: %v", err)
+	}
+}
+
+func TestWatchFractionalTimeEmitsOnce(t *testing.T) {
+	// GitLab notes have milliseconds; a saved position without them repeated the note each poll.
+	var out bytes.Buffer
+	w := &watcher{env: testEnv(t, ""), out: &out}
+	r := repoConfig{Repo: "group/shop", Project: "shop"}
+	fs := &feedState{Since: "2026-10-03T10:11:00Z"}
+	c := hostComment{ID: 41, Body: "Done.", UpdatedAt: "2026-10-03T10:11:12.345Z", PR: 4}
+	c.User.Login = "owner-account"
+	for range 2 {
+		if err := w.emitFeed(r, watchEvent{Repo: r.Repo, Project: r.Project}, "issue_comments", []hostComment{c}, "glab api", fs); err != nil {
+			t.Fatalf("emitFeed: %v", err)
+		}
+	}
+	if evs := events(t, &out); len(evs) != 1 || evs[0].Type != "comment" {
+		t.Errorf("events after two polls = %+v, want one comment", evs)
+	}
+}
+
+func TestWatchGitLabBaselineThenEvents(t *testing.T) {
+	r := repoConfig{Repo: "group/sub/shop", Host: "gitlab", APIURL: "https://gitlab.example.com/api/v4", Project: "shop", MergeMethod: "merge"}
+	h, err := newHost(r)
+	if err != nil {
+		t.Fatalf("newHost: %v", err)
+	}
+	var out bytes.Buffer
+	w := &watcher{env: testEnv(t, ""), out: &out}
+	cfg := reposConfig{IntervalSeconds: 60, Repos: []repoConfig{r}}
+
+	const p = "projects/group%2Fsub%2Fshop/"
+	web := "https://gitlab.example.com/group/sub/shop/-/merge_requests/"
+	branches := p + "repository/branches?per_page=100"
+	opened := p + "merge_requests?state=opened&order_by=updated_at&sort=desc&per_page=30"
+	merged := p + "merge_requests?state=merged&order_by=updated_at&sort=desc&per_page=30"
+	notes := p + "merge_requests/4/notes?sort=asc&order_by=updated_at&per_page=100"
+	pipelines := func(sha string) string { return p + "pipelines?sha=" + sha + "&order_by=id&sort=desc&per_page=1" }
+	later := time.Now().Add(time.Minute).UTC().Format(time.RFC3339)
+	mr := `{"iid":4,"state":"opened","sha":"f1","updated_at":"` + later + `","web_url":"` + web + `4"}`
+	note := `{"id":41,"body":"Done.\n\n<!-- bruh:clerk-shop-t1 -->\n","system":false,"author":{"username":"owner-account"},"updated_at":"` + later + `"}`
+
+	var all []watchEvent
+	// poll calls fakeGlab with the fixtures, polls once, and returns the printed events.
+	poll := func(fixtures map[string]string) []watchEvent {
+		t.Helper()
+		fakeGlab(t, fixtures)
+		if err := w.pollAll(t.Context(), cfg, []codeHost{h}); err != nil {
+			t.Fatalf("pollAll: %v", err)
+		}
+		evs := events(t, &out)
+		all = append(all, evs...)
+		return evs
+	}
+	base := watchEvent{Repo: r.Repo, Project: r.Project}
+	ev := func(f func(*watchEvent)) watchEvent {
+		e := base
+		f(&e)
+		return e
+	}
+	for _, step := range []struct {
+		name     string
+		fixtures map[string]string
+		want     []watchEvent
+	}{{
+		name:     "baseline",
+		fixtures: map[string]string{branches: `[{"name":"main","commit":{"id":"m1"}}]`, merged: `[]`},
+	}, {
+		name: "new branch head",
+		fixtures: map[string]string{
+			branches: `[{"name":"main","commit":{"id":"m2"}}]`, pipelines("m2"): `[{"id":1,"status":"success"}]`,
+			opened: `[]`, merged: `[]`,
+		},
+		want: []watchEvent{ev(func(e *watchEvent) { e.Type, e.Ref, e.SHA = "push", "main", "m2" })},
+	}, {
+		name: "note with the marker",
+		fixtures: map[string]string{
+			branches: `[{"name":"main","commit":{"id":"m2"}}]`,
+			opened:   `[` + mr + `]`, notes: `[` + note + `]`, merged: `[]`,
+		},
+		want: []watchEvent{ev(func(e *watchEvent) {
+			e.Type, e.Number, e.URL, e.Author, e.By, e.RoleKey = "comment", 4, web+"4#note_41", "owner-account", "agent", "clerk-shop-t1"
+		})},
+	}, {
+		name: "failed pipeline of a new head",
+		fixtures: map[string]string{
+			branches:        `[{"name":"main","commit":{"id":"m2"}},{"name":"feat","commit":{"id":"f1"}}]`,
+			pipelines("f1"): `[{"id":2,"status":"failed"}]`,
+			opened:          `[` + mr + `]`, notes: `[` + note + `]`, merged: `[]`,
+		},
+		want: []watchEvent{
+			ev(func(e *watchEvent) { e.Type, e.Ref, e.SHA = "push", "feat", "f1" }),
+			ev(func(e *watchEvent) { e.Type, e.Ref, e.SHA = "red", "feat", "f1" }),
+		},
+	}, {
+		name: "merged merge request",
+		fixtures: map[string]string{
+			branches: `[{"name":"main","commit":{"id":"m2"}},{"name":"feat","commit":{"id":"f1"}}]`,
+			opened:   `[]`,
+			merged:   `[{"iid":4,"state":"merged","sha":"f1","merge_commit_sha":"mc4","web_url":"` + web + `4"}]`,
+		},
+		want: []watchEvent{ev(func(e *watchEvent) { e.Type, e.Number, e.URL, e.SHA = "merge", 4, web+"4", "mc4" })},
+	}} {
+		if got := poll(step.fixtures); !slices.Equal(got, step.want) {
+			t.Errorf("%s: events = %+v, want %+v", step.name, got, step.want)
+		}
+	}
+
+	for _, e := range all {
+		if e.Type == "review" {
+			t.Errorf("event %+v has the type review; GitLab gives no review events", e)
+		}
+	}
+	b, err := os.ReadFile(filepath.Join(w.env.DataDir, "reports", "clanker-shop.jsonl"))
+	if err != nil {
+		t.Fatalf("report file of shop: %v", err)
+	}
+	if got := events(t, bytes.NewBuffer(b)); !slices.Equal(got, all) {
+		t.Errorf("events in reports/clanker-shop.jsonl = %+v, want %+v", got, all)
 	}
 }

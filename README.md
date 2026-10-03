@@ -56,13 +56,13 @@ The skill `/bruh:implement` is the procedure for each code change and each revie
 | `/bruh:review-and-fix` | Reviews an own change with several lenses and the gates, refutes each finding, and fixes the confirmed findings one area at a time |
 | `/bruh:review-only` | Reviews and refutes a pull request of another author, and changes nothing |
 
-No workflow posts on a pull request. A workflow returns its findings. You post them with `scripts/post-findings.sh` (GitLab through `glab`, GitHub through `gh`): run it with `--dry-run` first, then with `--yes` in your own session. In a role session, a clerk saves the result with the MCP tool `result_save` and posts only with your approval, which bigm relays as `ANSWER Q-<n>: post <owner/repo>#<number> at <head SHA> approved` (`--answer Q-<n>`), or under a post grant in `grants.md` of the ledger. Each post starts with "Agent review" and carries the marker line `<!-- bruh:<role key> -->`. A rerun posts only the comments that are not on the pull request yet.
+No workflow posts on a pull request. A workflow returns its findings. You post them with `scripts/post-findings.sh` (GitLab through `glab`, GitHub through `gh`): run it with `--dry-run` first, then with `--yes` in your own session. For a host other than `gitlab.com` or `github.com`, add `--hostname <host>`. In a role session, a clerk saves the result with the MCP tool `result_save` and posts only with your approval, which bigm relays as `ANSWER Q-<id>: post <owner/repo>#<number> at <head SHA> approved` (`--answer Q-<id>`), or under a post grant in `grants.md` of the ledger. Each post starts with "Agent review" and carries the marker line `<!-- bruh:<role key> -->`. A rerun posts only the comments that are not on the pull request yet.
 
 In a role session, a clerk runs the skill. In your own session, you are the orchestrator: start with `/bruh:implement` and answer the questions of the session.
 
 ## Install
 
-Steps 4, 5, and 6 are optional. Create the ledger repository (step 3) before you answer question 2 of the init skill.
+Steps 4, 5, and 6 are optional. Create the ledger repository (step 2) before you run the init skill (step 3).
 
 ### 1. Install the plugin
 
@@ -73,36 +73,83 @@ claude plugin install bruh@bruh
 
 Install at user scope, so that all your projects get the plugin.
 
-### 2. Run the init skill
+The install dialog asks the plugin options, among them your name (how bruh addresses you), the handoff threshold, and the busy clerk cap. The title of each option starts with "bruh: ". To change an option later, use `/config`. The init skill does not ask these options.
 
-In a Claude Code session, run:
+### 2. Create the ledger
+
+The ledger is Markdown in a separate private repository. It describes all your other repositories. Create it before you run the init skill:
+
+```bash
+gh repo create <owner>/<ledger repository> --private --clone
+```
+
+When the folder is empty, the init skill creates the layout: `README.md`, `mode.md`, `priorities.md`, `rules.md`, `grants.md`, `questions.md`, `owed.md`, `leases.md`, and `projects/`. It also writes `.claude/settings.json`, the start settings of bigm (step 7), and `learn/` for the projects that you select.
+
+`learn/` is the index of your projects. `learn/tree.json` has the folder tree and the scan settings. `learn/projects/<key>.json` has the purpose, the repositories, the links to other projects, and the doc pointers of one project. The index has no build or test commands, because the repository holds them: a clanker learns them from the repository when the work starts.
+
+The Markdown files hold only the current state. When an item closes, bigm deletes its row in the commit that closes it, with the subject `close <kind>: <subject>`. Git is the history: `git log --grep` finds each closed item.
+
+bigm writes the Markdown files. Plugin code writes `learn/` (the init skill, and the refresh at each sweep of bigm). The init skill writes `.claude/settings.json`. bigm is the only role that commits the ledger. The ledger clerk pushes the ledger after each commit of bigm.
+
+### 3. Run the init skill
+
+Run the init skill from a session with no role key: `claude --setting-sources user` in the ledger folder, or a Claude Code session in another folder. A plain `claude` in the ledger folder is bigm (step 7), and the skill stops there. This is also true for a second run.
 
 ```text
 /bruh:init
 ```
 
-The skill asks one question for each message: how bruh addresses you, the ledger path, the mode (human or autonomous), the P1 batch interval and size, the review-round cap, the auto-compact window, the handoff threshold, the concurrency cap, the status line tap, the channels, the delegated P1 classes, the merge grants, and the remote machines. Before it writes a settings file, it shows the diff and waits for your yes.
+Each step tells what its answer controls. Each question with fixed answers is a select, with the default first. The steps:
 
-The skill lists the project folders that need workspace trust. Start `claude` once in each of these folders and accept the trust dialog. `claude --bg` refuses a folder that is not trusted.
+- Ledger: select the ledger folder of step 2, or type its path.
+- Settings: the mode (human or autonomous), the P1 batch interval and size, the review-round cap, and "defaults for the rest" or "customize" (the auto-compact window, the status line tap, and the channels).
+- Root: the folder of your repositories, default `~/workspace`.
+- Hosts: the kind of each code host that bruh cannot find (GitHub, GitLab, or Gitea), and the real host of each SSH host alias that does not resolve.
+- Pick: select the groups and the repositories, with their activity on the code host. Then accept, split, join, or skip each proposed project.
+- Learner: one read-only agent `bruh:learner` for each project reads its files, and proposes the purpose, the links to other projects with the evidence file and line, the doc pointers, and the host of each SSH host alias that did not resolve.
+- Confirm: accept, edit, or skip each proposed value.
+- Diff: the skill shows the full diff of the files outside the ledger and of `<ledger>/.claude/settings.json`, and a table of the ledger part: the project key, the purpose, the repositories, the links, and the docs. Select "show all" to see the full diff of the ledger part. The skill writes nothing before your yes.
+- Trust: the skill lists each selected repository, with a mark when it has `.claude/settings.json` or `.mcp.json`. Select "now" or "at the first work". "Now": start `claude` once in each folder, accept the trust dialog, and quit with `/exit`. `claude --bg` refuses a folder that is not trusted. "At the first work": bigm sends you a P0 with the folder when a clanker cannot start there.
+
+A second run asks first: "change projects" (add, remove, or learn again a project) or "change settings". bigm changes the mode and the P1 settings. Merge grants, delegated P1 classes, and remote machines are not init questions: tell them to bigm, and bigm records them in the ledger.
 
 Non-interactive form, for a container or a script: write the answers to a JSON file, then run the init command of the MCP server. `<plugin root>` is the folder of the installed plugin, `~/.claude/plugins/cache/bruh/bruh/<version>`. The MCP tool `bruh_info` also gives it.
 
 ```json
 {
-  "user_name": "<how bruh addresses you>",
   "ledger_path": "/path/to/ledger",
   "mode": "human",
   "p1_batch_minutes": 60,
   "p1_batch_size": 5,
   "review_round_cap": 2,
-  "auto_compact_window": 550000,
+  "root": "/home/me/workspace",
+  "depth": 4,
+  "exclude": ["archive"],
+  "host_kinds": {"git.example.org": "gitea"},
+  "host_aliases": {"gitlab.com-work": "gitlab.com"},
+  "projects": [
+    {
+      "key": "auth",
+      "repos": ["auth"],
+      "main": "auth",
+      "fills": [
+        {"field": "purpose", "value": "Login service of the shop", "source": "owner"}
+      ]
+    },
+    {
+      "key": "shop",
+      "repos": ["shop", "shop-app"],
+      "main": "shop",
+      "fills": [
+        {"field": "purpose", "value": "Online shop: web client and Go API", "source": "agent"},
+        {"field": "link", "value": "auth", "source": "agent", "repo": "shop", "file": "go.mod", "line": 5},
+        {"field": "doc", "value": "README.md", "source": "agent", "repo": "shop"}
+      ]
+    }
+  ],
+  "user_name": "<how bruh addresses you>",
   "handoff_percent": 50,
-  "max_busy_clerks": 8,
-  "wrap_statusline": true,
-  "channels": [],
-  "delegated_p1_classes": [],
-  "merge_grants": [],
-  "remote_environments": []
+  "max_busy_clerks": 8
 }
 ```
 
@@ -112,17 +159,7 @@ GOTOOLCHAIN=local go run -C <plugin root>/mcp . init --answers "$PWD/answers.jso
 
 Give the answers file as an absolute path. `go run -C` runs the program in `<plugin root>/mcp`, so a relative path does not point to your file.
 
-Only `user_name` and `ledger_path` are required. The other keys have the default values that the example shows. Instead of a file, you can set each key as an environment variable `BRUH_INIT_<KEY>`, for example `BRUH_INIT_USER_NAME`. The non-interactive form prints the diff instead of asking.
-
-### 3. Create the ledger
-
-The ledger is Markdown in a separate private repository. It describes all your other repositories. Create it, then give its path to the init skill (question 2):
-
-```bash
-gh repo create <owner>/<ledger repository> --private --clone
-```
-
-When the folder is empty, the init skill creates the layout: `README.md`, `mode.md`, `priorities.md`, `rules.md`, `grants.md`, `questions.md`, `owed.md`, `leases.md`, and `projects/`. bigm is the only writer of the ledger. The ledger clerk pushes it after each commit of bigm.
+Only `ledger_path` is required. Each path of `repos` and `main` is relative to `root`. The non-interactive form runs no learner: it takes the `fills` of each project as they are, and checks them. Without `projects`, init changes no project of the ledger. A container has no install dialog, so the keys `user_name`, `handoff_percent`, and `max_busy_clerks` set the plugin options there, and init writes only the options that the answers have. Instead of a file, you can set each key as an environment variable `BRUH_INIT_<KEY>`, for example `BRUH_INIT_ROOT=/home/me/workspace`. The values of `user_name`, `ledger_path`, `mode`, and `root` are text, and the other values are JSON. The non-interactive form prints the diff instead of asking.
 
 ### 4. Set up a channel (optional)
 
@@ -158,7 +195,7 @@ The bot allows only one reader. Each session that loads the Telegram plugin star
 
 On the remote machine:
 
-1. Install Claude Code, then do steps 1 and 2. The init skill asks for a ledger path. Give it an empty local folder that is not your ledger, for example `~/bruh-remote-ledger`. bigm writes only the ledger on its own machine.
+1. Install Claude Code, then do steps 1 and 3. The init skill asks for a ledger path. Give it an empty local folder that is not your ledger, for example `~/bruh-remote-ledger`. bigm writes only the ledger on its own machine. Init also writes the bigm start settings `.claude/settings.json` into that folder, so a plain `claude` in that folder starts a bigm on the remote machine. At the pick, select no project: init does not learn the projects of a remote machine, and writes no `learn/` file. Do not keep a session there: quit with `/exit` after the trust dialog.
 2. Start the Orca runtime:
 
    ```bash
@@ -175,7 +212,7 @@ On the machine of bigm, pair the runtime once:
 orca environment add --name <environment name> --pairing-code <pairing code>
 ```
 
-Give the environment name to the init skill (question 13). For remote work, run bigm in an Orca terminal.
+Tell bigm the environment name. bigm writes it on the line `remote_environments:` of `mode.md`. For remote work, run bigm in an Orca terminal.
 
 ### 6. Run in a container (optional)
 
@@ -189,21 +226,29 @@ docker run -it -v bruh-claude:<home folder of the container user>/.claude \
   ghcr.io/oter/autonomous-agents/agent:<tag>
 ```
 
-In the container, do step 1, then the non-interactive form of step 2. In a container, bigm has no Orca terminal. To reach a remote clanker in a container, run `orca serve` in that container (step 5).
+In the container, do step 1, then the non-interactive form of step 3, with the plugin options in the answers file. In a container, bigm has no Orca terminal. To reach a remote clanker in a container, run `orca serve` in that container (step 5).
 
 ### 7. Start bigm
 
-Start bigm in the folder of your ledger repository:
+Start bigm in the folder of your ledger repository, in one of two ways:
 
-```bash
-claude --agent bruh:bigm --name bigm --permission-mode auto \
-  --settings ~/.claude/plugins/data/bruh-bruh/roles/bigm.json \
-  --channels plugin:telegram@claude-plugins-official
-```
+- The full command:
 
-For Slack, add `--dangerously-load-development-channels plugin:bruh@bruh`. Without Telegram, remove the `--channels` line. `~/.claude/plugins/data/bruh-bruh/` is the plugin data folder of the plugin `bruh@bruh`. bigm stays an interactive session. Do not start it with `--bg`.
+  ```bash
+  claude --agent bruh:bigm --name bigm --permission-mode auto \
+    --channels plugin:telegram@claude-plugins-official
+  ```
 
-bigm starts a clanker for each project that has work. Tell bigm what to do. For each project, tell bigm its code host repositories (`owner/name` and the host, GitHub or Gitea). bigm records them with the `repos_set` tool of bruh, so that the watcher and the merge train know them.
+  For Slack, add `--dangerously-load-development-channels plugin:bruh@bruh`. Without Telegram, remove the `--channels` line.
+- Plain `claude`. The init skill writes `.claude/settings.json` into the ledger, and its key `agent` makes the session bigm. This session runs in the default permission mode, not in `auto` mode, and has no name `bigm` and no channel. After a plain start, run `/rename bigm`: clankers and clerks send their nudges to the session name `bigm`, and without the name a message waits for the next sweep.
+
+When you set up Slack or Telegram (step 4), start bigm only with the full command. A plain start reads the channel messages and drops them: the Slack server of bruh polls Slack in each bigm session, and the Telegram server takes the bot, but only the channel flags deliver the messages to the session.
+
+Run one bigm at a time. Each other `claude` in the ledger folder is a second bigm, which reads the mailbox of bigm and starts a second sweep. To open another session in the ledger folder, use `claude --setting-sources user`.
+
+The ledger settings file holds the role key, the env values, and the deny rules of bigm. If you installed bruh before this file existed, run `/bruh:init` again (step 3) to write it. bigm stays an interactive session. Do not start it with `--bg`.
+
+bigm starts a clanker for each project that has work. Tell bigm what to do. For a project that init learned, bigm takes the repositories from `learn/projects/<key>.json`, and records them with the `repos_set` tool of bruh, so that the watcher and the merge train know them. Tell bigm the code host repositories (`owner/name` and the host: GitHub, GitLab, or Gitea) only for a project on a remote machine.
 
 ### 8. Check the requirements
 
@@ -215,7 +260,10 @@ bigm starts a clanker for each project that has work. Tell bigm what to do. For 
 | `jq` | The hook scripts |
 | `git` | Worktrees, branches, and the ledger |
 | `rsync` | The lanes of `/bruh:implement-tickets` (`scripts/lane.sh`) |
-| `glab` or `gh` | Posts of review results (`scripts/post-findings.sh`) only |
+| `glab` | GitLab repositories: the pick, the status, the watcher, the merge train, and the posts (`scripts/post-findings.sh`) |
+| `gh` | GitHub repositories |
+| `tea` or a `BRUH_GITEA_TOKEN_<HOST>` variable | Gitea repositories |
+| `ssh` | Remotes with an SSH host alias (`ssh -G` finds the host) |
 | Orca | Remote machines only |
 | Bun | The Telegram channel plugin only |
 | macOS or Linux | Native Windows is not supported |
@@ -231,7 +279,7 @@ Background sessions use the Claude account of the Claude Code supervisor. bruh n
 - [Flow](docs/flow.md): the process as diagrams.
 - [Design](docs/design.md): what the owner said, and the decision log.
 - [Knowledge](docs/knowledge.md): the verified facts about Claude Code and Orca, and the probe results.
-- [Smoke test](tests/smoke/README.md) and [load test](tests/load/README.md).
+- [Smoke test](tests/smoke/README.md), [load test](tests/load/README.md), and the learner eval (`tests/eval/README.md`).
 - [Changelog](CHANGELOG.md), [contributing](CONTRIBUTING.md), and [security policy](SECURITY.md).
 
 ## License

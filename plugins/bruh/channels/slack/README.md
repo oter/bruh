@@ -18,13 +18,16 @@ The server is part of the bruh plugin. Claude Code starts it in every session th
 
 ## Start bigm with the channel
 
-During the channels research preview, a channel that is not on the Anthropic allowlist loads only with the development flag:
+During the channels research preview, a channel that is not on the Anthropic allowlist loads only with the development flag. Start bigm in the ledger folder with the full command:
 
 ```bash
 claude --agent bruh:bigm --name bigm --permission-mode auto \
-  --settings <plugin data folder>/roles/bigm.json \
   --dangerously-load-development-channels plugin:bruh@bruh
 ```
+
+The ledger settings file `.claude/settings.json`, which `/bruh:init` writes, holds the role key `bigm` and the other start settings. If you installed bruh before this file existed, run `/bruh:init` again to write it.
+
+With Slack set up, start bigm only with the full command. A plain `claude` in the ledger folder also starts bigm, and this server then polls Slack and moves its state forward, because `BRUH_ROLE_KEY` is `bigm`. But Claude Code delivers the channel notifications only to a session that loaded the channel, so the plain session drops the answers of the owner.
 
 ## How it works
 

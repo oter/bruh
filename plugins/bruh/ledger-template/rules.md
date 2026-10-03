@@ -1,6 +1,6 @@
 # Rules
 
-Standing owner rules, word for word. bigm adds a rule when the owner states one, commits, and broadcasts it with a `RULE R-<n>: <subject>` header to all running sessions. A rule with no source is a recommendation, not a rule. Do not paraphrase a rule. Do not delete a rule; the owner retires it with a new rule.
+Standing owner rules, word for word. bigm adds a rule when the owner states one, commits, and broadcasts it with a `RULE R-<n>: <subject>` header to all running sessions. A rule with no source is a recommendation, not a rule. Do not paraphrase a rule. When the owner retires a rule, bigm deletes its section in a commit `close rule: <rule ID> - <subject>` that quotes the words of the owner.
 
 Each rule is one section in this form:
 

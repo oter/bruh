@@ -1,9 +1,9 @@
 #!/bin/sh
-# Tests for tests/lib.sh and for the dry runs of the smoke and load drivers.
+# Tests for tests/lib.sh and for the dry runs of the smoke, load, and learner eval drivers.
 # No Claude session is started. Run: sh tests/test.sh
 set -u
 here=$(cd "$(dirname "$0")" && pwd)
-# shellcheck source=tests/lib.sh
+# shellcheck source=tests/lib.sh disable=SC1091 # followed when tests/lib.sh is an input, as in CI
 . "$here/lib.sh"
 
 tmp=$(mktemp -d)
@@ -105,9 +105,9 @@ check "check_trusted_repo names the remote problem" contains "$(check_trusted_re
 
 # count_missed
 mkdir -p "$tmp/box/read"
-printf '{"id":"1","header":"P2 Q-1: old","at":"2026-09-30T10:00:00.000Z"}' >"$tmp/box/1.json"
-printf '{"id":"2","header":"P2 Q-1: new","at":"2026-09-30T10:59:00.000Z"}' >"$tmp/box/2.json"
-printf '{"id":"3","header":"P2 Q-1: read","at":"2026-09-30T09:00:00.000Z"}' >"$tmp/box/read/3.json"
+printf '{"id":"1","header":"P2 Q-load-tick-1: old","at":"2026-09-30T10:00:00.000Z"}' >"$tmp/box/1.json"
+printf '{"id":"2","header":"P2 Q-load-tick-1: new","at":"2026-09-30T10:59:00.000Z"}' >"$tmp/box/2.json"
+printf '{"id":"3","header":"P2 Q-load-tick-1: read","at":"2026-09-30T09:00:00.000Z"}' >"$tmp/box/read/3.json"
 check "count_missed counts an old unread message only" eq "$(count_missed "$tmp/box" 2026-09-30T10:55:00.000Z)" 1
 check "count_missed is 0 for a missing mailbox" eq "$(count_missed "$tmp/nobox" 2026-09-30T10:55:00.000Z)" 0
 check "count_all counts unread and read" eq "$(count_all "$tmp/box")" 3
@@ -126,6 +126,7 @@ check "smoke dry run exits 0" eq "$(BRUH_TRUSTED_REPO="$tmp/repo" SMOKE_RUN=dry1
 check "smoke dry run starts bigm with the documented flags" contains "$out" "claude --bg --agent bruh:bigm --name bigm --permission-mode auto --settings"
 check "smoke dry run loads the plugin of the checkout" contains "$out" "--plugin-dir $(cd "$here/.." && pwd)/plugins/bruh"
 check "smoke dry run writes the bigm role settings" contains "$out" '"name":"role_settings_write","arguments":{"role_key":"bigm"}'
+check "smoke dry run asks a plain claude in the ledger for its role name" contains "$out" "claude -p --strict-mcp-config --tools '' --max-turns 1 --plugin-dir"
 check "smoke dry run stops the clanker to simulate the idle stop" contains "$out" "claude stop '<clanker id>'"
 check "smoke dry run lets bigm, not the driver, message the clanker" contains "$out" "session named bigm, then stop: SMOKE-IDLE idle"
 check "smoke dry run does not call session_resume itself" not contains "$out" '"name":"session_resume"'
@@ -134,6 +135,9 @@ check "load dry run traps HUP" grep -q "trap 'exit 129' HUP" "$here/load/run.sh"
 check "smoke dry run uses a linked worktree" contains "$out" "worktree add -q --detach"
 check "smoke dry run skips the remote step" contains "$out" "SKIP remote"
 check "smoke dry run stops own sessions in cleanup" contains "$out" "claude stop '<each session in the run folder or in the clerk worktrees of the trusted repository>'"
+check "smoke dry run builds the index of a scratch repository with init --answers" contains "$out" " init --answers "
+check "smoke dry run builds the index of a scratch repository with the learner" contains "$out" "--agent bruh:learner"
+check "smoke dry run runs init with a scratch settings file" contains "$out" "BRUH_SETTINGS_FILE="
 rout=$(BRUH_TRUSTED_REPO="$tmp/repo" SMOKE_RUN=dry1 SMOKE_ORCA_ENV=env1 SMOKE_ORCA_REPO=name:r sh "$here/smoke/run.sh" --dry-run 2>&1)
 check "smoke remote step starts a worker with no setup hooks" contains "$rout" "--setup skip --agent claude --spec"
 check "smoke remote step names the remote worktree" contains "$rout" "--name bruh-smoke-dry1"
@@ -189,9 +193,9 @@ check "the main file stays" test -e "$tmp/repo/file.txt"
 
 # window_gaps
 mkdir -p "$tmp/wbox/read"
-printf '{"header":"P2 Q-1: load tick from s1","at":"2026-09-30T10:01:00.000Z"}' >"$tmp/wbox/read/a.json"
-printf '{"header":"P2 Q-1: load tick from s1","at":"2026-09-30T10:12:00.000Z"}' >"$tmp/wbox/b.json"
-printf '{"header":"P2 Q-0: load test start message","at":"2026-09-30T10:06:00.000Z"}' >"$tmp/wbox/read/c.json"
+printf '{"header":"P2 Q-load-tick-1: load tick from s1","at":"2026-09-30T10:01:00.000Z"}' >"$tmp/wbox/read/a.json"
+printf '{"header":"P2 Q-load-tick-1: load tick from s1","at":"2026-09-30T10:12:00.000Z"}' >"$tmp/wbox/b.json"
+printf '{"header":"P2 Q-load-start-0: load test start message","at":"2026-09-30T10:06:00.000Z"}' >"$tmp/wbox/read/c.json"
 t0=$(jq -n '"2026-09-30T10:00:00Z" | fromdateiso8601')
 check "window_gaps finds the window with only a start message" eq "$(window_gaps "$tmp/wbox" "$t0" $((t0 + 900)) 300)" 1
 check "window_gaps is 0 when each window has a tick" eq "$(window_gaps "$tmp/wbox" "$t0" $((t0 + 300)) 300)" 0
@@ -213,7 +217,7 @@ stop)
 	jq --arg i "$2" 'map(if .id == $i then del(.pid) else . end)' "$FAKE_AGENTS" >"$FAKE_AGENTS.new" && mv "$FAKE_AGENTS.new" "$FAKE_AGENTS"
 	;;
 logs) ;;
-*)
+--bg)
 	if [ -n "${FAKE_AGENTS_AFTER:-}" ] && [ -f "$FAKE_AGENTS_AFTER" ]; then
 		mv "$FAKE_AGENTS_AFTER" "$FAKE_AGENTS"
 		mkdir -p "$BRUH_TEST_DATA/mail/clerk-ledger" && echo '{}' >"$BRUH_TEST_DATA/roles/clerk-ledger.json"
@@ -274,6 +278,25 @@ check "load dry run defaults to 8 sessions" contains "$load8" "clerk-load-dry3-p
 check "load refuses --sessions 1" not sh "$here/load/run.sh" --dry-run --sessions 1
 check "load refuses an odd --sessions" not sh "$here/load/run.sh" --dry-run --sessions 3
 
+# Learner eval driver: dry run and the compare rule of spec 20
+eout=$(sh "$here/eval/run.sh" --dry-run 2>&1)
+check "learner eval dry run exits 0" eq "$(sh "$here/eval/run.sh" --dry-run >/dev/null 2>&1; echo $?)" 0
+check "learner eval dry run prints one learner command for each case" eq "$(printf '%s\n' "$eout" | grep -c 'claude -p --agent bruh:learner')" "$(find "$here/eval/learner" -mindepth 1 -maxdepth 1 -type d | wc -l | tr -d ' ')"
+check "learner eval dry run loads the plugin of the checkout" contains "$eout" "--plugin-dir $(cd "$here/.." && pwd)/plugins/bruh"
+mkdir -p "$tmp/eval"
+printf 'LINK auth: shop/go.mod:5\nDOC: shop/README.md\n' >"$tmp/eval/expected.txt"
+cp "$tmp/eval/expected.txt" "$tmp/eval/passes-the-expected-lines.txt"
+printf 'LINK auth: shop/go.mod:5\nDOC: shop/README.md\nDOC: shop/CLAUDE.md\n' >"$tmp/eval/allows-an-extra-doc-line.txt"
+printf 'PURPOSE: The shop service sells items.\nI read the files of shop.\nLINK auth: shop/go.mod:5\nDOC: shop/README.md\n' >"$tmp/eval/ignores-other-text.txt"
+printf 'LINK auth: shop/go.mod:5\nLINK auth: shop/README.md:3\nDOC: shop/README.md\n' >"$tmp/eval/fails-an-extra-link-line.txt"
+printf 'DOC: shop/README.md\n' >"$tmp/eval/fails-a-missing-line.txt"
+check "learner eval compare passes the expected lines" sh "$here/eval/run.sh" --compare "$tmp/eval/expected.txt" "$tmp/eval/passes-the-expected-lines.txt"
+check "learner eval compare allows an extra DOC line" sh "$here/eval/run.sh" --compare "$tmp/eval/expected.txt" "$tmp/eval/allows-an-extra-doc-line.txt"
+check "learner eval compare ignores other text" sh "$here/eval/run.sh" --compare "$tmp/eval/expected.txt" "$tmp/eval/ignores-other-text.txt"
+check "learner eval compare fails an extra LINK line" not sh "$here/eval/run.sh" --compare "$tmp/eval/expected.txt" "$tmp/eval/fails-an-extra-link-line.txt"
+check "learner eval compare fails a missing line" not sh "$here/eval/run.sh" --compare "$tmp/eval/expected.txt" "$tmp/eval/fails-a-missing-line.txt"
+check "learner eval expected files have only closed lines" not grep -Eqv '^$|^(LINK [a-z0-9-]+: [^ ]+:[0-9]+|DOC: [^ ]+)$' "$here"/eval/learner/*/expected.txt
+
 # The MCP server accepts every call of the drivers: the sender policy of mail_post
 # and the parent checks of role_settings_write (final review M1).
 replay() {
@@ -296,7 +319,7 @@ ticks() {
 	[ "$(printf '%s\n' "$pairs" | grep -c .)" -eq "$2" ] || return 1
 	printf '%s\n' "$pairs" | while read -r _ _ _ _ me _ _ _ _ next; do
 		DRY=0 BRUH_DATA="$tmp/replay" BRUH_ROLE_KEY=${me%.} BRUH_PLUGIN_ROOT="$here/../plugins/bruh" BRUH_TEST_MCP="$tmp/bruh-mcp" \
-			mcp_call mail_post "$(jq -cn --arg to "${next%.}" '{to: $to, header: "P2 Q-1: load tick", body: "tick"}')" >/dev/null || return 1
+			mcp_call mail_post "$(jq -cn --arg to "${next%.}" '{to: $to, header: "P2 Q-load-tick-1: load tick", body: "tick"}')" >/dev/null || return 1
 	done
 }
 check "the MCP server accepts each tick of the 8 load sessions" ticks "$load8" 8
@@ -428,6 +451,7 @@ while [ $# -gt 0 ]; do
 	case $1 in
 	-X) method=$2; shift ;;
 	--input | -H) [ "$1" = --input ] && input=$2; shift ;;
+	--hostname) shift ;;
 	api | --paginate) ;;
 	*) path=$1 ;;
 	esac
@@ -481,6 +505,8 @@ pf() {
 	FAKE_DIR=$d FAKE_HEAD=${FAKE_HEAD:-$RH} PATH="$tmp/fakebin:$PATH" sh "$post" "$@"
 }
 posts() { grep -c . "$1/posted.jsonl"; }
+# every <file> <text>: the file has lines, and each line contains the text.
+every() { [ -s "$1" ] && ! grep -vqF -- "$2" "$1"; }
 # Each posted body starts and ends with the marker line and says "Agent review".
 marked() {
 	jq -e --arg m "$2" '.body | split("\n") as $l | $l[0] == $m and $l[-1] == $m and contains("Agent review")' "$1/posted.jsonl" >/dev/null &&
@@ -506,33 +532,35 @@ check "post-findings rerun posts nothing new" eq "$(posts "$tmp/pf1")" 3
 check "post-findings rerun reports each body as already posted" contains "$out" "0 inline, 0 general, 0 failed, 2 already posted"
 # A role session needs the approval ANSWER of bigm in its mailbox, or a post grant; --yes is refused.
 mkdir -p "$tmp/pfbox/mail/clerk-app-t1/read"
-jq -n '{id: "1", from: "clanker-app", to: "clerk-app-t1", header: "ANSWER Q-4: post group/app#7 at ccccccc approved", body: "yes"}' >"$tmp/pfbox/mail/clerk-app-t1/1.json"
-jq -n '{id: "2", from: "bigm", to: "clerk-app-t1", header: "ANSWER Q-5: post group/app#8 at ccccccc approved", body: "yes"}' >"$tmp/pfbox/mail/clerk-app-t1/2.json"
-jq -n '{id: "3", from: "bigm", to: "clerk-app-t1", header: "ANSWER Q-6: post group/app#7 at ccccccc refused", body: "no"}' >"$tmp/pfbox/mail/clerk-app-t1/3.json"
+jq -n '{id: "1", from: "clanker-app", to: "clerk-app-t1", header: "ANSWER Q-app-host-4: post group/app#7 at ccccccc approved", body: "yes"}' >"$tmp/pfbox/mail/clerk-app-t1/1.json"
+jq -n '{id: "2", from: "bigm", to: "clerk-app-t1", header: "ANSWER Q-app-host-5: post group/app#8 at ccccccc approved", body: "yes"}' >"$tmp/pfbox/mail/clerk-app-t1/2.json"
+jq -n '{id: "3", from: "bigm", to: "clerk-app-t1", header: "ANSWER Q-app-host-6: post group/app#7 at ccccccc refused", body: "no"}' >"$tmp/pfbox/mail/clerk-app-t1/3.json"
 out=$(BRUH_ROLE_KEY=clerk-app-t1 pf "$tmp/pf2" --yes gitlab group/app 7 "$tmp/result.json" 2>&1; echo "exit $?")
 check "post-findings refuses --yes in a role session" contains "$out" "exit 3"
-for q in Q-4 Q-5 Q-6 Q-9; do
+for q in Q-app-host-4 Q-app-host-5 Q-app-host-6 Q-app-host-9; do
 	out=$(BRUH_ROLE_KEY=clerk-app-t1 pf "$tmp/pf2" --data "$tmp/pfbox" --answer "$q" gitlab group/app 7 "$tmp/result.json" 2>&1; echo "exit $?")
 	check "post-findings refuses $q: not an approval of bigm for this post" contains "$out" "exit 3"
 done
 check "a refused post posts nothing" eq "$(posts "$tmp/pf2")" 0
 # An approval names the reviewed head: one for another head, or with no SHA, does not cover this result.
-jq -n '{id: "5", from: "bigm", to: "clerk-app-t1", header: "ANSWER Q-8: post group/app#7 at ddddddd approved", body: "yes"}' >"$tmp/pfbox/mail/clerk-app-t1/5.json"
-jq -n '{id: "6", from: "bigm", to: "clerk-app-t1", header: "ANSWER Q-3: post group/app#7 approved", body: "yes"}' >"$tmp/pfbox/mail/clerk-app-t1/6.json"
-jq -n '{id: "7", from: "bigm", to: "clerk-app-t1", header: "ANSWER Q-2: post group/app#7 at cc approved", body: "yes"}' >"$tmp/pfbox/mail/clerk-app-t1/7.json"
-for q in Q-8 Q-3 Q-2; do
+jq -n '{id: "5", from: "bigm", to: "clerk-app-t1", header: "ANSWER Q-app-host-8: post group/app#7 at ddddddd approved", body: "yes"}' >"$tmp/pfbox/mail/clerk-app-t1/5.json"
+jq -n '{id: "6", from: "bigm", to: "clerk-app-t1", header: "ANSWER Q-app-host-3: post group/app#7 approved", body: "yes"}' >"$tmp/pfbox/mail/clerk-app-t1/6.json"
+jq -n '{id: "7", from: "bigm", to: "clerk-app-t1", header: "ANSWER Q-app-host-2: post group/app#7 at cc approved", body: "yes"}' >"$tmp/pfbox/mail/clerk-app-t1/7.json"
+for q in Q-app-host-8 Q-app-host-3 Q-app-host-2; do
 	out=$(BRUH_ROLE_KEY=clerk-app-t1 pf "$tmp/pf2" --data "$tmp/pfbox" --answer "$q" gitlab group/app 7 "$tmp/result.json" 2>&1; echo "exit $?")
 	check "post-findings refuses $q: its approval does not name the reviewed head" contains "$out" "exit 3"
 done
-jq -n '{id: "4", from: "bigm", to: "clerk-app-t1", header: "ANSWER Q-7: post group/app#7 at ccccccc approved", body: "owner: yes"}' >"$tmp/pfbox/mail/clerk-app-t1/read/4.json"
+jq -n '{id: "4", from: "bigm", to: "clerk-app-t1", header: "ANSWER Q-app-host-7: post group/app#7 at ccccccc approved", body: "owner: yes"}' >"$tmp/pfbox/mail/clerk-app-t1/read/4.json"
 # The approval SHA must be a prefix of a full 40-hex head_sha: a short head_sha in the result is not enough.
 jq '.head_sha = "ccccccc"' "$tmp/result.json" >"$tmp/short.json"
-out=$(BRUH_ROLE_KEY=clerk-app-t1 pf "$tmp/pf2s" --data "$tmp/pfbox" --answer Q-7 gitlab group/app 7 "$tmp/short.json" 2>&1; echo "exit $?")
+out=$(BRUH_ROLE_KEY=clerk-app-t1 pf "$tmp/pf2s" --data "$tmp/pfbox" --answer Q-app-host-7 gitlab group/app 7 "$tmp/short.json" 2>&1; echo "exit $?")
 check "post-findings refuses an approval for a result whose head_sha is not 40 hex" contains "$out" "exit 3"
-out=$(BRUH_ROLE_KEY=clerk-app-t1 pf "$tmp/pf2" --data "$tmp/pfbox" --answer Q-7 gitlab group/app 7 "$tmp/result.json" 2>&1; echo "exit $?")
+out=$(BRUH_ROLE_KEY=clerk-app-t1 pf "$tmp/pf2" --data "$tmp/pfbox" --answer Q-app-host-7 gitlab group/app 7 "$tmp/result.json" 2>&1; echo "exit $?")
 check "the approval ANSWER of bigm for this post allows it" contains "$out" "exit 0"
 check "post-findings marks each body with the role key" marked "$tmp/pf2" '<!-- bruh:clerk-app-t1 -->'
-check "post-findings refuses a bad question ID" not pf "$tmp/pf2" --answer 'Q-1 x' gitlab group/app 7 "$tmp/result.json"
+check "post-findings refuses a bad question ID" not pf "$tmp/pf2" --answer 'Q-app-host-1 x' gitlab group/app 7 "$tmp/result.json"
+out=$(BRUH_ROLE_KEY=clerk-app-t1 pf "$tmp/pf2" --data "$tmp/pfbox" --answer Q-4 gitlab group/app 7 "$tmp/result.json" 2>&1; echo "exit $?")
+check "post-findings refuses the old question ID form Q-<n>" contains "$out" "exit 2"
 # A post grant row lets the named role key post without --yes; a merge grant row does not.
 mkdir -p "$tmp/pfdata/init" "$tmp/pfledger"
 jq -n --arg l "$tmp/pfledger" '{ledger_path: $l}' >"$tmp/pfdata/init/config.json"
@@ -543,13 +571,15 @@ cat >"$tmp/pfledger/grants.md" <<'MD'
 
 | Repository | Merger role key | Conditions | Owner words | Date (UTC) | Question ID |
 |---|---|---|---|---|---|
-| group/app | clerk-app-t1 | green CI | "merge it" | 2026-09-30T10:00:00Z | Q-1 |
+| group/app | clerk-app-t1 | green CI | "merge it" | 2026-09-30T10:00:00Z | Q-app-host-1 |
 
 ## Post grants
 
 | Poster role key | Host | Repository | Conditions | Owner words | Date (UTC) | Question ID |
 |---|---|---|---|---|---|---|
-| `clerk-app-t2` | gitlab | `group/app` | review results | "post reviews" | 2026-09-30T10:00:00Z | Q-2 |
+| `clerk-app-t2` | gitlab.com | `group/app` | review results | "post reviews" | 2026-09-30T10:00:00Z | Q-app-host-2 |
+| `clerk-app-t3` | gitlab | `group/app` | review results | "post reviews" | 2026-09-30T10:00:00Z | Q-app-host-3 |
+| `clerk-app-t4` | gitlab.example.com | `group/app` | review results | "post reviews" | 2026-09-30T10:00:00Z | Q-app-host-4 |
 MD
 out=$(BRUH_ROLE_KEY=clerk-app-t1 pf "$tmp/pf3" --data "$tmp/pfdata" gitlab group/app 7 "$tmp/result.json" 2>&1; echo "exit $?")
 check "a merge grant row is not a post grant" contains "$out" "exit 3"
@@ -560,6 +590,12 @@ check "a post grant covers only its host" contains "$out" "exit 3"
 out=$(BRUH_ROLE_KEY=clerk-app-t2 pf "$tmp/pf3" --data "$tmp/pfdata" gitlab group/app 7 "$tmp/result.json" 2>&1; echo "exit $?")
 check "a post grant row for the repository and the role key allows the post" contains "$out" "exit 0"
 check "the post grant posts each body" eq "$(posts "$tmp/pf3")" 3
+out=$(BRUH_ROLE_KEY=clerk-app-t3 pf "$tmp/pf3kind" --data "$tmp/pfdata" gitlab group/app 7 "$tmp/result.json" 2>&1; echo "exit $?")
+check "a post grant row with the host kind gitlab is not a grant for gitlab.com" contains "$out" "exit 3"
+out=$(BRUH_ROLE_KEY=clerk-app-t4 pf "$tmp/pf3self" --data "$tmp/pfdata" --hostname gitlab.example.com gitlab group/app 7 "$tmp/result.json" 2>&1; echo "exit $?")
+check "a post grant row for gitlab.example.com allows the post with --hostname gitlab.example.com" contains "$out" "exit 0"
+out=$(BRUH_ROLE_KEY=clerk-app-t4 pf "$tmp/pf3dflt" --data "$tmp/pfdata" gitlab group/app 7 "$tmp/result.json" 2>&1; echo "exit $?")
+check "a post grant row for gitlab.example.com does not allow the post without --hostname" contains "$out" "exit 3"
 out=$(unset BRUH_ROLE_KEY; FAKE_REJECT_INLINE=1 pf "$tmp/pf4" --yes gitlab group/app 7 "$tmp/result.json" 2>&1)
 check "a rejected inline position becomes a general comment" contains "$out" "0 inline, 2 general, 0 failed"
 # shellcheck disable=SC2016 # literal backticks
@@ -573,6 +609,115 @@ check "GitHub inline comments name the commit, the path, and the line" eq "$(jq 
 check "GitHub posts go to the pull request" contains "$(cat "$tmp/pf6/calls")" "repos/owner/app/pulls/7/comments"
 out=$(unset BRUH_ROLE_KEY; pf "$tmp/pf6" --yes github owner/app 7 "$tmp/result.json" 2>&1)
 check "GitHub rerun posts nothing new" eq "$(posts "$tmp/pf6")" 3
+# --hostname goes to each glab and gh call; the default is the public host of the kind.
+(unset BRUH_ROLE_KEY; pf "$tmp/pfhself" --hostname gitlab.example.com --yes gitlab group/app 7 "$tmp/result.json" >/dev/null 2>&1)
+check "each glab call of --hostname gitlab.example.com names the host" every "$tmp/pfhself/calls" '--hostname gitlab.example.com '
+(unset BRUH_ROLE_KEY; pf "$tmp/pfhgl" --yes gitlab group/app 7 "$tmp/result.json" >/dev/null 2>&1)
+check "each glab call without --hostname names gitlab.com" every "$tmp/pfhgl/calls" '--hostname gitlab.com '
+(unset BRUH_ROLE_KEY; pf "$tmp/pfhgh" --yes github owner/app 7 "$tmp/result.json" >/dev/null 2>&1)
+check "each gh call without --hostname names github.com" every "$tmp/pfhgh/calls" '--hostname github.com '
+out=$(unset BRUH_ROLE_KEY; pf "$tmp/pfhbad" --hostname 'x;y' --yes gitlab group/app 7 "$tmp/result.json" 2>&1; echo "exit $?")
+check "post-findings refuses a bad --hostname" contains "$out" "exit 2"
+check "a refused --hostname reaches no code host" eq "$(grep -c . "$tmp/pfhbad/calls")" 0
+# A remote with an SSH host alias needs a confirmed account in "Identities" of the
+# project file before a role session posts, also with a post grant; a manual session is not checked.
+mkdir -p "$tmp/pfid/init" "$tmp/pfidledger/learn/projects" "$tmp/pfidledger/projects"
+jq -n --arg l "$tmp/pfidledger" '{ledger_path: $l}' >"$tmp/pfid/init/config.json"
+cat >"$tmp/pfidledger/grants.md" <<'MD'
+# Grants
+
+## Post grants
+
+| Poster role key | Host | Repository | Conditions | Owner words | Date (UTC) | Question ID |
+|---|---|---|---|---|---|---|
+| `clerk-app-t5` | gitlab.com | `group/app` | review results | "post reviews" | 2026-09-30T10:00:00Z | Q-app-host-5 |
+MD
+cat >"$tmp/pfidledger/learn/projects/app.json" <<'JSON'
+{
+  "key": "app",
+  "purpose": null,
+  "main": "app",
+  "repos": [
+    {
+      "path": "app",
+      "remotes": [{"name": "origin", "url": "git@gitlab.com-work:group/app.git"}],
+      "remote": "origin",
+      "host": {"value": "gitlab.com", "source": "git"},
+      "kind": "gitlab",
+      "api_url": "https://gitlab.com/api/v4",
+      "host_path": "group/app",
+      "default_branch": "main",
+      "state": "present"
+    }
+  ],
+  "links": [],
+  "docs": []
+}
+JSON
+# identities [<row>]: writes projects/app.md with the Identities table and the row, if any.
+identities() {
+	printf '# app\n\n## Identities\n\n| Credential | Identity | Checked (UTC) | Source read |\n|---|---|---|---|\n%s\n' "${1:-}" >"$tmp/pfidledger/projects/app.md"
+}
+identities
+out=$(BRUH_ROLE_KEY=clerk-app-t5 pf "$tmp/pfid1" --data "$tmp/pfid" gitlab group/app 7 "$tmp/result.json" 2>&1; echo "exit $?")
+check "a post grant does not cover a remote with an SSH host alias and no Identities row" contains "$out" "exit 3"
+check "the refusal of an unchecked alias names the alias" contains "$out" "gitlab.com-work"
+check "an unchecked alias posts nothing" eq "$(posts "$tmp/pfid1")" 0
+# shellcheck disable=SC2016 # literal backticks
+identities '| `gitlab.com-work` |  | 2026-10-03T00:00:00Z | read |'
+out=$(BRUH_ROLE_KEY=clerk-app-t5 pf "$tmp/pfid2" --data "$tmp/pfid" gitlab group/app 7 "$tmp/result.json" 2>&1; echo "exit $?")
+check "an Identities row with an empty identity does not confirm the alias" contains "$out" "exit 3"
+# shellcheck disable=SC2016 # literal backticks
+identities '| `gitlab.com-work` | work-account | 2026-10-03T00:00:00Z | read |'
+out=$(BRUH_ROLE_KEY=clerk-app-t5 pf "$tmp/pfid3" --data "$tmp/pfid" gitlab group/app 7 "$tmp/result.json" 2>&1; echo "exit $?")
+check "an Identities row with an identity for the alias allows the post" contains "$out" "exit 0"
+identities
+out=$(unset BRUH_ROLE_KEY; pf "$tmp/pfid4" --data "$tmp/pfid" --yes gitlab group/app 7 "$tmp/result.json" 2>&1; echo "exit $?")
+check "a manual session with --yes is not checked for the alias" contains "$out" "exit 0"
+# An alias that neither ssh -G nor host_aliases resolved has a null host.value (G10).
+jq '.repos[0].host.value = null | .repos[0].kind = "unknown" | .repos[0].api_url = ""' \
+	"$tmp/pfidledger/learn/projects/app.json" >"$tmp/pfidnull.json"
+mv "$tmp/pfidnull.json" "$tmp/pfidledger/learn/projects/app.json"
+out=$(BRUH_ROLE_KEY=clerk-app-t5 pf "$tmp/pfid5" --data "$tmp/pfid" gitlab group/app 7 "$tmp/result.json" 2>&1; echo "exit $?")
+check "a null host.value and no Identities row is refused" contains "$out" "exit 3"
+check "an unresolved alias posts nothing" eq "$(posts "$tmp/pfid5")" 0
+# shellcheck disable=SC2016 # literal backticks
+identities '| `gitlab.com-work` | work-account | 2026-10-03T00:00:00Z | read |'
+out=$(BRUH_ROLE_KEY=clerk-app-t5 pf "$tmp/pfid6" --data "$tmp/pfid" gitlab group/app 7 "$tmp/result.json" 2>&1; echo "exit $?")
+check "a null host.value with an Identities row for the alias allows the post" contains "$out" "exit 0"
+# An index file or an init config that cannot be read stops the post (B6).
+printf '{' >"$tmp/pfidledger/learn/projects/app.json"
+out=$(BRUH_ROLE_KEY=clerk-app-t5 pf "$tmp/pfid7" --data "$tmp/pfid" gitlab group/app 7 "$tmp/result.json" 2>&1; echo "exit $?")
+check "an index file that is not JSON stops post-findings (B6)" contains "$out" "exit 1"
+check "a bad index file names the index files" contains "$out" "could not read the index files"
+check "a bad index file posts nothing" eq "$(posts "$tmp/pfid7")" 0
+mkdir -p "$tmp/pfidbad/init" "$tmp/pfidbad/mail/clerk-app-t5"
+printf '{' >"$tmp/pfidbad/init/config.json"
+jq -n '{id: "1", from: "bigm", to: "clerk-app-t5", header: "ANSWER Q-app-host-7: post group/app#7 at ccccccc approved", body: "yes"}' >"$tmp/pfidbad/mail/clerk-app-t5/1.json"
+out=$(BRUH_ROLE_KEY=clerk-app-t5 pf "$tmp/pfid8" --data "$tmp/pfidbad" --answer Q-app-host-7 gitlab group/app 7 "$tmp/result.json" 2>&1; echo "exit $?")
+check "an init config that is not JSON stops post-findings, also with an ANSWER (B6)" contains "$out" "exit 1"
+check "a bad init config names the file" contains "$out" "could not read $tmp/pfidbad/init/config.json"
+check "a bad init config posts nothing" eq "$(posts "$tmp/pfid8")" 0
+# An init config with no ledger_path is damaged too: init always writes one.
+for c in empty null; do
+	if [ "$c" = empty ]; then : >"$tmp/pfidbad/init/config.json"; else echo null >"$tmp/pfidbad/init/config.json"; fi
+	out=$(BRUH_ROLE_KEY=clerk-app-t5 pf "$tmp/pfid9$c" --data "$tmp/pfidbad" --answer Q-app-host-7 gitlab group/app 7 "$tmp/result.json" 2>&1; echo "exit $?")
+	check "an init config that is $c stops post-findings, also with an ANSWER (B6)" contains "$out" "exit 1"
+	check "an init config that is $c names the file" contains "$out" "could not read $tmp/pfidbad/init/config.json"
+	check "an init config that is $c posts nothing" eq "$(posts "$tmp/pfid9$c")" 0
+done
+# Two JSON documents and a folder in place of the file are damaged too.
+printf '{"ledger_path":"%s"}{"ledger_path":"/other"}' "$tmp/pfidledger" >"$tmp/pfidbad/init/config.json"
+out=$(BRUH_ROLE_KEY=clerk-app-t5 pf "$tmp/pfid10" --data "$tmp/pfidbad" --answer Q-app-host-7 gitlab group/app 7 "$tmp/result.json" 2>&1; echo "exit $?")
+check "an init config with two JSON documents stops post-findings (B6)" contains "$out" "exit 1"
+check "an init config with two JSON documents names the file" contains "$out" "could not read $tmp/pfidbad/init/config.json"
+check "an init config with two JSON documents posts nothing" eq "$(posts "$tmp/pfid10")" 0
+rm "$tmp/pfidbad/init/config.json"
+mkdir "$tmp/pfidbad/init/config.json"
+out=$(BRUH_ROLE_KEY=clerk-app-t5 pf "$tmp/pfid11" --data "$tmp/pfidbad" --answer Q-app-host-7 gitlab group/app 7 "$tmp/result.json" 2>&1; echo "exit $?")
+check "an init config that is a folder stops post-findings (B6)" contains "$out" "exit 1"
+check "an init config that is a folder names the file" contains "$out" "could not read $tmp/pfidbad/init/config.json"
+check "an init config that is a folder posts nothing" eq "$(posts "$tmp/pfid11")" 0
 jq '.status = "stopped"' "$tmp/result.json" >"$tmp/stopped.json"
 out=$(unset BRUH_ROLE_KEY; pf "$tmp/pf7" --yes gitlab group/app 7 "$tmp/stopped.json" 2>&1; echo "exit $?")
 check "post-findings refuses a stopped result" contains "$out" "exit 2"

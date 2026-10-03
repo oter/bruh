@@ -63,7 +63,7 @@ Setup:
 1. It builds the MCP server of the checkout into the evidence folder. The driver uses it as a stand-in bigm caller: it sends one JSON-RPC `tools/call` line for each call. So plugin code writes all bruh files.
 2. It adds two linked worktrees of `BRUH_TRUSTED_REPO` on new orphan branches: a project and a ledger.
 3. The project gets `TASK.md` with two tasks (`greet` and `gate`), `gate.sh`, and `.claude/settings.json` with the allow rules `Workflow(bruh:deliver)` and `mcp__plugin_bruh_bruh`, ask rules for `./gate.sh`, and the deny rule `Bash(git push:*)`.
-4. The ledger gets the ledger template of the plugin, with `mode: autonomous`, so that bigm decides the P1 question itself.
+4. The ledger gets the ledger template of the plugin, with `mode: autonomous`, so that bigm decides the P1 question itself. Its `.claude/settings.json` has the key `"agent": "bruh:bigm"` and the env value `BRUH_ROLE_KEY=bigm`, as `/bruh:init` writes them.
 5. It writes the bigm role settings with `role_settings_write`, and starts bigm in the ledger. The start prompt also tells bigm what to do when a session sends it `SMOKE-IDLE <word>` (the idle-resume step):
 
    ```bash
@@ -76,16 +76,18 @@ Steps:
 | Step | PASS when |
 |---|---|
 | `preflight` | the tools are present, Claude Code is 2.1.284 or later, the trusted repository has a commit and no remote, and no other bigm runs |
+| `init-index` | the driver makes the plain repository `root/shop<run>` in the run folder, with a `README.md`, the remote `origin` on `example.com`, and `refs/remotes/origin/HEAD`. It runs `claude -p --agent bruh:learner` on it, turns the `PURPOSE:` and `DOC:` lines into fills, and runs the non-interactive `init --answers` with a scratch ledger, settings file, and data folder in the evidence folder. PASS when `learn/projects/shop<run>.json` of the scratch ledger has the remote `origin`, a default branch that is not `unknown`, a purpose with the source `agent`, and the doc pointer `README.md` |
+| `plain-start` | a plain `claude -p` in the ledger, with no tool and no MCP server, answers exactly `bigm` when the driver asks for the role name of its system instructions. This proves that the agent key of the ledger settings starts bigm without `--agent`. The step does not probe the role key: when it is missing, each bruh tool call of bigm fails with "BRUH_ROLE_KEY is not set" |
 | `bigm` | a session named `bigm` has a process within 2 minutes |
 | `clanker` | bigm started a session named `clanker-smoke-<run>` |
 | `clerk` | the clanker started `clerk-smoke-<run>-greet` and `clerk-smoke-<run>-gate` |
 | `deliver` | `claude logs` of the greet clerk contains `bruh:deliver` |
-| `p1-sent` | a file `questions/Q-<n>.json` with priority `P1` names the greet clerk |
-| `p1-bigm` | a message with the header `P1 Q-<n>:` is in the mailbox of bigm |
+| `p1-sent` | a file `questions/Q-<id>.json` with priority `P1` names the greet clerk |
+| `p1-bigm` | a message with the header `P1 Q-<id>:` is in the mailbox of bigm |
 | `answer-same-run` | the answer file of the question exists, the greet clerk sent `DONE:` to the clanker, its log does not contain `resumeFromRunId`, and the word in `GREETING.txt` (on a new branch or in a clerk worktree) is in the answer |
 | `p0-prompt` | the gate clerk waits on a permission prompt, and within one sweep the text `claude attach <gate clerk id>` is in a P0 question, a P0 message to bigm, a ledger file, or the output of bigm |
-| `idle-resume` | the driver stops the clanker, then a short `claude -p` session sends `SMOKE-IDLE <word>` to bigm. The real smoke bigm, not the driver, sends `DONE: smoke idle check <word>` to the clanker. PASS when the clanker has a process again under the same session ID, the message from bigm is in its `read/` folder, and the output of bigm shows `session_resume` (or `respawn`, when the driver stopped the clanker with `claude stop`) |
-| `remote` | `SKIP` when `SMOKE_ORCA_ENV` or `SMOKE_ORCA_REPO` is not set, or when the environment is not paired. Else the driver starts a worker on the environment (worktree `bruh-smoke-<run>`, no setup hooks) that starts a `claude -p --agent bruh:clanker`. The clanker asks `P1 Q-1: smoke remote <run>` with `orca orchestration ask`. The driver replies with a new random word. PASS when a message in `orca orchestration inbox` carries the rot13 form of that word, which only a session that got the reply can make. Run the driver in an Orca terminal for this step. |
+| `idle-resume` | the driver stops the clanker, then a short `claude -p` session sends `SMOKE-IDLE <word>` to bigm. This session loads only the user settings, so the agent key of the ledger does not make it a bigm. It has no Bash, because it does not get the push block of the ledger settings. The real smoke bigm, not the driver, sends `DONE: smoke idle check <word>` to the clanker. PASS when the clanker has a process again under the same session ID, the message from bigm is in its `read/` folder, and the output of bigm shows `session_resume` (or `respawn`, when the driver stopped the clanker with `claude stop`) |
+| `remote` | `SKIP` when `SMOKE_ORCA_ENV` or `SMOKE_ORCA_REPO` is not set, or when the environment is not paired. Else the driver starts a worker on the environment (worktree `bruh-smoke-<run>`, no setup hooks) that starts a `claude -p --agent bruh:clanker`. The clanker asks `P1 Q-smoke-remote-1: smoke remote <run>` with `orca orchestration ask`. The driver replies with a new random word. PASS when a message in `orca orchestration inbox` carries the rot13 form of that word, which only a session that got the reply can make. Run the driver in an Orca terminal for this step. |
 
 A step that needs a failed step prints `SKIP <step> - needs <step>`.
 
@@ -123,6 +125,6 @@ Put `results.txt` into the release notes of the release (see the release checkli
 - Spec 20 has one clerk. The test has two clerks, because one task asks the P1 question and the other task waits on the permission prompt.
 - Each clerk makes its own worktree with `EnterWorktree` under `.claude/worktrees/` of the scratch project.
 - The idle stop is simulated with `claude stop` by default. `claude stop` sets the state `stopped`, which bigm treats as a failure and restarts with `claude respawn`, not with `session_resume`. Only `SMOKE_IDLE_MINUTES=65` tests the real idle stop and requires `session_resume`.
-- The scratch ledger is a copy of the ledger template of the plugin, not a ledger that `/bruh:init` made, because the non-interactive init also writes user settings.
+- The scratch ledger of the chain is a copy of the ledger template of the plugin, not a ledger that `/bruh:init` made. Only the `init-index` step uses the non-interactive init, with a scratch settings file, so that it does not change your user settings.
 - The `deliver` step reads `claude logs`, which is not a stable interface. The text `bruh:deliver` can be in the log before the workflow runs. The later steps prove the run.
 - The remote step cannot prove that the session that answers is a bruh clanker. The rot13 word proves only that a session on the remote machine got the reply through Orca.

@@ -42,7 +42,7 @@ The clanker answers from the project context: the code, the docs, the ADRs, and 
 
 ## Delegated P1 classes
 
-A clanker can answer a P1 question of these classes, and it logs each answer in its report file. An item of the section "Never without the owner" is never a delegated class. The init skill writes the answer `delegated_p1_classes` here, one item for each class. With no items, a clanker answers no P1 question.
+A clanker can answer a P1 question of these classes, and it logs each answer in its report file. An item of the section "Never without the owner" is never a delegated class. bigm writes a class here when the owner tells it, one item for each class. With no items, a clanker answers no P1 question.
 
 ## Never without the owner
 

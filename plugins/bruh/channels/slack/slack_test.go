@@ -141,7 +141,7 @@ func TestSlackInitialize(t *testing.T) {
 
 func TestSlackIdleWithoutConfig(t *testing.T) {
 	s, f, out := setup(t, false)
-	rpc(s, `{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"post_question","arguments":{"question_id":"Q-1","header":"P1 Q-1: x","body":"b"}}}`)
+	rpc(s, `{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"post_question","arguments":{"question_id":"Q-shop-host-1","header":"P1 Q-shop-host-1: x","body":"b"}}}`)
 	if r := out.lines(t)[0]["result"].(map[string]any); r["isError"] != true {
 		t.Fatalf("result = %v", r)
 	}
@@ -169,7 +169,7 @@ func TestSlackIdleWithoutConfig(t *testing.T) {
 
 func postQuestion(t *testing.T, s *server, out *syncBuf) string {
 	t.Helper()
-	rpc(s, `{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"post_question","arguments":{"question_id":"Q-7","header":"P1 Q-7: merge <the> fix?","body":"a & b"}}}`)
+	rpc(s, `{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"post_question","arguments":{"question_id":"Q-shop-host-7","header":"P1 Q-shop-host-7: merge <the> fix?","body":"a & b"}}}`)
 	res := out.lines(t)[0]["result"].(map[string]any)
 	var r map[string]string
 	_ = json.Unmarshal([]byte(res["content"].([]any)[0].(map[string]any)["text"].(string)), &r)
@@ -182,11 +182,22 @@ func postQuestion(t *testing.T, s *server, out *syncBuf) string {
 func TestSlackPostQuestion(t *testing.T) {
 	s, f, out := setup(t, true)
 	ts := postQuestion(t, s, out)
-	if len(f.posts) != 1 || f.posts[0]["text"] != "P1 Q-7: merge &lt;the&gt; fix?\n\na &amp; b\n\nAnswer in this thread." || f.posts[0]["thread_ts"] != "" {
+	if len(f.posts) != 1 || f.posts[0]["text"] != "P1 Q-shop-host-7: merge &lt;the&gt; fix?\n\na &amp; b\n\nAnswer in this thread." || f.posts[0]["thread_ts"] != "" {
 		t.Fatalf("posts = %v", f.posts)
 	}
 	rpc(s, `{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"reply","arguments":{"thread_ts":"`+ts+`","text":"noted"}}}`)
 	if len(f.posts) != 2 || f.posts[1]["thread_ts"] != ts {
+		t.Fatalf("posts = %v", f.posts)
+	}
+}
+
+func TestSlackPostQuestionRejectsOldID(t *testing.T) {
+	s, f, out := setup(t, true)
+	rpc(s, `{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"post_question","arguments":{"question_id":"Q-7","header":"P1 Q-7: x","body":"b"}}}`)
+	if r := out.lines(t)[0]["result"].(map[string]any); r["isError"] != true {
+		t.Fatalf("result = %v", r)
+	}
+	if len(f.posts) != 0 {
 		t.Fatalf("posts = %v", f.posts)
 	}
 }
@@ -204,7 +215,7 @@ func TestSlackThreadReplyReachesSession(t *testing.T) {
 	}
 	p := msgs[0]["params"].(map[string]any)
 	meta := p["meta"].(map[string]any)
-	if p["content"] != "Yes, merge it & tag it" || meta["question_id"] != "Q-7" || meta["thread_ts"] != ts || meta["user_id"] != "UOWNER" {
+	if p["content"] != "Yes, merge it & tag it" || meta["question_id"] != "Q-shop-host-7" || meta["thread_ts"] != ts || meta["user_id"] != "UOWNER" {
 		t.Fatalf("params = %v", p)
 	}
 	// The same reply is not sent twice, also after a restart that loads the state.
@@ -332,7 +343,7 @@ func TestSlackFollowUpAfterReply(t *testing.T) {
 	f.replies[ts] = append(f.replies[ts], slackMessage{User: "UOWNER", Text: "main", TS: "1900000001.000002"})
 	poll(t, s)
 	msgs := out.lines(t)
-	if len(msgs) != 1 || msgs[0]["params"].(map[string]any)["content"] != "main" || msgs[0]["params"].(map[string]any)["meta"].(map[string]any)["question_id"] != "Q-7" {
+	if len(msgs) != 1 || msgs[0]["params"].(map[string]any)["content"] != "main" || msgs[0]["params"].(map[string]any)["meta"].(map[string]any)["question_id"] != "Q-shop-host-7" {
 		t.Fatalf("messages = %v", msgs)
 	}
 }

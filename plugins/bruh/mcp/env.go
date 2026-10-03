@@ -15,9 +15,14 @@ import (
 
 const stampLayout = "2006-01-02T15:04:05.000Z"
 
+// qidPattern is the one pattern of a question ID Q-<project>-<host>-<n> (spec 5, decision D2).
+// headerRE, qidRE, and approvalRE use it; the Slack module and post-findings.sh keep copies.
+const qidPattern = `Q-[a-z0-9]+(?:-[a-z0-9]+)+-[0-9]+`
+
 var (
 	projectRE = regexp.MustCompile(`^[a-z0-9]+(-[a-z0-9]+)*$`)
 	taskRE    = regexp.MustCompile(`^[a-z0-9]+$`)
+	nonSlugRE = regexp.MustCompile(`[^a-z0-9]+`)
 )
 
 // RoleKey is a parsed role key: bigm, clerk-ledger, clanker-<project>, or clerk-<project>-<task>.
@@ -79,6 +84,7 @@ func (k RoleKey) Parent() string {
 type Env struct {
 	DataDir          string
 	RoleKey          string
+	Host             string // the short host name of the machine (hostSlug), the host part of question IDs
 	PluginRoot       string
 	Home             string // home folder of the user
 	SettingsFile     string // user settings.json that init writes
@@ -90,9 +96,11 @@ type Env struct {
 
 func EnvFromOS() Env {
 	home, _ := os.UserHomeDir()
+	name, _ := os.Hostname()
 	return Env{
 		DataDir:          os.Getenv("BRUH_DATA"),
 		RoleKey:          os.Getenv("BRUH_ROLE_KEY"),
+		Host:             hostSlug(name),
 		PluginRoot:       os.Getenv("BRUH_PLUGIN_ROOT"),
 		Home:             home,
 		SettingsFile:     cmp.Or(os.Getenv("BRUH_SETTINGS_FILE"), filepath.Join(home, ".claude", "settings.json")),
@@ -101,6 +109,15 @@ func EnvFromOS() Env {
 		ProgressInterval: durationEnv("BRUH_PROGRESS_MS", time.Minute),
 		Now:              time.Now,
 	}
+}
+
+// hostSlug turns the host name of the machine into the host part of a question ID: the part
+// before the first ".", in lower case; each run of characters that are not [a-z0-9] becomes
+// one "-"; a "-" at the start or the end is removed; "host" when the result is empty.
+func hostSlug(name string) string {
+	short, _, _ := strings.Cut(name, ".")
+	s := nonSlugRE.ReplaceAllString(strings.ToLower(short), "-")
+	return cmp.Or(strings.Trim(s, "-"), "host")
 }
 
 func durationEnv(name string, def time.Duration) time.Duration {

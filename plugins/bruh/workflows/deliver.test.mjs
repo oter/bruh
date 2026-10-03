@@ -358,7 +358,7 @@ test('a plan STOP and an implement conflict stop the run', async () => {
   assert.deepEqual(i.result.deviations, ['used a map', 'CONFLICT: api/router.go is not on the list'])
 })
 
-const Q = { id: 'Q-5', header: 'P1 Q-5: which table?', body: 'Use table A or table B?' }
+const Q = { id: 'Q-app-host-5', header: 'P1 Q-app-host-5: which table?', body: 'Use table A or table B?' }
 
 test('question path returns status question', async () => {
   const { result, byWord, calls } = await run({
@@ -369,16 +369,16 @@ test('question path returns status question', async () => {
   assert.equal(byWord('implement').length, 0)
   assert.equal(calls.length, 1)
   const p = calls[0].prompt
-  for (const s of ['question_open', 'SendMessage', 'main', 'answer_wait', 'deadline_seconds 600', 'pending']) {
+  for (const s of ['question_open', 'SendMessage', 'main', 'answer_wait', 'deadline_seconds 600', 'pending', 'options', 'the body that question_open returned']) {
     assert.ok(p.includes(s), `the plan prompt does not name ${s}`)
   }
 })
 
 test('answer reaches only prompts after the question', async () => {
-  const plan = (p) => (p.includes('Q-5') ? { plan: 'use table B', stop: false, reason: '' } : { plan: '', stop: false, reason: '', question: Q })
+  const plan = (p) => (p.includes('Q-app-host-5') ? { plan: 'use table B', stop: false, reason: '' } : { plan: '', stop: false, reason: '', question: Q })
   const first = await run({ plan })
-  const answer = 'Use table B. (owner, 2026-09-30, Q-5)'
-  const second = await run({ plan }, baseArgs({ answers: { 'Q-5': answer } }))
+  const answer = 'Use table B. (owner, 2026-09-30, Q-app-host-5)'
+  const second = await run({ plan }, baseArgs({ answers: { 'Q-app-host-5': answer } }))
   assert.equal(second.result.status, 'done')
   // The first agent call is the same in both runs, so resumeFromRunId returns its cached result.
   assert.equal(second.calls[0].prompt, first.calls[0].prompt)
@@ -390,19 +390,19 @@ test('answer reaches only prompts after the question', async () => {
 
 test('a question pending again after its answer goes back to the clerk with a counter, then stops', async () => {
   const always = { plan: () => ({ plan: '', stop: false, reason: '', question: Q }) }
-  const one = await run(always, baseArgs({ answers: { 'Q-5': 'B' } }))
+  const one = await run(always, baseArgs({ answers: { 'Q-app-host-5': 'B' } }))
   assert.equal(one.result.status, 'question')
   assert.deepEqual(one.result.question, Q)
-  assert.equal(one.result.deviations.at(-1), 'REPEAT: Q-5 1 of 2')
-  const two = await run(always, baseArgs({ answers: { 'Q-5': ['B', 'C'] } }))
+  assert.equal(one.result.deviations.at(-1), 'REPEAT: Q-app-host-5 1 of 2')
+  const two = await run(always, baseArgs({ answers: { 'Q-app-host-5': ['B', 'C'] } }))
   assert.equal(two.result.status, 'question')
-  assert.equal(two.result.deviations.at(-1), 'REPEAT: Q-5 2 of 2')
+  assert.equal(two.result.deviations.at(-1), 'REPEAT: Q-app-host-5 2 of 2')
   // The earlier attempts keep their prompts, so a relaunch returns them from the cache.
   assert.equal(two.calls[0].prompt, one.calls[0].prompt)
   assert.equal(two.calls[1].prompt, one.calls[1].prompt)
-  const three = await run(always, baseArgs({ answers: { 'Q-5': ['B', 'C', 'D'] } }))
+  const three = await run(always, baseArgs({ answers: { 'Q-app-host-5': ['B', 'C', 'D'] } }))
   assert.equal(three.result.status, 'stopped')
-  assert.match(three.result.deviations.at(-1), /^STOP: Q-5 is pending again after 3 answers/)
+  assert.match(three.result.deviations.at(-1), /^STOP: Q-app-host-5 is pending again after 3 answers/)
 })
 
 test('a fixer question returns status question with the findings so far', async () => {

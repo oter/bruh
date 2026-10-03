@@ -2,11 +2,11 @@ package main
 
 import (
 	"encoding/json"
+	"maps"
 	"os"
 	"path/filepath"
 	"regexp"
 	"slices"
-	"strconv"
 	"strings"
 	"testing"
 )
@@ -97,6 +97,16 @@ func TestUserConfig(t *testing.T) {
 	if p.UserConfig["handoff_percent"]["default"] != 50.0 || p.UserConfig["max_busy_clerks"]["default"] != 8.0 {
 		t.Fatalf("defaults = %v", p.UserConfig)
 	}
+	keys := slices.Sorted(maps.Keys(p.UserConfig))
+	wantKeys := []string{"handoff_percent", "max_busy_clerks", "slack_bot_token", "slack_channel_id", "slack_owner_user_id", "user_name"}
+	if !slices.Equal(keys, wantKeys) {
+		t.Errorf("userConfig keys = %v, want %v", keys, wantKeys)
+	}
+	for k, o := range p.UserConfig {
+		if title, _ := o["title"].(string); !strings.HasPrefix(title, "bruh: ") {
+			t.Errorf("userConfig[%q].title = %q, want prefix %q", k, title, "bruh: ")
+		}
+	}
 }
 
 func TestInitSkill(t *testing.T) {
@@ -108,14 +118,19 @@ func TestInitSkill(t *testing.T) {
 	if !strings.HasPrefix(s, "---\nname: init\ndescription: ") || !strings.Contains(s, "\ndisable-model-invocation: true\n---\n") {
 		t.Fatal("bad frontmatter")
 	}
-	for i := 1; i <= 13; i++ {
-		if !strings.Contains(s, "\n"+strconv.Itoa(i)+". ") {
-			t.Errorf("question %d is missing", i)
+	for _, w := range []string{
+		"bruh_info", "learn_scan", "bruh:learner", "PURPOSE:", "LINK ", "DOC:", "HOST ", "at most 8",
+		"init_plan", "init_apply", "AskUserQuestion", "(current)", "change projects", "change settings",
+		"learn again", "split", "join", "accept all", "one by one", "show all", "ledger_table", "outside_diff",
+		"fills", "host_aliases", "now", "at the first work", "/exit", "--answers", "BRUH_INIT_", "--setting-sources user",
+	} {
+		if !strings.Contains(s, w) {
+			t.Errorf("SKILL.md has no %q", w)
 		}
 	}
-	for _, w := range []string{"init_plan", "init_apply", "--answers", "BRUH_INIT_", "trust"} {
-		if !strings.Contains(s, w) {
-			t.Errorf("no %q", w)
+	for _, w := range []string{"pluginConfigs", "LEARN ", "relearn", "gates", "learn_set"} {
+		if strings.Contains(s, w) {
+			t.Errorf("SKILL.md has %q, want none", w)
 		}
 	}
 }

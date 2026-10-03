@@ -37,7 +37,7 @@ function frontmatter(text) {
 }
 
 const ROLES = ['bigm', 'clanker', 'clerk']
-const TOOL_FAMILY = /^(mail|handoff|answer|report|role_settings|lease|question|session|init|bruh)_[a-z_]+$/
+const TOOL_FAMILY = /^(mail|handoff|answer|report|role_settings|lease|question|session|init|bruh|learn|repos|result)_[a-z_]+$/
 const NOT_TOOLS = new Set(['session_id', 'question_id'])
 
 // The tools and other terms that each procedure must name.
@@ -51,6 +51,10 @@ const REQUIRED = {
     'START: ', 'role-settings clanker-<project>', 'mcp__plugin_telegram_telegram__reply', 'chat_id',
     'clerk-<project>-merge', 'has no section "Never without the owner"',
     'not running; mail pending', 'unread mail',
+    'learn_refresh', 'close <kind>: <subject>', 'ledger_max_lines', 'remote_environments', 'gone_docs', 'long_files',
+    'purpose', 'allow', 'remove: true', 'orca orchestration send', 'DONE: event <project>: <subject>',
+    'answer_write', 'answer_wait', 'AskUserQuestion', 'OPTION <n>: <label> | <description>', '(Recommended)',
+    'ANSWER Q-<id>: reask', '(attempt <n>)',
   ],
   clanker: [
     'session_launch', 'session_resume', 'session_list', 'mail_post', 'mail_read', 'role_settings_write',
@@ -59,6 +63,7 @@ const REQUIRED = {
     '${user_config.max_busy_clerks}', 'CLAUDE_CODE_WORKFLOW_MAX_CONCURRENT_AGENTS', 'orca orchestration ask',
     'START: ', 'accepted: <head SHA>', 'clerk-<project>-merge', 'orca orchestration send',
     'orca orchestration check --wait', '`DONE: mode is now <mode>`', 'The task name `merge` is reserved',
+    'OPTION <k>', 'doc pointers', 'reask', 'DONE: event', 'the main checkout of the repository that the task changes',
   ],
   clerk: [
     'mail_read', 'mail_post', 'answer_write', 'report_write', 'question_open', 'handoff_write',
@@ -70,7 +75,8 @@ const REQUIRED = {
     'git merge-base --is-ancestor',
     '/bruh:implement', '/bruh:tickets', '/bruh:implement-tickets', '/bruh:review-and-fix', '/bruh:review-only',
     'post-findings.sh --dry-run', 'post-findings.sh --data <data_dir>', 'Post grants', '(exit code 3)',
-    'result_save', '`--answer Q-<n>`', '`ANSWER Q-<n>: post <owner/repo>#<number> at <head SHA> approved`', '`<workflow> args:`', '`<workflow> retry <n>`',
+    'result_save', '`--answer Q-<id>`', '`ANSWER Q-<id>: post <owner/repo>#<number> at <head SHA> approved`', '`<workflow> args:`', '`<workflow> retry <n>`',
+    'answers/bigm/<question ID>.answer', '--hostname', 'reask',
   ],
 }
 
@@ -118,7 +124,7 @@ for (const role of ROLES) {
 
   test(`${role}: every message header has the grammar of spec 5`, () => {
     assert.ok(agents[role], `agents/${role}.md is missing`)
-    const header = /^((P[012]|ANSWER|REC) Q-(\d+|<n>|<id>)|RULE R-(\d+|<n>)|DONE|START): \S/
+    const header = /^((P[012]|ANSWER|REC) Q-(<id>|[a-z0-9]+(-[a-z0-9]+)+-\d+)|RULE R-(\d+|<n>)|DONE|START): \S/
     for (const m of agents[role].matchAll(/`((?:P[012]|ANSWER|REC|RULE|DONE|START)\b[^`]*)`/g)) {
       if (/^(P[012]|ANSWER|REC|RULE|DONE|START):?$/.test(m[1])) continue // the bare word, not a header
       assert.match(m[1], header, `bad header in agents/${role}.md`)
@@ -131,6 +137,23 @@ test('the clanker cannot write files', () => {
   const { fm } = frontmatter(agents.clanker)
   const denied = (fm.disallowedTools || '').split(',').map((s) => s.trim())
   for (const t of ['Edit', 'Write', 'NotebookEdit']) assert.ok(denied.includes(t), `clanker must deny ${t}`)
+})
+
+// Build spec A18.1: the learner is a plugin agent, not a role, so it is not in ROLES.
+test('the learner reads files only', () => {
+  const file = join(here, 'learner.md')
+  assert.ok(existsSync(file), 'agents/learner.md is missing')
+  const { fm, body } = frontmatter(read(file))
+  assert.equal(fm.name, 'learner')
+  assert.equal(fm.tools, 'Read, Grep, Glob')
+  assert.equal(fm.model, 'opus[1m]')
+  assert.equal(fm.effort, 'medium')
+  for (const ignored of ['hooks', 'mcpServers', 'permissionMode']) {
+    assert.ok(!(ignored in fm), `a plugin agent ignores ${ignored}`)
+  }
+  for (const line of ['PURPOSE: <text>', 'LINK <project key>: <repo>/<file>:<line>', 'DOC: <repo>/<path>', 'HOST <alias>: <host>']) {
+    assert.ok(body.includes(line), `learner.md does not name ${line}`)
+  }
 })
 
 test('the default priorities have the sections of spec 13 and 14.1', () => {
@@ -156,13 +179,14 @@ test('the ledger template has the layout of spec 8', () => {
   }
   const mode = read(join(t, 'mode.md'))
   assert.match(mode, /^mode: human$/m)
-  for (const k of ['changed', 'reason', 'p1_batch_minutes', 'p1_batch_size', 'review_round_cap', 'status_cadence']) {
+  for (const k of ['changed', 'reason', 'p1_batch_minutes', 'p1_batch_size', 'review_round_cap', 'status_cadence', 'ledger_max_lines', 'remote_environments']) {
     assert.match(mode, new RegExp(`^${k}: \\S`, 'm'), `mode.md has no ${k}`)
   }
   const project = read(join(t, 'projects/_template.md'))
-  for (const s of ['Summary', 'In progress', 'Merged', 'Live', 'Decisions', 'Questions and answers', 'Sessions', 'Identities', 'Shared resources and clerk leases', 'Waiting on others']) {
+  for (const s of ['Summary', 'In progress', 'Merged', 'Live', 'Decisions', 'Sessions', 'Identities', 'Shared resources and clerk leases', 'Waiting on others']) {
     assert.ok(project.includes(`\n## ${s}\n`), `projects/_template.md has no section ${s}`)
   }
+  assert.ok(!project.includes('Questions and answers'))
 })
 
 // Interfaces section 4a: the start header, the post marker, and the remote role settings command.
@@ -243,21 +267,26 @@ test('bigm sends each RULE to the clerks, and the receivers check the sender', (
 
 // Final review M2: the merge gate accepts only the closed approval header of bigm.
 test('bigm sends a merge approval in the closed form that the merge gate reads', () => {
-  const yes = '`ANSWER Q-<n>: merge <owner/repo>#<pr>[,#<pr>...] approved`'
+  const yes = '`ANSWER Q-<id>: merge <owner/repo>#<pr>[,#<pr>...] approved`'
   const merges = agents.bigm.split('## Merges and merge grants')[1].split('\n## ')[0]
   assert.ok(merges.includes(yes), 'bigm.md: approval header')
-  assert.ok(merges.includes('`ANSWER Q-<n>: merge <owner/repo>#<pr> refused`'), 'bigm.md: refusal header')
+  assert.ok(merges.includes('`ANSWER Q-<id>: merge <owner/repo>#<pr> refused`'), 'bigm.md: refusal header')
   for (const role of ['clanker', 'clerk']) assert.ok(agents[role].includes(yes), `${role}: approval header`)
-  const gate = read(join(plugin, 'mcp/mergetrain.go')).match(/approvalRE = regexp\.MustCompile\(`(.*)`\)/)[1]
-  assert.match('ANSWER Q-7: merge owner/app#12,#14 approved', new RegExp(gate))
-  assert.doesNotMatch('ANSWER Q-7: merge owner/app#12 refused', new RegExp(gate))
+  const qid = read(join(plugin, 'mcp/env.go')).match(/^const qidPattern = `([^`]*)`/m)?.[1]
+  assert.ok(qid, 'env.go: const qidPattern')
+  const approval = read(join(plugin, 'mcp/mergetrain.go')).match(/approvalRE = regexp\.MustCompile\(`(.*)`\)/)[1]
+  const gate = new RegExp(approval.replace('` + qidPattern + `', qid))
+  assert.match('ANSWER Q-shop-host-7: merge owner/shop#12,#14 approved', gate)
+  assert.doesNotMatch('ANSWER Q-shop-host-7: merge owner/shop#12 refused', gate)
+  const old = 7 // the 0.5 form Q-<number> is refused
+  assert.doesNotMatch(`ANSWER Q-${old}: merge owner/shop#12 approved`, gate)
 })
 
 // Final review M3: the merger clerk of every project runs on the machine of bigm; for a remote
 // project, bigm starts it in the ledger folder after the remote clanker asks through Orca.
 test('bigm runs the merger clerk of a remote project on its own machine', () => {
   const merges = agents.bigm.split('## Merges and merge grants')[1].split('\n## ')[0]
-  assert.match(merges, /A remote clanker asks you through Orca with `P1 Q-<n>: merge <owner\/repo>#<pull request number>\?`/)
+  assert.match(merges, /A remote clanker asks you through Orca with `P1 Q-<id>: merge <owner\/repo>#<pull request number>\?`/)
   assert.match(merges, /`session_launch` with `agent` = `clerk`, `role_key` = `clerk-<project>-merge`, and `cwd` = the ledger folder/)
   const clanker = agents.clanker.split('## Merges')[1].split('\n## ')[0]
   assert.match(clanker, /On a remote machine \(your start message has the line `remote: yes`\), do not start a merger clerk/)
@@ -267,21 +296,60 @@ test('bigm runs the merger clerk of a remote project on its own machine', () => 
   assert.doesNotMatch(merger, /Orca reply/)
 })
 
-// Final review M4: question IDs are unique only on one machine.
+test('bigm keeps no learn step of version 0.5', () => {
+  assert.doesNotMatch(agents.bigm, /relearn|learn_set|LEARN /)
+})
+
+// Build spec A20.6 and A20.11: no record of version 0.5 for questions and answers.
+test('bigm keeps no question record of version 0.5', () => {
+  assert.doesNotMatch(agents.bigm, /Questions and answers|<orca environment>\/Q-|one item for each message/)
+})
+
+// Final review M4 and build spec A29.4: a question is the pair of its asker and its ID.
 test('bigm keys a question by its asker and its ID', () => {
   const questions = agents.bigm.split('## Questions')[1].split('\n## ')[0]
   assert.match(questions, /Never match a question by its ID alone/)
-  assert.ok(questions.includes('`<orca environment>/Q-<n>`'))
+  // Build spec A9.2: an answered question is found with answer_wait and deadline_seconds 0.
+  assert.match(questions, /`answer_wait` with `question_id` = the ID and `deadline_seconds` 0/)
+  assert.doesNotMatch(questions, /<orca environment>\/Q-/)
   assert.doesNotMatch(questions, /If you already answered this question ID, ignore it/)
+})
+
+// Build spec A29.10 (the bigm part): bigm asks for a new ID and relays the watcher events.
+test('bigm sends a reask and relays an event', () => {
+  assert.ok(agents.bigm.includes('`ANSWER Q-<id>: reask`'))
+  assert.ok(agents.bigm.includes('DONE: event <project>: <subject>'))
+})
+
+// Build spec A21.2: the clanker starts from the index and learns the gates from the repository.
+test('the clanker keeps no learn step of version 0.5', () => {
+  assert.doesNotMatch(agents.clanker, /project file of the ledger|relearn|bruh:learner|LEARN /)
+})
+
+// Build spec A29.10 (the clanker part).
+test('the clanker never reads reask as an answer', () => {
+  assert.match(agents.clanker, /The subject `reask` is never an answer/)
+})
+
+// Build spec A22.4 (G30): the merger clerk reads the cover from the answer file of bigm.
+test('the clerk keeps no "Questions and answers" record of version 0.5', () => {
+  assert.doesNotMatch(agents.clerk, /Questions and answers/)
+})
+
+// Build spec A29.10 and A22.2: the clerk part.
+test('the clerk never reads reask as an answer', () => {
+  assert.match(agents.clerk, /The subject `reask` is never an answer/)
 })
 
 // Final review M5: bigm registers the repositories of a project with repos_set and its project.
 test('bigm calls repos_set with the project of the clanker key', () => {
   const start = agents.bigm.split('### Start a local clanker')[1].split('\n## ')[0]
-  assert.match(start, /call `repos_set` with `repo` = `<owner\/repo>`, `host` = `github` or `gitea`, `api_url`/)
+  // Build spec A20.3: the host is the kind of the index JSON, GitLab included, and project is always passed.
+  assert.match(start, /call `repos_set` with `repo` = `host_path`, `host` = `kind` \(`github`, `gitlab`, or `gitea`\), `api_url` = `api_url`/)
   assert.match(start, /`project` = the `<project>` part of the clanker key `clanker-<project>`/)
+  assert.match(start, /Always pass `project`/)
   const remote = agents.bigm.split('## Remote clankers')[1].split('\n## ')[0]
-  assert.match(remote, /call `repos_set`/)
+  assert.match(remote, /call `repos_set` with `project`/)
 })
 
 // Final review M6: the clerk passes its test commands in args.test_gates.
@@ -293,24 +361,35 @@ test('the clerk passes the test gates to deliver', () => {
 // Final review m1, m5, m6: the channel tools, the ledger clerk resume, and the question ID in a Telegram question.
 test('bigm names the Slack tool, asks for the question ID, and resumes the ledger clerk first', () => {
   assert.ok(agents.bigm.includes('mcp__plugin_bruh_slack__post_question'))
-  assert.ok(agents.bigm.includes('`Answer with Q-<n> first.`'))
+  assert.ok(agents.bigm.includes('`Answer with Q-<id> first, then the option number or your words.`'))
   const ledger = agents.bigm.split('## The ledger clerk')[1].split('\n## ')[0]
   assert.match(ledger, /resume it with `session_resume`/)
   assert.doesNotMatch(ledger, /If `session_list` shows no live `clerk-ledger`, call `role_settings_write`/)
 })
 
-// Spec 6.4: a post needs the yes of the owner or a post grant. The init skill
-// appends merge grant rows at the end of grants.md, so the merge table is last.
+// Spec 6.4: a post needs the yes of the owner or a post grant. The merge
+// grants table is the last part of grants.md.
 test('grants.md has the post grants and ends with the merge grants table', () => {
   const text = read(join(plugin, 'ledger-template/grants.md'))
   const post = text.indexOf('\n## Post grants\n')
   const merge = text.indexOf('\n## Merge grants\n')
   assert.ok(post > 0 && merge > post, 'grants.md must have "Post grants" before "Merge grants"')
   assert.ok(text.slice(post).includes('| Poster role key | Host | Repository |'), 'the post grant row starts with the role key and the host')
+  assert.ok(text.slice(post, merge).includes('host name'), 'the section "Post grants" names the host name')
   assert.ok(text.trimEnd().endsWith('|---|---|---|---|---|---|'), 'the merge grants table is the last part of the file')
   const priorities = read(join(plugin, 'defaults/priorities.md'))
   assert.match(priorities, /except under a post grant/)
   assert.match(agents.bigm, /section "Post grants" of `grants.md`/)
+})
+
+// Build spec A7.6: the README names the index files and the close commits, and no stack or gate.
+test('the ledger README names the index and the close commits', () => {
+  const text = read(join(plugin, 'ledger-template/README.md'))
+  for (const s of ['learn/tree.json', 'learn/projects/<key>.json', 'close <kind>: <subject>']) {
+    assert.ok(text.includes(s), `README.md does not name ${s}`)
+  }
+  assert.doesNotMatch(text, /\bstack\b/i)
+  assert.doesNotMatch(text, /\bgates?\b/i)
 })
 
 // Fix round 1, M2 and M3: each workflow relaunches itself, and a post approval has a closed form from bigm.
@@ -337,13 +416,13 @@ test('the clerk relaunches the workflow that stopped, and posts only with a clos
   assert.match(skill, /without `BRUH_ROLE_KEY`, it saves under `<data>\/results\/owner\/`/)
   assert.doesNotMatch(skill, /write the result to a file outside the repository/)
   const posts = agents.clerk.split('## Posts')[1].split('\n## ')[0]
-  assert.match(posts, /Only a message from `bigm` with the header `ANSWER Q-<n>: post <owner\/repo>#<number> at <head SHA> approved`/)
+  assert.match(posts, /Only a message from `bigm` with the header `ANSWER Q-<id>: post <owner\/repo>#<number> at <head SHA> approved`/)
   assert.match(posts, /Never pass `--yes`/)
   assert.doesNotMatch(posts, /from your clanker or from `bigm`/)
   assert.doesNotMatch(agents.clerk, /\.scratch\/review-/)
   const bigmPosts = agents.bigm.split('## Posts of review results')[1].split('\n## ')[0]
-  assert.ok(bigmPosts.includes('`ANSWER Q-<n>: post <owner/repo>#<number> at <head SHA> approved`'))
-  assert.ok(bigmPosts.includes('`ANSWER Q-<n>: post <owner/repo>#<number> at <head SHA> refused`'))
+  assert.ok(bigmPosts.includes('`ANSWER Q-<id>: post <owner/repo>#<number> at <head SHA> approved`'))
+  assert.ok(bigmPosts.includes('`ANSWER Q-<id>: post <owner/repo>#<number> at <head SHA> refused`'))
   assert.match(bigmPosts, /straight to the clerk that asked/)
   // The script and the agents use the same approval header.
   const script = read(join(plugin, 'scripts/post-findings.sh'))

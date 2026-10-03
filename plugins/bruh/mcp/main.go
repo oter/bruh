@@ -28,7 +28,7 @@ Commands:
   role-settings <role key> write <data>/roles/<role key>.json with the defaults (never overwrites)
   watch [--data <dir>] [--once]
                            poll the code hosts of <data>/repos.json; one JSON line for each event
-  merge-train [--data <dir>] [--wait-minutes <n>] [--answer Q-<n>] <owner/repo> <number>...
+  merge-train [--data <dir>] [--wait-minutes <n>] [--answer Q-<id>] <repo> <number>...
                            merge the pull requests in order, each only with green checks,
                            and confirm each merge by reading the code host API
 `
@@ -79,8 +79,12 @@ func runCLI(args []string, env Env, stdout, stderr io.Writer) int {
 		}
 		fmt.Fprint(stdout, res["diff"])
 		applied, err := initApplyRun(env, res["plan_id"].(string), res["diff_sha256"].(string))
-		for _, p := range applied {
-			fmt.Fprintln(stdout, "applied:", p)
+		for _, f := range applied {
+			verb := "applied:"
+			if f.Delete {
+				verb = "deleted:"
+			}
+			fmt.Fprintln(stdout, verb, f.Path)
 		}
 		if err != nil {
 			return fail(err)
@@ -162,7 +166,7 @@ func runCLI(args []string, env Env, stdout, stderr io.Writer) int {
 }
 
 // cliAnswers reads the answers file (optional) and applies BRUH_INIT_<KEY> variables. The
-// values of user_name, ledger_path, and mode are text; the other values are JSON.
+// values of user_name, ledger_path, mode, and root are text; the other values are JSON.
 func cliAnswers(file string, environ []string) (InitAnswers, error) {
 	m := map[string]any{}
 	if file != "" {
@@ -181,7 +185,7 @@ func cliAnswers(file string, environ []string) (InitAnswers, error) {
 			continue
 		}
 		key = strings.ToLower(key)
-		if slices.Contains([]string{"user_name", "ledger_path", "mode"}, key) {
+		if slices.Contains([]string{"user_name", "ledger_path", "mode", "root"}, key) {
 			m[key] = val
 			continue
 		}
@@ -207,7 +211,7 @@ func writeNewRoleSettings(env Env, key string) (string, error) {
 	if k.Role != "clanker" {
 		return "", fmt.Errorf("role-settings writes only clanker keys, not %s", key)
 	}
-	content, err := roleSettings(env.PluginRoot, k.String(), nil, nil)
+	content, err := roleSettings(env.PluginRoot, k.String(), nil, nil, nil)
 	if err != nil {
 		return "", err
 	}

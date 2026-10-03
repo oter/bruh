@@ -76,7 +76,7 @@ func reportTools() []Tool {
 		},
 		{
 			Name:        "report_read",
-			Description: "Read the report lines of a role, optionally only after a UTC time. The role key watcher reads the code host events of the watcher.",
+			Description: "Read the report lines of a role, optionally only after a UTC time.",
 			InputSchema: map[string]any{
 				"type": "object",
 				"properties": map[string]any{
@@ -96,10 +96,8 @@ func reportTools() []Tool {
 				if err != nil {
 					return nil, err
 				}
-				if a.RoleKey != "watcher" {
-					if _, err := checkKey(a.RoleKey, "role key"); err != nil {
-						return nil, err
-					}
+				if _, err := checkKey(a.RoleKey, "role key"); err != nil {
+					return nil, err
 				}
 				dir, err := c.Env.Dir("reports")
 				if err != nil {

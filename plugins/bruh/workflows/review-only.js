@@ -80,11 +80,11 @@ const RULES = `Rules of this run:
 - Do not post outside the project: no comments on pull requests, merge requests, or issues, no chat messages, no emails. The session posts the result later.`
 
 const ASK = `Questions: when you need a decision that the spec, the guides, and the code do not answer, do not guess.
-1. Call the bruh MCP tool question_open (mcp__plugin_bruh_bruh__question_open; load it with ToolSearch) with priority (P0, P1, or P2: your estimate), subject (one line), body (the question, the options ranked, and your recommendation), and blocks (the work that waits for the answer).
+1. Call the bruh MCP tool question_open (mcp__plugin_bruh_bruh__question_open; load it with ToolSearch) with priority (P0, P1, or P2: your estimate), subject (one line), body (the question, the options ranked, and your recommendation), and blocks (the work that waits for the answer), and options (2 to 4, each a label and a description) when the question has fixed answers.
 2. Send the returned header, and only the header, to main with SendMessage.
 3. Call answer_wait (mcp__plugin_bruh_bruh__answer_wait) with question_id set to the returned id and deadline_seconds ${deadline}.
 4. If it returns answered, use the answer text and continue.
-5. If it returns pending, stop at once and do no more work. Return your result with question set to the id, header, and body of the question.`
+5. If it returns pending, stop at once and do no more work. Return your result with question set to the id and the header of the question, and the body that question_open returned (with its OPTION lines).`
 
 const QUESTION = {
   type: 'object',

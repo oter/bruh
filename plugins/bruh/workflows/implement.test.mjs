@@ -47,7 +47,7 @@ const SHA = 'a'.repeat(40)
 const HEAD = 'b'.repeat(40)
 const GIT_RULE = 'Never run git commit, git push, git stash, git checkout, git switch, git reset, or git rebase'
 const POST_RULE = 'Do not post outside the project'
-const Q = { id: 'Q-5', header: 'P1 Q-5: which table?', body: 'Use table A or table B?' }
+const Q = { id: 'Q-app-host-5', header: 'P1 Q-app-host-5: which table?', body: 'Use table A or table B?' }
 
 // ---------- shared checks ----------
 
@@ -188,7 +188,7 @@ for (const name of SCRIPTS) {
   const asking = () => ({
     ...BUSY[name],
     // Only the first call of the asker asks, and its attempt with the answer does not.
-    [asker]: (p, o, n) => (n > 1 || p.includes('Q-5') ? BUSY[name][asker](p, o, n) : { ...BUSY[name][asker](p, o, n), question: Q }),
+    [asker]: (p, o, n) => (n > 1 || p.includes('Q-app-host-5') ? BUSY[name][asker](p, o, n) : { ...BUSY[name][asker](p, o, n), question: Q }),
   })
 
   test(`${name}: a pending question returns status question`, async () => {
@@ -196,7 +196,7 @@ for (const name of SCRIPTS) {
     assert.equal(result.status, 'question')
     assert.deepEqual(result.question, Q)
     const p = byWord(asker)[0].prompt
-    for (const s of ['question_open', 'SendMessage', 'main', 'answer_wait', 'deadline_seconds 600', 'pending']) {
+    for (const s of ['question_open', 'SendMessage', 'main', 'answer_wait', 'deadline_seconds 600', 'pending', 'options', 'the body that question_open returned']) {
       assert.ok(p.includes(s), `the ${asker} prompt does not name ${s}`)
     }
     if (name === 'implement-tickets') assert.equal(byWord('review').length, 0)
@@ -204,8 +204,8 @@ for (const name of SCRIPTS) {
 
   test(`${name}: the answer reaches only prompts after the question`, async () => {
     const first = await run(name, asking(), askArgs())
-    const answer = 'Use table B. (owner, 2026-09-30, Q-5)'
-    const second = await run(name, asking(), { ...askArgs(), answers: { 'Q-5': answer } })
+    const answer = 'Use table B. (owner, 2026-09-30, Q-app-host-5)'
+    const second = await run(name, asking(), { ...askArgs(), answers: { 'Q-app-host-5': answer } })
     assert.notEqual(second.result.status, 'question')
     assert.notEqual(second.result.status, 'stopped', JSON.stringify(second.result.deviations))
     // Each call before the question is the same in both runs, so resumeFromRunId returns it cached.
@@ -221,12 +221,12 @@ for (const name of SCRIPTS) {
 
   test(`${name}: a question pending again after its answer counts, then stops`, async () => {
     const always = { ...BUSY[name], [asker]: (p, o, n) => ({ ...BUSY[name][asker](p, o, n), question: Q }) }
-    const one = await run(name, always, { ...askArgs(), answers: { 'Q-5': 'B' } })
+    const one = await run(name, always, { ...askArgs(), answers: { 'Q-app-host-5': 'B' } })
     assert.equal(one.result.status, 'question')
-    assert.equal(one.result.deviations.at(-1), 'REPEAT: Q-5 1 of 2')
-    const three = await run(name, always, { ...askArgs(), answers: { 'Q-5': ['B', 'C', 'D'] } })
+    assert.equal(one.result.deviations.at(-1), 'REPEAT: Q-app-host-5 1 of 2')
+    const three = await run(name, always, { ...askArgs(), answers: { 'Q-app-host-5': ['B', 'C', 'D'] } })
     assert.equal(three.result.status, 'stopped')
-    assert.match(three.result.deviations.at(-1), /Q-5 is pending again after 3 answers/)
+    assert.match(three.result.deviations.at(-1), /Q-app-host-5 is pending again after 3 answers/)
   })
 }
 
@@ -331,12 +331,12 @@ test('implement-tickets: lanes merge in wave order and skip failed lanes', async
 
 test('implement-tickets: a wave with a pending question is not merged', async () => {
   const lanes = (p) => work({ workdir: `/lanes/${p.match(/start (\S+)/)[1]}` })
-  const h = itHandlers({ impl: (p) => (p.includes('t-02-b') && !p.includes('Q-5') ? { ...lanes(p), question: Q } : lanes(p)) })
+  const h = itHandlers({ impl: (p) => (p.includes('t-02-b') && !p.includes('Q-app-host-5') ? { ...lanes(p), question: Q } : lanes(p)) })
   const a = IT({ waves: [['t-01-a.md', 't-02-b.md']] })
   const first = await run('implement-tickets', h, a)
   assert.equal(first.result.status, 'question')
   assert.equal(first.byWord('merge').length, 0, 'no merge before the answer')
-  const second = await run('implement-tickets', h, { ...a, answers: { 'Q-5': 'B' } })
+  const second = await run('implement-tickets', h, { ...a, answers: { 'Q-app-host-5': 'B' } })
   assert.equal(second.result.status, 'done')
   assert.equal(second.byWord('merge').length, 1)
   assert.match(second.byWord('merge')[0].prompt, /patch t-01-a[\s\S]*patch t-02-b/)

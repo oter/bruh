@@ -3,18 +3,23 @@ package main
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io/fs"
 	"os"
 	"path/filepath"
 	"regexp"
+	"strings"
 	"time"
+	"unicode/utf8"
 )
 
-var qidRE = regexp.MustCompile(`^Q-\d+$`)
+var qidRE = regexp.MustCompile("^" + qidPattern + "$")
 
 type answer struct {
-	Text string `json:"text"`
-	At   string `json:"at"`
+	Text    string `json:"text"`
+	At      string `json:"at"`
+	Subject string `json:"subject,omitempty"`
+	Asker   string `json:"asker,omitempty"`
 }
 
 func answerFile(env Env, qid string) (string, error) {
@@ -36,12 +41,14 @@ func answerTools() []Tool {
 	return []Tool{
 		{
 			Name:        "answer_write",
-			Description: "Write the answer to a question of a workflow agent of this clerk.",
+			Description: "Record the answer to a question under the role key of the caller: a clerk for its workflow agents; bigm for each answer that it sends, with subject and asker",
 			InputSchema: map[string]any{
 				"type": "object",
 				"properties": map[string]any{
 					"question_id": map[string]any{"type": "string"},
 					"text":        map[string]any{"type": "string"},
+					"subject":     map[string]any{"type": "string", "description": "One line, at most 200 characters"},
+					"asker":       map[string]any{"type": "string", "description": "Role key of the asker"},
 				},
 				"required": []string{"question_id", "text"},
 			},
@@ -52,22 +59,32 @@ func answerTools() []Tool {
 				a, err := decode[struct {
 					QuestionID string `json:"question_id"`
 					Text       string `json:"text"`
+					Subject    string `json:"subject"`
+					Asker      string `json:"asker"`
 				}](raw)
 				if err != nil {
 					return nil, err
+				}
+				if strings.ContainsAny(a.Subject, "\r\n") || utf8.RuneCountInString(a.Subject) > 200 {
+					return nil, fmt.Errorf("invalid subject: %q (one line, at most 200 characters)", a.Subject)
+				}
+				if a.Asker != "" {
+					if _, err := checkKey(a.Asker, "asker"); err != nil {
+						return nil, err
+					}
 				}
 				file, err := answerFile(c.Env, a.QuestionID)
 				if err != nil {
 					return nil, err
 				}
 				at := c.Env.Stamp()
-				data, _ := json.Marshal(answer{Text: a.Text, At: at})
+				data, _ := json.Marshal(answer{Text: a.Text, At: at, Subject: a.Subject, Asker: a.Asker})
 				return map[string]string{"at": at}, atomicWrite(file, data)
 			},
 		},
 		{
 			Name:        "answer_wait",
-			Description: `Wait for the answer to a question. Returns {"status":"answered","text"} or {"status":"pending"} at the deadline.`,
+			Description: `Wait for the answer to a question. Returns {"status":"answered","text","at"} (and subject and asker when the file has them) or {"status":"pending"} at the deadline. With deadline_seconds 0, it checks once: answered or pending`,
 			InputSchema: map[string]any{
 				"type": "object",
 				"properties": map[string]any{
@@ -102,7 +119,14 @@ func answerTools() []Tool {
 						if err := json.Unmarshal(data, &ans); err != nil {
 							return nil, err
 						}
-						return map[string]string{"status": "answered", "text": ans.Text, "at": ans.At}, nil
+						out := map[string]string{"status": "answered", "text": ans.Text, "at": ans.At}
+						if ans.Subject != "" {
+							out["subject"] = ans.Subject
+						}
+						if ans.Asker != "" {
+							out["asker"] = ans.Asker
+						}
+						return out, nil
 					}
 					if !errors.Is(err, fs.ErrNotExist) {
 						return nil, err

@@ -10,7 +10,7 @@
 set -u
 here=$(cd "$(dirname "$0")" && pwd)
 root=$(cd "$here/../.." && pwd)
-# shellcheck source=tests/lib.sh
+# shellcheck source=tests/lib.sh disable=SC1091 # followed when tests/lib.sh is an input, as in CI
 . "$here/../lib.sh"
 
 usage() { echo "usage: BRUH_TRUSTED_REPO=<repo> sh tests/smoke/run.sh [--dry-run]"; }
@@ -57,7 +57,9 @@ base_real=$base
 
 # The stand-in caller of the MCP server. The driver acts as bigm only.
 BRUH_DATA=$(data_dir)
+# shellcheck disable=SC2034 # mcp_call of tests/lib.sh reads it
 BRUH_PLUGIN_ROOT=$plugin
+# shellcheck disable=SC2034 # mcp_call of tests/lib.sh reads it
 BRUH_ROLE_KEY=bigm
 BRUH_TEST_MCP=$evidence/bruh-mcp
 data=$BRUH_DATA
@@ -425,8 +427,12 @@ else
 	sed 's/^mode: .*/mode: autonomous/' "$ledger/mode.md" >"$ledger/mode.md.new" && mv "$ledger/mode.md.new" "$ledger/mode.md"
 	grep -q '^mode: autonomous$' "$ledger/mode.md" || die "setup: mode.md of the ledger template has no 'mode:' line"
 fi
+# The agent key and the role key are start settings of bigm that /bruh:init
+# writes into the ledger (spec 3.4).
 write_file "$ledger/.claude/settings.json" <<'EOF'
 {
+  "agent": "bruh:bigm",
+  "env": {"BRUH_ROLE_KEY": "bigm"},
   "permissions": {
     "allow": ["mcp__plugin_bruh_bruh", "SendMessage"],
     "deny": ["Bash(git push:*)"]
@@ -437,6 +443,81 @@ EOF
 commit_all "$ledger" "Create the smoke test ledger"
 
 # --- steps ------------------------------------------------------------------
+
+# init_index builds the index of a scratch repository as /bruh:init does: the
+# learner proposes the purpose and the doc pointers, and the non-interactive
+# init writes the index. A script cannot drive the interactive skill, and the
+# non-interactive init runs no learner, so the driver runs it (spec 20). The
+# scratch ledger, settings file, and data folder keep the real ones untouched.
+# The repository has its own .git folder: init refuses a .git file, and a remote
+# added in a linked worktree goes into the trusted repository. It is under
+# $base, so the cleanup removes it.
+init_index() {
+	shop=shop$run_id
+	shop_dir=$base/root/$shop
+	# Each git step stops the step on failure: without its own .git folder,
+	# git -C finds the trusted repository above $base (B7).
+	run git init -q "$shop_dir" || { fail init-index "git init failed in $shop_dir"; return 1; }
+	[ "$DRY" = 1 ] || [ -d "$shop_dir/.git" ] || { fail init-index "$shop_dir is not its own repository"; return 1; }
+	printf '# %s\n\n%s is a scratch project of the bruh smoke test.\n' "$shop" "$shop" | write_file "$shop_dir/README.md"
+	commit_all "$shop_dir" "Add the README" || { fail init-index "cannot commit the README in $shop_dir"; return 1; }
+	run git -C "$shop_dir" remote add origin "https://example.com/group-a/$shop.git" ||
+		{ fail init-index "cannot add the remote origin in $shop_dir"; return 1; }
+	run git -C "$shop_dir" symbolic-ref refs/remotes/origin/HEAD refs/remotes/origin/main ||
+		{ fail init-index "cannot write refs/remotes/origin/HEAD in $shop_dir"; return 1; }
+	# The input of spec 8.5 for one project with one repository.
+	learned=$(run_in "$base/root" claude -p --agent bruh:learner --plugin-dir "$plugin" "Root: $base/root
+Project key: $shop
+Repositories of the project: $shop
+Other projects: none
+SSH host aliases with no host: none")
+	[ "$DRY" = 1 ] || printf '%s\n' "$learned" >"$evidence/init-learner.txt"
+	# The PURPOSE and DOC lines become fills with the source agent. One
+	# repository, so no longest-path rule. A second PURPOSE line is refused.
+	fills=$(printf '%s\n' "$learned" | awk -v repo="$shop" '
+		function j(s) { gsub(/[\\"]/, "\\\\&", s); return "\"" s "\"" }
+		/^PURPOSE: / && !p++ { printf "%s{\"field\":\"purpose\",\"value\":%s,\"source\":\"agent\"}", c, j(substr($0, 10)); c = "," }
+		/^DOC: / && index($0, "DOC: " repo "/") == 1 && !d[$0]++ { printf "%s{\"field\":\"doc\",\"value\":%s,\"source\":\"agent\",\"repo\":%s}", c, j(substr($0, 7 + length(repo))), j(repo); c = "," }')
+	jq -n --arg l "$evidence/init-ledger" --arg r "$base/root" --arg k "$shop" --argjson f "[$fills]" \
+		'{ledger_path: $l, root: $r, projects: [{key: $k, repos: [$k], main: $k, fills: $f}]}' |
+		write_file "$evidence/init-answers.json"
+	set -- env BRUH_DATA="$evidence/init-data" BRUH_SETTINGS_FILE="$evidence/init-settings.json" BRUH_PLUGIN_ROOT="$plugin" \
+		"$BRUH_TEST_MCP" init --answers "$evidence/init-answers.json"
+	if [ "$DRY" = 1 ]; then
+		show "$@"
+		result DRY init-index
+		return 0
+	fi
+	if [ -z "$fills" ]; then
+		fail init-index "the learner printed no PURPOSE or DOC line for $shop; see init-learner.txt"
+		return 1
+	fi
+	if ! "$@" >"$evidence/init-out.txt" 2>&1; then
+		fail init-index "init error: $(tail -1 "$evidence/init-out.txt")"
+		return 1
+	fi
+	index=$evidence/init-ledger/learn/projects/$shop.json
+	if jq -e '.repos[0].remote == "origin" and .repos[0].default_branch != "unknown" and .purpose.source == "agent" and (.docs | map(.path) | index("README.md"))' "$index" >/dev/null 2>&1; then
+		result PASS init-index "learn/projects/$shop.json has the remote origin, the default branch, a purpose of the learner, and the doc README.md"
+	else
+		fail init-index "the index check failed: $(jq -c '{remote: .repos[0].remote, default_branch: .repos[0].default_branch, purpose: .purpose, docs: (.docs | map(.path))}' "$index" 2>&1)"
+	fi
+}
+init_index
+
+# A plain claude in the ledger starts as bigm through the agent key of the
+# ledger settings. With no tool and no MCP server, the probe only answers. The
+# step does not probe the role key: when it is missing, each bruh tool call of
+# bigm fails with "BRUH_ROLE_KEY is not set".
+plain=$(run_in "$ledger" claude -p --strict-mcp-config --tools "" --max-turns 1 --plugin-dir "$plugin" \
+	"Do not use any tool and do not follow any start-of-turn procedure. Reply with exactly one line: the role name that your system instructions give you, or NONE if they give you no role name.")
+if [ "$DRY" = 1 ]; then
+	result DRY plain-start
+elif [ "$plain" = bigm ]; then
+	result PASS plain-start "a plain claude in the ledger answered bigm"
+else
+	fail plain-start "a plain claude in the ledger answered '$(printf '%s' "$plain" | head -1)', not bigm"
+fi
 
 bigm_settings=$(mcp_call role_settings_write '{"role_key":"bigm"}' | jq -r '.path // empty')
 if [ "$DRY" = 1 ]; then
@@ -453,7 +534,7 @@ verify bigm 2 has_live bigm
 need clanker bigm && verify clanker "$step_min" has_live "$clanker"
 need clerk clanker && verify clerk "$step_min" both_clerks
 need deliver clerk && verify deliver "$step_min" deliver_seen
-q_id='Q-<n>'
+q_id='Q-<id>'
 need p1-sent deliver && verify p1-sent "$step_min" p1_opened
 need p1-bigm p1-sent && verify p1-bigm "$step_min" p1_at_bigm
 need answer-same-run p1-bigm && verify answer-same-run "$step_min" answer_same_run
@@ -482,15 +563,17 @@ idle_resume() {
 		return 1
 	fi
 	# A short -p session nudges bigm. bigm, not the driver, sends the message to
-	# the clanker and must bring it back by itself.
-	run_in "$ledger" claude -p --model haiku --permission-mode auto \
+	# the clanker and must bring it back by itself. The nudge loads only the user
+	# settings, so the agent key of the ledger settings does not make it a bigm.
+	# It has no Bash, because it does not get the push block of the ledger settings.
+	run_in "$ledger" claude -p --model haiku --permission-mode auto --setting-sources user --allowedTools SendMessage --disallowedTools Bash \
 		"Use the SendMessage tool once to send this exact text to the session named bigm, then stop: SMOKE-IDLE $idle_nonce" \
 		>"$(ev idle-nudge.txt)" || true
 	verify idle-resume "$step_min" clanker_resumed
 }
 need idle-resume clanker && idle_resume
 
-remote_q="P1 Q-1: smoke remote $run_id"
+remote_q="P1 Q-smoke-remote-1: smoke remote $run_id"
 remote_nonce=x$(random_id)
 remote_ack=$(printf '%s' "$remote_nonce" | tr 'abcdefghijklmnopqrstuvwxyz' 'nopqrstuvwxyzabcdefghijklm')
 if [ -z "${SMOKE_ORCA_ENV:-}" ] || [ -z "${SMOKE_ORCA_REPO:-}" ]; then

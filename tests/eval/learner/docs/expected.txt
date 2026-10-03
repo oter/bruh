@@ -1,0 +1,3 @@
+DOC: shop/README.md
+DOC: shop/CLAUDE.md
+DOC: shop/docs/design.md
