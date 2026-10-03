@@ -449,6 +449,27 @@ func TestLearnRefreshMissingOnce(t *testing.T) {
 	f.checkProject(t, p)
 }
 
+func TestLearnRefreshGitSymlinkIsMissing(t *testing.T) {
+	f := newRefreshFixture(t)
+	p := f.readProject(t)
+	// beta/.git becomes a symbolic link to a git folder outside the root: walkRepos skips such a
+	// repository, so learn_refresh does not follow the link either (G14).
+	elsewhere := filepath.Join(t.TempDir(), "x.git")
+	beta := filepath.Join(f.root, "beta", ".git")
+	if err := os.Rename(beta, elsewhere); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(elsewhere, beta); err != nil {
+		t.Fatal(err)
+	}
+
+	checkResult(t, f.refresh(t), result([]string{f.rel()}, []string{"beta"}))
+	want := p
+	want.Repos = slices.Clone(p.Repos)
+	want.Repos[1].State = "missing"
+	f.checkProject(t, want)
+}
+
 func TestLearnRefreshRunsNoCLI(t *testing.T) {
 	logs := map[string]string{
 		"gh":   fakeCLI(t, &ghBin, "exit 1"),

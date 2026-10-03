@@ -76,14 +76,15 @@ func refreshProjects(ledger string, tree *treeFile, res *refreshResult) error {
 			return err
 		}
 	}
-	fc := factCtx{root: tree.Root, dir: os.TempDir(), aliases: tree.HostAliases, kinds: tree.HostKinds}
+	fc := newFactCtx(tree.Root, os.TempDir(), tree.HostAliases, tree.HostKinds)
 	for i := range projects {
 		p := &projects[i]
 		present := map[string]bool{}
 		for j := range p.Repos {
 			r := &p.Repos[j]
 			repo := filepath.Join(tree.Root, filepath.FromSlash(r.Path))
-			if info, err := os.Stat(filepath.Join(repo, ".git")); err != nil || !info.IsDir() {
+			// Lstat as in walkRepos: a .git that is a symbolic link is not a repository (G14).
+			if info, err := os.Lstat(filepath.Join(repo, ".git")); err != nil || !info.IsDir() {
 				if r.State == "present" {
 					res.Missing = append(res.Missing, r.Path)
 				}

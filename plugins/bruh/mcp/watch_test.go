@@ -451,6 +451,24 @@ func TestRunWatchReadsReposAgainEachPoll(t *testing.T) {
 	}
 }
 
+func TestWatchFractionalTimeEmitsOnce(t *testing.T) {
+	// GitLab notes have milliseconds; a saved position without them repeated the note each poll.
+	var out bytes.Buffer
+	w := &watcher{env: testEnv(t, ""), out: &out}
+	r := repoConfig{Repo: "group/shop", Project: "shop"}
+	fs := &feedState{Since: "2026-10-03T10:11:00Z"}
+	c := hostComment{ID: 41, Body: "Done.", UpdatedAt: "2026-10-03T10:11:12.345Z", PR: 4}
+	c.User.Login = "owner-account"
+	for range 2 {
+		if err := w.emitFeed(r, watchEvent{Repo: r.Repo, Project: r.Project}, "issue_comments", []hostComment{c}, "glab api", fs); err != nil {
+			t.Fatalf("emitFeed: %v", err)
+		}
+	}
+	if evs := events(t, &out); len(evs) != 1 || evs[0].Type != "comment" {
+		t.Errorf("events after two polls = %+v, want one comment", evs)
+	}
+}
+
 func TestWatchGitLabBaselineThenEvents(t *testing.T) {
 	r := repoConfig{Repo: "group/sub/shop", Host: "gitlab", APIURL: "https://gitlab.example.com/api/v4", Project: "shop", MergeMethod: "merge"}
 	h, err := newHost(r)

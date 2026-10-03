@@ -16,7 +16,7 @@ import (
 // projectJSON builds the index file of one project of the init answers: the git facts of each
 // repository (facts with no CLI and no ssh call, state "present"), then the fills.
 func projectJSON(root string, p answerProject, aliases, kinds map[string]string) (projectFile, error) {
-	fc := factCtx{root: root, dir: os.TempDir(), aliases: aliases, kinds: kinds}
+	fc := newFactCtx(root, os.TempDir(), aliases, kinds)
 	out := projectFile{Key: p.Key, Main: p.Main}
 	for _, rel := range p.Repos {
 		r, _, _, err := fc.facts(rel)
@@ -41,7 +41,7 @@ func projectJSON(root string, p answerProject, aliases, kinds map[string]string)
 			}
 			r := &out.Repos[i]
 			r.Host = hostValue{Value: &f.Value, Source: f.Source}
-			r.Kind = hostKind(f.Value, kinds, nil)
+			r.Kind = hostKind(strings.ToLower(f.Value), fc.kinds, nil)
 			r.APIURL = apiRoot(f.Value, r.Kind)
 		}
 	}

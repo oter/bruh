@@ -32,6 +32,7 @@ type glMergeRequest struct {
 	SquashCommitSHA     string `json:"squash_commit_sha"`
 	WebURL              string `json:"web_url"`
 	UpdatedAt           string `json:"updated_at"`
+	MergedAt            string `json:"merged_at"`
 	DetailedMergeStatus string `json:"detailed_merge_status"`
 }
 
@@ -44,6 +45,7 @@ func (m glMergeRequest) pull() hostPull {
 		MergeSHA:            cmp.Or(m.MergeCommitSHA, m.SquashCommitSHA),
 		URL:                 m.WebURL,
 		UpdatedAt:           m.UpdatedAt,
+		MergedAt:            m.MergedAt,
 		DetailedMergeStatus: m.DetailedMergeStatus,
 	}
 	if m.State == "opened" {
@@ -69,7 +71,11 @@ func (g *gitlab) api(ctx context.Context, p string, stdin io.Reader, out any, ex
 		if ee, ok := errors.AsType[*exec.ExitError](err); ok {
 			stderr = ee.Stderr
 		}
-		return fmt.Errorf("%s: %w: %s", g.last, err, bytes.TrimSpace(stderr[:min(len(stderr), 300)]))
+		msg := g.last
+		if s := bytes.TrimSpace(stderr[:min(len(stderr), 300)]); len(s) > 0 {
+			msg += ": " + string(s)
+		}
+		return fmt.Errorf("%s: %w", msg, err)
 	}
 	if out == nil {
 		return nil

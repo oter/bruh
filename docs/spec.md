@@ -370,7 +370,7 @@ Git facts. Owner decision 2026-10-03: `learn_scan` (Go, with no model call and n
 
 - Premise changed: the delegated ruling of 2026-10-02 (design.md, L21) had the Go scan find the stack and the gates in the Taskfile, the Makefile, `package.json`, `go.mod`, `pubspec.yaml`, and the CI paths, and the first form of the owner decision of 2026-10-03 (L40) kept these Go facts. Dependent decisions re-decided: the gate rules, the stack rules, the CI system, and the Taskfile reader of the Go scan go, so L21 is replaced in full. Agent-derived, needs owner decision.
 - For each repository: the path, the remotes, the host, the host kind, the API root (`api_url` of `repos_set`), and the default branch. Agent-derived, accepted 2026-10-03. The details:
-  - The scan removes a user name or a token from each `http` or `https` URL before it stores or shows the URL. The SSH user of the scp form and of an `ssh://` URL (`git@`) stays, because it is the login name of SSH and no secret. Agent-derived, needs owner decision.
+  - The scan removes a user name, a password, or a token from each URL with a scheme other than `ssh` before it stores or shows the URL. The SSH user of the scp form and of an `ssh://` URL (`git@`) stays, because it is the login name of SSH and no secret. A password of an `ssh://` URL does not stay. Agent-derived, needs owner decision.
   - The API root is `https://api.github.com` for `github.com`, `https://<host>/api/v3` for another GitHub host, `https://<host>/api/v1` for Gitea, and `https://<host>/api/v4` for GitLab.
   - The remote is `origin` when the repository has it, or else the first `[remote]` of `.git/config`.
   - The default branch comes from the file `.git/refs/remotes/<remote>/HEAD`. When the file does not exist, the scan records `unknown`, and the clanker finds the branch when it starts work. The scan makes no code host call for it, so the same files give the same JSON. `.git/HEAD` is the branch that is checked out, not the default branch.
@@ -795,7 +795,7 @@ Agent-derived, accepted 2026-09-30.
 - `claude plugin validate` on the marketplace and the plugin.
 - Learn tests, in Go with fixture folders (section 8.5). Agent-derived, accepted 2026-10-03.
   - The scan finds each repository, and skips a `.git` file, `.claude/` folders, a repository inside a repository, the ledger, and an excluded folder.
-  - It removes a user name or a token from each `http` or `https` remote URL, and keeps the SSH user.
+  - It removes a user name or a token from each remote URL with a scheme other than `ssh`, removes the password of an `ssh://` URL, and keeps the SSH user.
   - It proposes projects from a shared name prefix.
   - Each project key matches section 3.2, gets the group prefix on a collision, and has at most 40 characters.
   - It never runs a command of a repository.

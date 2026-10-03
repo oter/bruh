@@ -70,6 +70,8 @@ func TestRemotesDropUserInfo(t *testing.T) {
 		{"gitlab.com-work:team/shop", "gitlab.com-work:team/shop", "gitlab.com-work", "team/shop", true},
 		{"ssh://git@gitlab.com-work:2222/team/shop.git", "ssh://git@gitlab.com-work:2222/team/shop.git", "gitlab.com-work", "team/shop", true},
 		{"ssh://Git.Example.com/team/shop", "ssh://Git.Example.com/team/shop", "git.example.com", "team/shop", true},
+		{"ssh://git:pw@h/r.git", "ssh://git@h/r.git", "h", "r", true},
+		{"git+https://tok@host/r", "git+https://host/r", "host", "r", false},
 		{"/srv/git/shop.git", "/srv/git/shop.git", "", "", false},
 		{"../shop", "../shop", "", "", false},
 		{"file:///srv/git/shop.git", "file:///srv/git/shop.git", "", "", false},
@@ -860,6 +862,19 @@ func TestSSHAliasUnresolved(t *testing.T) {
 				t.Errorf("ssh log = %q, want %q", data, tt.wantLog)
 			}
 		})
+	}
+}
+
+func TestFactsAliasAndKindKeysAnyCase(t *testing.T) {
+	root := t.TempDir()
+	writeRepo(t, root, "shop", originConfig("git@Work-GL:g/r.git"), "origin", "ref: refs/remotes/origin/main\n")
+	f := newFactCtx(root, t.TempDir(), map[string]string{"Work-GL": "gitlab.example.com"}, map[string]string{"GitLab.Example.com": "gitlab"})
+	r, _, _, err := f.facts("shop")
+	if err != nil {
+		t.Fatalf("facts: %v", err)
+	}
+	if r.Host.Value == nil || *r.Host.Value != "gitlab.example.com" || r.Kind != "gitlab" {
+		t.Errorf("facts = %s, want the host gitlab.example.com and the kind gitlab", jsonText(t, r))
 	}
 }
 

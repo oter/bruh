@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io/fs"
+	"maps"
 	"net/url"
 	"os"
 	"os/exec"
@@ -90,8 +91,9 @@ func excluded(rel, name string, exclude []string) bool {
 	return false
 }
 
-// splitRemoteURL parses a git remote URL. clean is the URL without user information for the
-// http and https forms (conflict C1); the scp form and ssh:// keep their SSH user. host is the
+// splitRemoteURL parses a git remote URL. clean is the URL without user information for each
+// scheme except ssh:// (conflict C1); ssh:// keeps only its SSH user name, with no password, and
+// the scp form keeps its SSH user. host is the
 // host part in lower case, without user and port. hostPath is the path on the host without a
 // leading "/" and without a trailing ".git". sshForm is true for the scp form and for ssh://.
 // A local path or a file:// URL gives an empty host and hostPath.
@@ -102,8 +104,12 @@ func splitRemoteURL(raw string) (clean, host, hostPath string, sshForm bool) {
 			return "", "", "", false // the user information of a broken URL cannot be removed
 		}
 		clean = raw
-		if u.Scheme == "http" || u.Scheme == "https" {
-			u.User = nil
+		if u.User != nil {
+			if u.Scheme == "ssh" {
+				u.User = url.User(u.User.Username()) // the SSH login name is no secret, a password is
+			} else {
+				u.User = nil
+			}
 			clean = u.String()
 		}
 		if u.Scheme == "file" || u.Hostname() == "" {
@@ -446,6 +452,19 @@ type factCtx struct {
 	kinds   map[string]string // host_kinds: host -> github, gitlab, or gitea
 	logins  map[string]string // loginHosts; nil when no CLI may run (init_plan, the CLI init, learn_refresh)
 	ssh     bool              // run ssh -G for an alias (only learn_scan)
+}
+
+// newFactCtx returns the factCtx of root and dir with host_aliases and host_kinds. Each key is
+// in lower case, as the hosts and aliases of splitRemoteURL are.
+func newFactCtx(root, dir string, aliases, kinds map[string]string) factCtx {
+	lower := func(m map[string]string) map[string]string {
+		out := make(map[string]string, len(m))
+		for _, k := range slices.Sorted(maps.Keys(m)) { // sorted, so a case duplicate gives one result
+			out[strings.ToLower(k)] = m[k]
+		}
+		return out
+	}
+	return factCtx{root: root, dir: dir, aliases: lower(aliases), kinds: lower(kinds)}
 }
 
 // facts reads the git facts of the repository root/rel from its .git folder only: the remotes,

@@ -194,7 +194,7 @@ func mergeGate(env Env, r repoConfig, answer string, numbers []int) error {
 	}
 	ledger, err := ledgerPath(env)
 	if err != nil {
-		return fmt.Errorf("%w, or pass --answer Q-<id>", err)
+		return fmt.Errorf("pass --answer Q-<id>, or fix this: %w", err)
 	}
 	grants, err := os.ReadFile(filepath.Join(ledger, "grants.md"))
 	if err != nil {

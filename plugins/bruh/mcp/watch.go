@@ -44,7 +44,7 @@ func agentMark(body string) string {
 
 // feedState is the read position of one list of comments or reviews.
 type feedState struct {
-	Since string  `json:"since"` // RFC 3339, UTC
+	Since string  `json:"since"` // RFC 3339 with an optional fraction, UTC
 	Seen  []int64 `json:"seen"`  // IDs updated exactly at Since
 }
 
@@ -231,7 +231,7 @@ func (w *watcher) emitFeed(r repoConfig, base watchEvent, feed string, items []h
 			since, fs.Seen = at, nil
 		}
 		fs.Seen = append(fs.Seen, c.ID)
-		fs.Since = since.UTC().Format(time.RFC3339)
+		fs.Since = since.UTC().Format(time.RFC3339Nano) // GitLab notes have milliseconds
 	}
 	return nil
 }

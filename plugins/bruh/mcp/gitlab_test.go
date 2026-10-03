@@ -85,7 +85,7 @@ func TestGitLabPullMapping(t *testing.T) {
 		glProject + "merge_requests/5": `{"iid":5,"state":"opened","draft":true,"sha":"h5","merge_commit_sha":null,"squash_commit_sha":null,` +
 			`"web_url":"` + web + `5","updated_at":"2026-10-01T10:00:00Z","detailed_merge_status":"not_approved"}`,
 		glProject + "merge_requests/6": `{"iid":6,"state":"merged","draft":false,"sha":"h6","merge_commit_sha":null,"squash_commit_sha":"q6",` +
-			`"web_url":"` + web + `6","updated_at":"2026-10-02T10:00:00Z","detailed_merge_status":"not_open"}`,
+			`"web_url":"` + web + `6","updated_at":"2026-10-02T10:00:00Z","merged_at":"2026-10-02T09:59:00.123Z","detailed_merge_status":"not_open"}`,
 		glProject + "merge_requests?state=merged&order_by=updated_at&sort=desc&per_page=30": `[` +
 			`{"iid":9,"state":"merged","sha":"h9","merge_commit_sha":"m9","squash_commit_sha":null,"web_url":"` + web + `9"},` +
 			`{"iid":8,"state":"merged","sha":"h8","merge_commit_sha":null,"squash_commit_sha":"q8","web_url":"` + web + `8"}]`,
@@ -93,15 +93,15 @@ func TestGitLabPullMapping(t *testing.T) {
 	h := newGitLabHost(t)
 
 	type pullView struct {
-		State, SHA, MergeSHA, URL, UpdatedAt, DetailedMergeStatus string
-		Merged, Draft                                             bool
+		State, SHA, MergeSHA, URL, UpdatedAt, MergedAt, DetailedMergeStatus string
+		Merged, Draft                                                       bool
 	}
 	view := func(p hostPull) pullView {
-		return pullView{p.State, p.Head.SHA, p.MergeSHA, p.URL, p.UpdatedAt, p.DetailedMergeStatus, p.Merged, p.Draft}
+		return pullView{p.State, p.Head.SHA, p.MergeSHA, p.URL, p.UpdatedAt, p.MergedAt, p.DetailedMergeStatus, p.Merged, p.Draft}
 	}
 	for n, want := range map[int]pullView{
 		5: {State: "open", SHA: "h5", URL: web + "5", UpdatedAt: "2026-10-01T10:00:00Z", DetailedMergeStatus: "not_approved", Draft: true},
-		6: {State: "merged", SHA: "h6", MergeSHA: "q6", URL: web + "6", UpdatedAt: "2026-10-02T10:00:00Z", DetailedMergeStatus: "not_open", Merged: true},
+		6: {State: "merged", SHA: "h6", MergeSHA: "q6", URL: web + "6", UpdatedAt: "2026-10-02T10:00:00Z", MergedAt: "2026-10-02T09:59:00.123Z", DetailedMergeStatus: "not_open", Merged: true},
 	} {
 		p, err := h.Pull(t.Context(), n)
 		if got := view(p); err != nil || got != want {

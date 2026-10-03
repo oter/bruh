@@ -674,6 +674,17 @@ check "an Identities row with an identity for the alias allows the post" contain
 identities
 out=$(unset BRUH_ROLE_KEY; pf "$tmp/pfid4" --data "$tmp/pfid" --yes gitlab group/app 7 "$tmp/result.json" 2>&1; echo "exit $?")
 check "a manual session with --yes is not checked for the alias" contains "$out" "exit 0"
+# An alias that neither ssh -G nor host_aliases resolved has a null host.value (G10).
+jq '.repos[0].host.value = null | .repos[0].kind = "unknown" | .repos[0].api_url = ""' \
+	"$tmp/pfidledger/learn/projects/app.json" >"$tmp/pfidnull.json"
+mv "$tmp/pfidnull.json" "$tmp/pfidledger/learn/projects/app.json"
+out=$(BRUH_ROLE_KEY=clerk-app-t5 pf "$tmp/pfid5" --data "$tmp/pfid" gitlab group/app 7 "$tmp/result.json" 2>&1; echo "exit $?")
+check "a null host.value and no Identities row is refused" contains "$out" "exit 3"
+check "an unresolved alias posts nothing" eq "$(posts "$tmp/pfid5")" 0
+# shellcheck disable=SC2016 # literal backticks
+identities '| `gitlab.com-work` | work-account | 2026-10-03T00:00:00Z | read |'
+out=$(BRUH_ROLE_KEY=clerk-app-t5 pf "$tmp/pfid6" --data "$tmp/pfid" gitlab group/app 7 "$tmp/result.json" 2>&1; echo "exit $?")
+check "a null host.value with an Identities row for the alias allows the post" contains "$out" "exit 0"
 jq '.status = "stopped"' "$tmp/result.json" >"$tmp/stopped.json"
 out=$(unset BRUH_ROLE_KEY; pf "$tmp/pf7" --yes gitlab group/app 7 "$tmp/stopped.json" 2>&1; echo "exit $?")
 check "post-findings refuses a stopped result" contains "$out" "exit 2"

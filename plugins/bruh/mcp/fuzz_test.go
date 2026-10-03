@@ -141,7 +141,8 @@ func FuzzCheckFills(f *testing.F) {
 }
 
 // FuzzGitConfigRemotes checks that readRemotes does not panic on any .git/config, that
-// each remote has a name, and that no http or https URL keeps user information (C1).
+// each remote has a name, and that no URL keeps user information (C1), except the user name of
+// an ssh:// URL, with no password.
 func FuzzGitConfigRemotes(f *testing.F) {
 	f.Add("[remote \"origin\"]\n\turl = https://oauth2:token@gitlab.com/g/r.git\n")
 	f.Add("# remotes\n[remote \"origin\"]\n\turl = git@gitlab.com:g/r.git\n; mirror\n[remote \"backup\"]\n\turl=https://github.com/g/r.git\n")
@@ -150,6 +151,7 @@ func FuzzGitConfigRemotes(f *testing.F) {
 	f.Add("[remote \"x\n\turl = https://u@h/x\n")
 	f.Add("[remote \"q\"]\n\turl = \"http://u:p@h/x\"\n")
 	f.Add("[remote \"\"]\n\turl = https://h/x\n")
+	f.Add("[remote \"s\"]\n\turl = ssh://git:pw@h/r.git\n")
 	f.Fuzz(func(t *testing.T, config string) {
 		repo := t.TempDir()
 		if err := os.Mkdir(filepath.Join(repo, ".git"), 0o755); err != nil {
@@ -166,15 +168,17 @@ func FuzzGitConfigRemotes(f *testing.F) {
 			if r.Name == "" {
 				t.Errorf("readRemotes(%q) returned a remote with no name: %+v", config, r)
 			}
-			lower := strings.ToLower(r.URL)
-			if !strings.HasPrefix(lower, "http://") && !strings.HasPrefix(lower, "https://") {
-				continue
+			if !strings.Contains(r.URL, "://") {
+				continue // the scp form keeps its SSH user, and a local path has none
 			}
 			u, err := url.Parse(r.URL)
 			if err != nil {
 				t.Fatalf("url.Parse(%q) error: %v", r.URL, err)
 			}
-			if u.User != nil {
+			if u.User == nil {
+				continue
+			}
+			if _, set := u.User.Password(); u.Scheme != "ssh" || set {
 				t.Errorf("readRemotes(%q) kept the user information of %q", config, r.URL)
 			}
 		}

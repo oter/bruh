@@ -455,11 +455,16 @@ commit_all "$ledger" "Create the smoke test ledger"
 init_index() {
 	shop=shop$run_id
 	shop_dir=$base/root/$shop
-	run git init -q "$shop_dir"
+	# Each git step stops the step on failure: without its own .git folder,
+	# git -C finds the trusted repository above $base (B7).
+	run git init -q "$shop_dir" || { fail init-index "git init failed in $shop_dir"; return 1; }
+	[ "$DRY" = 1 ] || [ -d "$shop_dir/.git" ] || { fail init-index "$shop_dir is not its own repository"; return 1; }
 	printf '# %s\n\n%s is a scratch project of the bruh smoke test.\n' "$shop" "$shop" | write_file "$shop_dir/README.md"
-	commit_all "$shop_dir" "Add the README"
-	run git -C "$shop_dir" remote add origin "https://example.com/group-a/$shop.git"
-	run git -C "$shop_dir" symbolic-ref refs/remotes/origin/HEAD refs/remotes/origin/main
+	commit_all "$shop_dir" "Add the README" || { fail init-index "cannot commit the README in $shop_dir"; return 1; }
+	run git -C "$shop_dir" remote add origin "https://example.com/group-a/$shop.git" ||
+		{ fail init-index "cannot add the remote origin in $shop_dir"; return 1; }
+	run git -C "$shop_dir" symbolic-ref refs/remotes/origin/HEAD refs/remotes/origin/main ||
+		{ fail init-index "cannot write refs/remotes/origin/HEAD in $shop_dir"; return 1; }
 	# The input of spec 8.5 for one project with one repository.
 	learned=$(run_in "$base/root" claude -p --agent bruh:learner --plugin-dir "$plugin" "Root: $base/root
 Project key: $shop

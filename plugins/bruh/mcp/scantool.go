@@ -68,7 +68,8 @@ func learnScan(env Env, in learnScanInput) (learnScanOutput, error) {
 	}
 	found := walkRepos(in.Root, in.Depth, in.Exclude, in.Ledger)
 	logins := loginHosts(dir)
-	fc := factCtx{root: in.Root, dir: dir, aliases: in.HostAliases, kinds: in.HostKinds, logins: logins, ssh: true}
+	fc := newFactCtx(in.Root, dir, in.HostAliases, in.HostKinds)
+	fc.logins, fc.ssh = logins, true
 	out := learnScanOutput{
 		Repos:              make([]scanRepo, len(found)),
 		Projects:           proposeProjects(found),

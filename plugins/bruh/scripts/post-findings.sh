@@ -142,10 +142,11 @@ refuse() {
 
 # check_identity refuses when the chosen remote of the repository, in the first
 # repository of a learn/projects/*.json index file of the ledger with this
-# host_path and host name, uses an SSH host alias (the host part of its scp or
-# ssh:// URL differs from the host name; an https URL has none), and no row of
-# "## Identities" of projects/<key>.md names the alias with a non-empty account
-# (spec 8.5, G10). No ledger or no index file: no check.
+# host_path and with this host name or a null host.value, uses an SSH host alias
+# (the host part of its scp or ssh:// URL differs from the host name, or
+# host.value is null; an https URL has none), and no row of "## Identities" of
+# projects/<key>.md names the alias with a non-empty account (spec 8.5, G10, as
+# checkAliasIdentity of the merge train). No ledger or no index file: no check.
 check_identity() {
 	ledger=$(config_ledger) || return 0
 	[ -n "$ledger" ] || return 0
@@ -154,13 +155,13 @@ check_identity() {
 	# The key is the file name, and neither it nor the alias holds a "/".
 	found=$(jq -rn --arg repo "$repo" --arg h "$hostname" '
 		first(inputs | (input_filename | sub(".*/"; "") | sub("\\.json$"; "")) as $k
-			| .repos[]? | select(.host_path == $repo and .host.value == $h) | [$k, .])
-		| .[0] as $k | .[1] as $r
+			| .repos[]? | select(.host_path == $repo and (.host.value == $h or .host.value == null)) | [$k, .])
+		| .[0] as $k | .[1] as $r | ($r.host.value == null) as $nul
 		| ([$r.remotes[]? | select(.name == $r.remote) | .url | strings][0] // "") as $u
 		| if $u | startswith("ssh://") then $u | capture("^ssh://([^/]*@)?(?<h>[^/:@]+)").h
 			elif $u | contains("://") then empty
 			else $u | capture("^(?<p>[^:/]+):").p | sub(".*@"; "") end
-		| ascii_downcase | select(. != ($h | ascii_downcase))
+		| ascii_downcase | select($nul or . != ($h | ascii_downcase))
 		| "\($k)/\(.)"' "$@") || {
 		err "could not read the index files in $ledger/learn/projects"
 		exit 1

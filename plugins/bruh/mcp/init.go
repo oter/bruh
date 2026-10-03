@@ -154,7 +154,8 @@ func (a *InitAnswers) checkProjects() error {
 				bad("repository %q is not a folder under root %q", r, a.Root)
 				continue
 			}
-			if info, err := os.Stat(filepath.Join(dir, ".git")); err != nil || !info.IsDir() {
+			// Lstat as in walkRepos: a .git that is a symbolic link is not a repository (G14).
+			if info, err := os.Lstat(filepath.Join(dir, ".git")); err != nil || !info.IsDir() {
 				bad("repository %q has no .git folder", r)
 				continue
 			}
@@ -199,9 +200,9 @@ func sha256Hex(s string) string {
 	return hex.EncodeToString(sum[:])
 }
 
-// ledgerPathOK accepts an absolute path with no .. element whose nearest existing ancestor is a folder.
+// ledgerPathOK accepts a clean absolute path with no .. element whose nearest existing ancestor is a folder.
 func ledgerPathOK(p string) bool {
-	if !filepath.IsAbs(p) || slices.Contains(strings.Split(filepath.ToSlash(p), "/"), "..") {
+	if !filepath.IsAbs(p) || filepath.Clean(p) != p || slices.Contains(strings.Split(filepath.ToSlash(p), "/"), "..") {
 		return false
 	}
 	for cur := filepath.Clean(p); ; cur = filepath.Dir(cur) {
