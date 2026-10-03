@@ -129,6 +129,8 @@ The script posts one summary note (the lenses, the confirmed and the refuted cou
 
 Each status message to the owner is a table: item, state, link. Each pull request, pipeline, and job has its full URL. A manual deploy job is the click of the owner.
 
+When the run found a defect of bruh itself, a clerk sends the notice of rule 10 of its agent text. A manual session of the owner follows `${CLAUDE_PLUGIN_ROOT}/defaults/bug-reports.md`.
+
 ## Lessons of this skill
 
 Read `references/lessons.md` before the first run. The short list:

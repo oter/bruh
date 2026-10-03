@@ -208,6 +208,10 @@ Show only the notes that match the answers:
 - bigm commits the paths of `applied` at its next turn.
 - Merge grants, delegated P1 classes, and remote machines are not init questions. Tell them to bigm, and bigm records them.
 
+## Defects of bruh
+
+When this run found a defect of bruh, for example an answer that `init_plan` dropped or a result that breaks a rule of this skill, follow `<plugin_root>/defaults/bug-reports.md` before the run ends, with the `plugin_root` of `bruh_info`. This holds also when the owner cancels at step 11 or a step stops with an error.
+
 ## Non-interactive form
 
 In a container, or in a script, run the same init without questions:
