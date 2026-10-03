@@ -213,7 +213,7 @@ Review of L1 to L20 (2026-10-02). Four subagents reviewed the decisions above: a
     - The start commands of spec 3.4, the README, and the Slack README, and the `launch_command` of `init_plan`, have no `--settings`. The release smoke test checks the plain start: a plain `claude -p` in the ledger, with no tool and no MCP server, answers with the role name `bigm`.
 - R12: the plugin `userConfig` dialog opens when the owner installs the plugin. It is the documented way to ask fixed settings (name, handoff threshold, busy clerk cap). Not verified: whether a row of `/config` shows the title or the key (L16).
 
-Decisions of 2026-10-03, L38 to L46. The owner answered the open questions of spec 0.6 and changed the learn step twice: L40 first, then L42 and L43.
+Decisions of 2026-10-03, L38 to L48. The owner answered the open questions of spec 0.6 and changed the learn step twice: L40 first, then L42 and L43.
 
 - L38: the watcher writes each event to the report file of its project, not to one shared file, as spec section 9.2 says. The code changes: `mcp/watch.go` writes one file, `reports/watcher.jsonl`, today (R8). Owner decision 2026-10-03: the owner selected "Per-project files". Rejected: "spec matches code" (one watcher file). This settles item 4 of spec section 22. No decision used the one file as a premise.
   - The details of spec 9.2 are agent-derived, needs owner decision: the file name `reports/clanker-<project>.jsonl`; `project` required in `repos_set` and checked with `projectRE`, and an entry with no `project` skipped and logged; appends of whole lines with `O_APPEND` and no lock; one rule for the events (bigm relays an event from the `Monitor` line to the clanker that must act, with `mail_post` or Orca `send` and the header `DONE: event <project>: <subject>`, and the sweep reads with `since` only for missed lines); no role key `watcher` in `report_read`; the repositories of a retired clanker removed from `repos_set`.
@@ -270,6 +270,19 @@ Decisions of 2026-10-03, L38 to L46. The owner answered the open questions of sp
 - L45 (D8): the new items tagged "Agent-derived, needs owner decision" are built as written. They stay tagged and listed in spec section 22, item 3, and the owner reviews them during the onboarding run. The owner selected "Build as written". Owner decision 2026-10-03. Rejected: "Show me the list first".
 - L46: the first release is `v0.9.0`. It replaces "The first release is `v0.1.0`" of spec section 19. `plugin.json`, the bruh MCP server, and the Slack channel server report this version. Owner decision 2026-10-03.
   - Premise changed: spec 19 said that the first release is `v0.1.0`, and that the build of version 0.6 keeps the version `0.1.0-dev` until the owner selects the release version. Dependent decisions re-decided: the version item of spec 19 is settled, and item 3 of spec section 22 no longer lists section 19.
+- L47: the marketplace name is `oter`, and the plugin ID is `bruh@oter`. It replaces the plugin ID `bruh@bruh` of release `v0.9.0`. The plugin name stays `bruh`. Owner decision 2026-10-03.
+  - Premise changed: the marketplace name was `bruh`, so the plugin ID was `bruh@bruh`. Dependent decisions re-decided:
+    - Spec 18, item 1: the install command is `claude plugin install bruh@oter`.
+    - The key of `pluginConfigs` that the CLI `init` writes is `bruh@oter`.
+    - The Slack channel flag is `--dangerously-load-development-channels plugin:bruh@oter`. The launch command of init builds it from the plugin ID. Agent-derived, needs owner decision.
+    - The default data folder of the CLI `init` is `~/.claude/plugins/data/bruh-oter`. The code derives it from the plugin ID with the documented rule. Agent-derived, needs owner decision.
+    - The plugin root of an install is `~/.claude/plugins/cache/oter/bruh/<version>`.
+    - The MCP tool names `mcp__plugin_bruh_bruh__<tool>` do not change: they contain the plugin name and the MCP server name, not the marketplace name. A load with `--plugin-dir` keeps the ID `bruh@inline` and the data folder `bruh-inline`.
+    - There is no upgrade path from `v0.9.0`, because no other user installed `v0.9.0`. Owner decision 2026-10-03.
+- L48: init removes a bruh status line tap of another data folder before it wraps the command again. Owner decision 2026-10-03.
+  - Premise changed: spec 7 said that init wraps the previous status line command as it is. After a new install in another data folder (L47), init wrapped the tap of the old data folder again. Dependent decisions re-decided:
+    - Spec 7, status line tap: the previous command loses each tap that init wrote, before init wraps it. A tap is the first word of the command, quoted as init quotes it, with the path `<plugins root>/data/bruh-<id>/bin/statusline-tap.sh`. `<plugins root>/data` is the folder that holds the current data folder, or a folder that ends in `/plugins/data`. The tap of another plugin does not match. The match uses this structure only. Agent-derived, needs owner decision.
+    - A command that init wrote with the tap of the current data folder keeps that tap, and loses each old tap inside it. Another command that starts with the current tap does not change. Agent-derived, needs owner decision.
 
 ## Knowledge
 

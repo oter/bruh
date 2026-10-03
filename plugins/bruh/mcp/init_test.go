@@ -1,6 +1,7 @@
 package main
 
 import (
+	"cmp"
 	"encoding/json"
 	"io/fs"
 	"maps"
@@ -179,7 +180,7 @@ func TestInitApplyWritesPlannedContent(t *testing.T) {
 			t.Errorf("init_apply: ledger %s = %q, want %s unchanged %q", rel, got, src, want)
 		}
 	}
-	wantLaunch := "cd " + shq(ledger) + " && claude --agent bruh:bigm --name bigm --permission-mode auto --channels plugin:telegram@claude-plugins-official --dangerously-load-development-channels plugin:bruh@bruh"
+	wantLaunch := "cd " + shq(ledger) + " && claude --agent bruh:bigm --name bigm --permission-mode auto --channels plugin:telegram@claude-plugins-official --dangerously-load-development-channels plugin:bruh@oter"
 	if lc := p["launch_command"].(string); lc != wantLaunch {
 		t.Fatalf("init_plan launch_command = %q, want %q", lc, wantLaunch)
 	}
@@ -533,7 +534,7 @@ const pluginOptionsErr = "user_name, handoff_percent, and max_busy_clerks are pl
 
 func TestInitPlanDoesNotWritePluginOptions(t *testing.T) {
 	env, ledger := initEnv(t)
-	const configs = `{"bruh@bruh":{"options":{"handoff_percent":55,"max_busy_clerks":30}}}`
+	const configs = `{"bruh@oter":{"options":{"handoff_percent":55,"max_busy_clerks":30}}}`
 	writeSettings(t, env, `{"theme":"dark","pluginConfigs":`+configs+`}`)
 	apply(t, env, plan(t, env, answers(ledger, nil)))
 	got, err := json.Marshal(readSettings(t, env)["pluginConfigs"])
@@ -1014,4 +1015,62 @@ func TestInitPlanTrustList(t *testing.T) {
 			t.Errorf("init_plan with no projects: trust = %#v, want %#v", got, want)
 		}
 	})
+}
+
+func TestPlanSettingsUnwrapsOldTap(t *testing.T) {
+	const (
+		tap   = "/h/.claude/plugins/data/bruh-oter/bin/statusline-tap.sh"
+		old   = "/h/.claude/plugins/data/bruh-bruh/bin/statusline-tap.sh"
+		other = "/h/.claude/plugins/data/bruh-inline/bin/statusline-tap.sh"
+		orig  = `printf '%s' "it's $HOME" && jq -r .model.display_name`
+	)
+	const (
+		cacheTap = "/p/data/bruh-oter/bin/statusline-tap.sh"
+		cacheOld = "/p/data/bruh-bruh/bin/statusline-tap.sh"
+		fooTap   = "/h/.claude/plugins/data/foo-bar/bin/statusline-tap.sh"
+	)
+	wrap := func(tap, inner string) string { return shq(tap) + " " + shq(inner) }
+	for _, tc := range []struct {
+		name, prev, want string
+		tap              string // the tap of the current data folder; empty is tap
+	}{
+		{"no prev", "", shq(tap), ""},
+		{"plain prev", "x", wrap(tap, "x"), ""},
+		{"prev with quotes", orig, wrap(tap, orig), ""},
+		{"current tap unchanged", wrap(tap, orig), wrap(tap, orig), ""},
+		{"old tap alone", shq(old), shq(tap), ""},
+		{"old tap", wrap(old, orig), wrap(tap, orig), ""},
+		{"two old taps", wrap(old, wrap(other, orig)), wrap(tap, orig), ""},
+		{"old tap around the current tap", wrap(old, wrap(tap, orig)), wrap(tap, orig), ""},
+		{"tap path outside a data folder", wrap("/opt/bin/statusline-tap.sh", "x"), wrap(tap, wrap("/opt/bin/statusline-tap.sh", "x")), ""},
+		{"old tap with an extra word", wrap(old, "x") + " y", wrap(tap, wrap(old, "x")+" y"), ""},
+		{"current tap with an extra word unchanged", wrap(tap, "x") + " y", wrap(tap, "x") + " y", ""},
+		{"current tap around an old tap", wrap(tap, wrap(old, orig)), wrap(tap, orig), ""},
+		{"tap of another plugin", wrap(fooTap, "x"), wrap(tap, wrap(fooTap, "x")), ""},
+		{"old tap in the plugin cache dir", wrap(cacheOld, orig), wrap(cacheTap, orig), cacheTap},
+		{"tap of another plugin in the plugin cache dir", wrap("/p/data/foo-bar/bin/statusline-tap.sh", "x"), wrap(cacheTap, wrap("/p/data/foo-bar/bin/statusline-tap.sh", "x")), cacheTap},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			settings := `{}`
+			if tc.prev != "" {
+				b, _ := json.Marshal(map[string]any{"statusLine": map[string]any{"type": "command", "command": tc.prev}})
+				settings = string(b)
+			}
+			out, err := planSettings([]byte(settings), InitAnswers{WrapStatusline: new(true)}, cmp.Or(tc.tap, tap))
+			if err != nil {
+				t.Fatal(err)
+			}
+			var s struct {
+				StatusLine struct {
+					Command string `json:"command"`
+				} `json:"statusLine"`
+			}
+			if err := json.Unmarshal(out, &s); err != nil {
+				t.Fatal(err)
+			}
+			if s.StatusLine.Command != tc.want {
+				t.Errorf("command = %s\nwant      %s", s.StatusLine.Command, tc.want)
+			}
+		})
+	}
 }

@@ -1,6 +1,6 @@
 # bruh specification
 
-Status: version 0.6, for the build (2026-10-03). The owner approved version 0.5 on 2026-09-30. On 2026-10-03, the owner accepted all earlier agent-derived items of version 0.6 and made nine decisions (design.md, L38 to L46). Section 25 lists the changes from version 0.5, and section 24 the changes from version 0.4.
+Status: version 0.6, for the build (2026-10-03). The owner approved version 0.5 on 2026-09-30. On 2026-10-03, the owner accepted all earlier agent-derived items of version 0.6 and made eleven decisions (design.md, L38 to L48). Section 25 lists the changes from version 0.5, and section 24 the changes from version 0.4.
 
 This specification is the input for the implementation plan. The decision log is in [design.md](design.md). The verified facts and the field lessons are in [knowledge.md](knowledge.md). The process is shown as diagrams in [flow.md](flow.md). Each decision in this file has one tag:
 
@@ -268,7 +268,7 @@ Owner decision 2026-09-30: the plugin includes the bruh-implement skillset of th
 Owner decision 2026-09-27: every role stays below about 55 percent of its context window. The mechanism is design.md, open question 1, option 2. The configuration is in user settings. The setup of the owner supports the budget: the owner corrected sessions at 900k tokens and above. The details below are agent-derived, accepted 2026-09-30.
 
 - Auto-compact window: the init skill writes `autoCompactWindow` into `~/.claude/settings.json`. The default is 550000, which is 55 percent of a 1M window.
-- Status line tap: the init skill copies `statusline-tap.sh` into the plugin data folder and sets `statusLine.command` to the absolute path of the copy, followed by the previous status line command. The tap writes `context_window.used_percentage` and `rate_limits.five_hour.used_percentage` to `<plugin data folder>/context/<session_id>`. It writes nothing for a `null` value. Then it runs the previous command with the same input. Verify: the field `rate_limits.five_hour.used_percentage`.
+- Status line tap: the init skill copies `statusline-tap.sh` into the plugin data folder and sets `statusLine.command` to the absolute path of the copy, followed by the previous status line command. The tap writes `context_window.used_percentage` and `rate_limits.five_hour.used_percentage` to `<plugin data folder>/context/<session_id>`. It writes nothing for a `null` value. Then it runs the previous command with the same input. Owner decision 2026-10-03: before init wraps the previous command, it removes each tap that init wrote in another bruh data folder (`<plugins root>/data/bruh-<id>/bin/statusline-tap.sh`), so a new install does not wrap the old tap again (design.md, L48). The match rule is agent-derived, needs owner decision. Verify: the field `rate_limits.five_hour.used_percentage`.
 - Verify: the status line runs in a background session that has no attached terminal. If it does not, the handoff message hook reads the token usage of the last assistant message from `transcript_path` instead. Verify: that usage field.
 - Handoff message: a `PostToolUse` hook reads the context value. It exits at once when the input contains `agent_id`. At or above the plugin option `handoff_percent` (default 50), it tells the agent to update its handoff. It sends the message once for each crossing.
 - Handoff file: `${CLAUDE_PLUGIN_DATA}/handoffs/<role key>.md`, written by the MCP tool `handoff_write`. Owner decision 2026-09-29: the plugin data folder, written by plugin code. The rules below are agent-derived, accepted 2026-09-30.
@@ -753,7 +753,7 @@ Version 0.6 adds `agents/learner.md`, the read-only subagent of the learn step (
 
 Owner decision 2026-09-27: the README gives clear install instructions for each part. The list is agent-derived, accepted 2026-09-30.
 
-1. The plugin: `claude plugin marketplace add oter/bruh`, then `claude plugin install bruh@bruh`. The install dialog asks the plugin options, among them the name, the handoff threshold, and the busy clerk cap.
+1. The plugin: `claude plugin marketplace add oter/bruh`, then `claude plugin install bruh@oter`. The install dialog asks the plugin options, among them the name, the handoff threshold, and the busy clerk cap. Owner decision 2026-10-03: the marketplace name is `oter`, so the plugin ID is `bruh@oter` (design.md, L47).
 2. The ledger: create a private repository before the init skill runs.
 3. The init skill: `/bruh:init`, or the non-interactive form in a container. It asks for the ledger, the settings, and the projects, and it ends with the trust step.
 
@@ -832,7 +832,7 @@ All numbered questions of version 0.3 are decided. Their answers are in design.m
 
 1. The ledger clerk (section 3.6): the reading of "clerks do all pushes" for the ledger.
 2. Each item in this file tagged "Agent-derived, accepted 2026-09-30".
-3. Each item in this file tagged "Agent-derived, needs owner decision". All of them are new on 2026-10-03 (design.md, L37, L38, L39, L42, L43, and L44). The build of 2026-10-03 adds more items with the same tag: the user information of a remote URL, the gaps of this specification that the build found, and five details of the build. They are in sections 3, 3.4, 3.5, 5, 6.4, 8.3, 8.5, 8.6, 9.1, 9.2, 10.1, 12, 14.2, 16, 17, 18, and 20, and in the change list of section 25. The release version of section 19 is settled: owner decision 2026-10-03, the first release is `v0.9.0` (design.md, L46). Owner decision 2026-10-03: the other items are built as written, and the owner reviews them during the onboarding run (design.md, L45).
+3. Each item in this file tagged "Agent-derived, needs owner decision". All of them are new on 2026-10-03 (design.md, L37, L38, L39, L42, L43, L44, L47, and L48). The build of 2026-10-03 adds more items with the same tag: the user information of a remote URL, the gaps of this specification that the build found, and five details of the build. They are in sections 3, 3.4, 3.5, 5, 6.4, 7, 8.3, 8.5, 8.6, 9.1, 9.2, 10.1, 12, 14.2, 16, 17, 18, and 20, and in the change list of section 25. The release version of section 19 is settled: owner decision 2026-10-03, the first release is `v0.9.0` (design.md, L46). Owner decision 2026-10-03: the other items are built as written, and the owner reviews them during the onboarding run (design.md, L45).
 4. Inbound messages (design.md, open question 6). Without a `crossSessionInbound` value, a session that bypasses permission prompts holds a message from a session that does not. Options, as design.md lists them: run all roles in one permission mode, or the init skill sets `crossSessionInbound: accept` in user settings. `accept` delivers every message from any session of the same operating-system user.
 
 ## 23. Changes from version 0.3
@@ -857,7 +857,7 @@ All numbered questions of version 0.3 are decided. Their answers are in design.m
 
 ## 25. Changes from version 0.5
 
-The owner ran `/bruh:init` for the first time on 2026-10-02. The changes come from the feedback of the owner, the decisions L1 to L46 of design.md ("Learn step and onboarding"), and reviews by subagents: four on the decisions (an adversarial reviewer, a checker of the claims against the code, a walk through the journey of the owner, and a search of the Claude Code docs), and two rounds of an adversarial reviewer and a checker on this specification. Each dependent that a "Premise changed" line names carries its own tag in its section.
+The owner ran `/bruh:init` for the first time on 2026-10-02. The changes come from the feedback of the owner, the decisions L1 to L48 of design.md ("Learn step and onboarding"), and reviews by subagents: four on the decisions (an adversarial reviewer, a checker of the claims against the code, a walk through the journey of the owner, and a search of the Claude Code docs), and two rounds of an adversarial reviewer and a checker on this specification. Each dependent that a "Premise changed" line names carries its own tag in its section.
 
 - Owner decision 2026-10-02: bruh learns the projects before the owner asks for work (sections 1 and 8.5). The init skill scans a root folder, the owner selects the projects with selects, and init stores the hierarchy and the index of each project as JSON in the ledger. Since the owner decisions of 2026-10-03, the index has no stack and no gates.
 - Premise changed: the delegated ruling of 2026-10-02 had the Go scan find the gates from exact task and target names. The owner decisions of 2026-10-03 below replace it in full: the Go scan reads git facts only. "No learn workflow" holds, so no role other than a clerk starts a workflow (section 3).
@@ -912,3 +912,5 @@ The owner ran `/bruh:init` for the first time on 2026-10-02. The changes come fr
 - Owner decision 2026-10-03: the owner accepted, as a set, every earlier item of version 0.6 tagged "Agent-derived, needs owner decision" ("Accept all, build now"). Each such item now has the tag "Agent-derived, accepted 2026-10-03".
 - Owner decision 2026-10-03: the new items tagged "Agent-derived, needs owner decision" are built as written. They stay tagged and listed in section 22, item 3, and the owner reviews them during the onboarding run. The owner selected "Build as written".
 - Owner decision 2026-10-03: the first release is `v0.9.0` (section 19).
+- Owner decision 2026-10-03: the marketplace name is `oter`, and the plugin ID is `bruh@oter` (section 18).
+- Owner decision 2026-10-03: init removes a bruh status line tap of another bruh data folder before it wraps the status line command again (section 7).

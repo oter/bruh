@@ -6,6 +6,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.10.0] - 2026-10-03
+
+### Changed
+
+- The marketplace name is `oter`. Install with `claude plugin install bruh@oter`.
+
+### Fixed
+
+- Init removes a bruh status line tap of another plugin data folder before it wraps the status line command again.
+
 ## [0.9.0] - 2026-10-03
 
 This is the first release of bruh. It contains all parts of the [specification](docs/spec.md) version 0.6.
@@ -50,5 +60,6 @@ This is the first release of bruh. It contains all parts of the [specification](
 - `init_plan` does not write the plugin options (`pluginConfigs`).
 - The report file `reports/watcher.jsonl` and the role key `watcher` of `report_read`.
 
-[Unreleased]: https://github.com/oter/bruh/compare/v0.9.0...HEAD
+[Unreleased]: https://github.com/oter/bruh/compare/v0.10.0...HEAD
+[0.10.0]: https://github.com/oter/bruh/compare/v0.9.0...v0.10.0
 [0.9.0]: https://github.com/oter/bruh/releases/tag/v0.9.0

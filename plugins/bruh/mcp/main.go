@@ -12,6 +12,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strconv"
 	"strings"
@@ -35,7 +36,7 @@ Commands:
 
 func main() {
 	if len(os.Args) < 2 {
-		srv := NewServer("bruh", "0.9.0", AllTools())
+		srv := NewServer("bruh", "0.10.0", AllTools())
 		if err := srv.Serve(EnvFromOS(), os.Stdin, os.Stdout); err != nil {
 			log.Fatal(err)
 		}
@@ -45,10 +46,12 @@ func main() {
 }
 
 // cliEnv is EnvFromOS with the defaults of a command run from a shell, where Claude Code
-// sets neither BRUH_DATA nor BRUH_PLUGIN_ROOT.
+// sets neither BRUH_DATA nor BRUH_PLUGIN_ROOT. The default data folder is the one of the
+// marketplace install: the plugin ID with each character other than [A-Za-z0-9_-] replaced by "-".
 func cliEnv() Env {
 	env := EnvFromOS()
-	env.DataDir = cmp.Or(env.DataDir, filepath.Join(env.Home, ".claude", "plugins", "data", "bruh-bruh"))
+	dataName := regexp.MustCompile(`[^A-Za-z0-9_-]`).ReplaceAllString(pluginID, "-")
+	env.DataDir = cmp.Or(env.DataDir, filepath.Join(env.Home, ".claude", "plugins", "data", dataName))
 	if env.PluginRoot == "" {
 		wd, _ := os.Getwd() // go run -C <plugin root>/mcp runs in mcp/
 		env.PluginRoot = filepath.Dir(wd)
