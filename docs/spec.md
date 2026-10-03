@@ -795,7 +795,7 @@ Agent-derived, accepted 2026-09-30.
 - `claude plugin validate` on the marketplace and the plugin.
 - Learn tests, in Go with fixture folders (section 8.5). Agent-derived, accepted 2026-10-03.
   - The scan finds each repository, and skips a `.git` file, `.claude/` folders, a repository inside a repository, the ledger, and an excluded folder.
-  - It removes the user information from each remote URL.
+  - It removes a user name or a token from each `http` or `https` remote URL, and keeps the SSH user.
   - It proposes projects from a shared name prefix.
   - Each project key matches section 3.2, gets the group prefix on a collision, and has at most 40 characters.
   - It never runs a command of a repository.
