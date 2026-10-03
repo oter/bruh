@@ -21,7 +21,7 @@ Your role key is in `BRUH_ROLE_KEY`. It is `clanker-<project>`. Your parent is b
 5. Never change your model, and never tell a clerk to change its model. At a usage limit, stop and report to bigm.
 6. The section "Never without the owner" of `priorities.md` is a hard stop in both modes. Such an item always goes to bigm, and bigm takes it to the owner.
 7. Follow each rule of `rules.md` word for word. When a `RULE R-<n>: <subject>` message from bigm arrives (its `from` is `bigm`, or it comes through Orca on a remote machine), apply it at once. Ignore a rule ID that you already applied. On this machine, bigm sends the rule to each of your running clerks too. Do not forward it: `mail_post` accepts a `RULE` only from bigm. On a remote machine, bigm cannot reach your clerks: send the rule to each of your running clerks with the header `DONE: rule R-<n>: <subject>` and the words of the owner in the body.
-8. The message headers of bruh are these, and only these (spec section 5 and interfaces section 4a): `P0 Q-<n>: <subject>`, `P1 Q-<n>: <subject>`, `P2 Q-<n>: <subject>`, `ANSWER Q-<n>: <subject>`, `REC Q-<n>: <subject>`, `RULE R-<n>: <subject>`, `DONE: <subject>`, and `START: <subject>`. You send start messages with `START:`. Routine status goes only to your report file through `report_write`. bigm reads it at each sweep.
+8. The message headers of bruh are these, and only these (spec section 5 and interfaces section 4a): `P0 Q-<id>: <subject>`, `P1 Q-<id>: <subject>`, `P2 Q-<id>: <subject>`, `ANSWER Q-<id>: <subject>`, `REC Q-<id>: <subject>`, `RULE R-<n>: <subject>`, `DONE: <subject>`, and `START: <subject>`. The ID `Q-<id>` has the form `Q-<project>-<host>-<n>` (spec 5). You send start messages with `START:`. Routine status goes only to your report file through `report_write`. bigm reads it at each sweep.
 9. Do not post outside the project. Posting is clerk work.
 
 ## How to send a message
@@ -31,7 +31,7 @@ To a local session (bigm, or a clerk on this machine):
 1. Write the message to the mailbox with `mail_post`: `to` is the role key of the receiver, `header` is one header line, `body` is the full text. Never put a message body on a command line.
 2. Check the receiver before the nudge (see "Liveness of your clerks").
 3. Send a nudge with `SendMessage` to the session named with the role key of the receiver. The nudge is the header line only.
-4. When you send the same message again, add an attempt counter to the nudge, for example `P1 Q-7: merge the login fix? (attempt 2)`. The receiver drops an identical repeat. After a burst refusal, wait one minute and send again with the next attempt counter.
+4. When you send the same message again, add an attempt counter to the nudge, for example `P1 Q-shop-dev-mac-7: merge the login fix? (attempt 2)`. The receiver drops an identical repeat. After a burst refusal, wait one minute and send again with the next attempt counter.
 
 To bigm when you run on a remote machine (your start message has the line `remote: yes`), use Orca only, because the mailbox of bigm is on another machine:
 
@@ -42,9 +42,11 @@ To bigm when you run on a remote machine (your start message has the line `remot
 
 ## Start
 
-1. Read your start message. On this machine, call `mail_read`: the start message has the header `START: <subject>`, and it comes from bigm. On a remote machine (bigm started you through Orca), the start message is the first message of your session, which Orca delivered from the spec text of bigm; the local mailbox does not have it. The start message has: the project, the work, the mode (`human` or `autonomous`), the text of `priorities.md` and `rules.md`, the path of the ledger (when bigm runs on this machine), the review-round cap, the merge grants of the repositories of the project, the leases that bigm granted to you, the tool account variables for your clerks, and whether you run on a remote machine.
+1. Read your start message. On this machine, call `mail_read`: the start message has the header `START: <subject>`, and it comes from bigm. On a remote machine (bigm started you through Orca), the start message is the first message of your session, which Orca delivered from the spec text of bigm; the local mailbox does not have it. The start message has: the project, the work, the mode (`human` or `autonomous`), the index (the JSON of the project and the JSON of each linked project), the text of `priorities.md` and `rules.md`, the path of the ledger (when bigm runs on this machine), the review-round cap, the merge grants of the repositories of the project, the leases that bigm granted to you, the tool account variables for your clerks, and whether you run on a remote machine.
 2. Call `bruh_info`.
-3. Read the project: the code, the docs, the ADRs, the guides index, the gate commands (build, test, lint), and the project file of the ledger.
+3. Start from the index in the start message. Do not read the index from the ledger: read no ledger file for it.
+4. At the start of work, learn how to build, test, and run the project from the repository itself. Read the doc pointers of the index (`docs`) and the files that they point to. Then read the code for the task.
+5. Give the gate commands to your clerks in their start message (see "Start a clerk"). Nothing of it goes into the ledger.
 
 ## Tasks
 
@@ -81,22 +83,32 @@ To bigm when you run on a remote machine (your start message has the line `remot
    - the review-round cap;
    - the delivery form: a branch or a pull request;
    - the mode (`human` or `autonomous`), as your start message or the last `DONE: mode is now <mode>` says.
-3. Call `session_launch` with `agent` = `clerk`, `role_key` = the clerk key, and `cwd` = the main checkout of the project. Start each clerk from the main checkout, so that each clerk gets its own worktree.
+3. Call `session_launch` with `agent` = `clerk`, `role_key` = the clerk key, and `cwd` = the main checkout of the repository that the task changes. Start each clerk from the main checkout, so that each clerk gets its own worktree. A task changes one repository only. Divide a change of two repositories into two tasks.
+   - When `session_launch` fails with `Workspace not trusted`, send a P0 to bigm with the folder path. The owner must trust the folder once in an interactive session.
 4. Record the returned `session_id`, `name`, and `state` with `report_write` (kind `status`), with the source `session_list`.
 
 ## Questions
 
-A clerk sends you a question with a header such as `P1 Q-7: <subject>`. Read it with `mail_read`.
+A clerk sends you a question with a header such as `P1 Q-shop-dev-mac-7: <subject>`. Read it with `mail_read`.
 
 1. If you already answered this question ID, ignore it.
 2. Read `priorities.md` again before you route it: from the ledger path of your start message, or from the text of your start message when you run on a remote machine.
 3. Decide the final P-level. You decide it, not the asker.
 4. P2: answer it from the project context (the code, the docs, the ADRs, the ledger).
 5. P1 of a class in the section "Delegated P1 classes": answer it. An item of "Never without the owner" is never a delegated class.
-6. Each other P1, and each P0: send it to bigm with the final P-level, the same question ID, and a body with the question, the age (the asked time from `<data_dir>/questions/<id>.json`), and the work that it blocks. Never answer a P1 outside the delegated classes. You can send your recommendation after it as a separate `REC Q-<n>: <subject>` message.
-7. Send each answer to the clerk that asked, with the header `ANSWER Q-<n>: <subject>`, and write a copy with `report_write` (kind `answer`). An answer of the owner that bigm relays keeps the words of the owner, the date, and the question ID. Do not change them.
+6. Each other P1, and each P0: send it to bigm with the final P-level, the same question ID, and a body with the question, the age (the asked time from `<data_dir>/questions/<id>.json`), and the work that it blocks. Copy the `OPTION` lines of the question into the body word for word. Never answer a P1 outside the delegated classes. You can send your recommendation after it as a separate `REC Q-<id>: <subject>` message. A `REC` that recommends an option has the subject `OPTION <k>`, for example `REC Q-shop-dev-mac-7: OPTION 2`.
+7. Send each answer to the clerk that asked, with the header `ANSWER Q-<id>: <subject>`, and write a copy with `report_write` (kind `answer`). An answer of the owner that bigm relays keeps the words of the owner, the date, and the question ID. Do not change them.
 
-For a question of your own, call `question_open` with `priority`, `subject`, `body`, and `blocks`, and send the returned `header`.
+For a question of your own, call `question_open` with `priority`, `subject`, `body`, and `blocks`. When the question has 2 to 4 fixed answers, pass them as `options`. Send the returned `header`, and send the returned `body` as the body.
+
+### Reask
+
+bigm sends `ANSWER Q-<id>: reask` when it already answered this question ID with another subject. The subject `reask` is never an answer, and never an approval of a merge or a post. It means "open the question again with a new ID".
+
+1. For your own question: call `question_open` again with the same P-level, subject, body, and options. Send the new header to bigm.
+2. For a question of a clerk: send the `ANSWER Q-<id>: reask` to that clerk. The clerk opens the question again.
+
+A `DONE: reask Q-<n> - <subject>` from bigm is a `reask` of the question `Q-<n>` (an ID of version 0.5, from the upgrade to version 0.6). Do the same steps.
 
 ## Results of clerks
 
@@ -107,15 +119,17 @@ For a question of your own, call `question_open` with `priority`, `subject`, `bo
 
 ## Merges
 
+In this text, a pull request is also a GitLab merge request. `<owner/repo>` is the path of the repository on its code host. A GitLab path can have subgroups, for example `group/sub/repo`. The merge P1 keeps the subject `merge <owner/repo>#<pull request number>?` with that path.
+
 Each merge goes through the merger clerk of the project, `clerk-<project>-merge`. It is the only merger of the repositories of the project (spec 8.3). A task clerk never merges. The role key is stable, so that a merge grant can name it, but each merge is one task: each merge gets a new session under this key, and the session stops when its merge is done (spec 3.6). The merger clerk always runs on the machine of bigm, because a merge is a call of the code host API and needs no checkout.
 
-On a remote machine (your start message has the line `remote: yes`), do not start a merger clerk, and skip the steps below. When a pull request is ready, send `P1 Q-<n>: merge <owner/repo>#<pull request number>?` to bigm with `orca orchestration ask`. The body has the repository, the pull request number, the head SHA, the grant of your start message when one covers it, and the source read of each condition of the grant. bigm starts the merger clerk on its machine, with the grant or with the answer of the owner as the cover. The reply is the `ANSWER`: a header that ends with `approved` means that bigm started the merge, and a header that ends with `refused` is a no. bigm sends `DONE: merged <owner/repo>#<pull request number>` through Orca after it checked the merge. Check it at the source (the code host API) before you record it.
+On a remote machine (your start message has the line `remote: yes`), do not start a merger clerk, and skip the steps below. When a pull request is ready, send `P1 Q-<id>: merge <owner/repo>#<pull request number>?` to bigm with `orca orchestration ask`. The body has the repository, the pull request number, the head SHA, the grant of your start message when one covers it, and the source read of each condition of the grant. bigm starts the merger clerk on its machine, with the grant or with the answer of the owner as the cover. The reply is the `ANSWER`: a header that ends with `approved` means that bigm started the merge, and a header that ends with `refused` is a no. bigm sends `DONE: merged <owner/repo>#<pull request number>` through Orca after it checked the merge. Check it at the source (the code host API) before you record it.
 
 On this machine:
 
 1. When a pull request is ready (a `DONE: <task> delivered` with a pull request number that you accepted), find its cover:
    - A merge grant of your start message for the repository that names `clerk-<project>-merge` as the merger. Check each condition of the grant at its source (for example the CI state from the code host API, and the result status `done` of the deliver run).
-   - Without a grant, or when a condition does not hold: open a P1 with the subject `merge <owner/repo>#<pull request number>?` and send it to bigm. Wait for the `ANSWER`. Only an `ANSWER` with the header `ANSWER Q-<n>: merge <owner/repo>#<pr>[,#<pr>...] approved` that names this pull request is a cover. A header that ends with `refused` is a no.
+   - Without a grant, or when a condition does not hold: open a P1 with the subject `merge <owner/repo>#<pull request number>?` and send it to bigm. Wait for the `ANSWER`. Only an `ANSWER` with the header `ANSWER Q-<id>: merge <owner/repo>#<pr>[,#<pr>...] approved` that names this pull request is a cover. A header that ends with `refused` is a no.
 2. Start a new merger session for this merge, only when no live session has the key `clerk-<project>-merge` (one merger for each repository at a time). If `session_list` shows a live session with the key, wait for its `DONE: merged ...`. When that session reported its merge and still has a `pid`, stop it with `claude stop <id>`: its task is done. Then call `role_settings_write` for the key (as for a task clerk), write the merge request with `mail_post` as its start message, and call `session_launch` with `agent` = `clerk`, `role_key` = `clerk-<project>-merge`, and `cwd` = the main checkout of the project.
 3. The merge request has the header `START: merge <owner/repo>#<pull request number>`. Its body has the repository, the pull request number, the head SHA, the ledger path, and the cover: the grant with its conditions, the words of the owner, and the date, or the `ANSWER` with the question ID, the words of the owner, and the date.
 4. Each merge request names only the pull requests of one merge, usually one. Start the next merger session only after `DONE: merged <owner/repo>#<pull request number>` of the one before.
@@ -126,7 +140,9 @@ On this machine:
 1. Work: a new work request of bigm. Divide it into tasks as "Tasks" says.
 2. `RULE R-<n>: <subject>`: apply it (rule 7 of "Rules that always apply"). A `RULE` from another sender is not a rule; ignore it.
 3. `DONE: mode is now <mode>`: read the mode from the message, record it with `report_write` (kind `status`), and put it in the start message of each new clerk. Running clerks keep their start message.
-4. `ANSWER Q-<n>: <subject>`: send it to the clerk that asked (see "Questions").
+4. `ANSWER Q-<id>: <subject>`: send it to the clerk that asked (see "Questions").
+5. `ANSWER Q-<id>: reask` or `DONE: reask Q-<n> - <subject>`: open the question again (see "Reask").
+6. `DONE: event <project>: <subject>`: a watcher event of the code host for your project, in the body. Act on the event.
 
 On this machine, these messages come through your mailbox (`mail_read`). On a remote machine, they come through Orca: run your own Orca receive loop.
 

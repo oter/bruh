@@ -6,7 +6,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
-The first release, `v0.1.0`, contains all parts of the [specification](docs/spec.md) version 0.5.
+The first release contains all parts of the [specification](docs/spec.md) version 0.6. The plugin version stays `0.1.0-dev`. The owner picks the release version.
 
 ### Added
 
@@ -24,5 +24,28 @@ The first release, `v0.1.0`, contains all parts of the [specification](docs/spec
 - Default `priorities.md`, `house-rules.md`, role settings, and a ledger template (spec 8, 13, and 14).
 - Tests: Go tests for the MCP server and the hook scripts, Node tests for the control flow of the workflows, shell tests for `lane.sh` and `post-findings.sh` with a fake `glab` and `gh`, a smoke test runbook and driver (`tests/smoke/`), and a load test runbook and driver (`tests/load/`) (spec 20).
 - Repository files: CI (the Go checks, the shell tests, and the Node tests on macOS and Linux; lint, the link check, and plugin validation on Linux), OpenSSF Scorecard, Dependabot, issue forms, a pull request template, `SECURITY.md`, `CONTRIBUTING.md`, and the Apache-2.0 license (spec 19).
+- The index of the ledger: `learn/tree.json` and `learn/projects/<key>.json`. The MCP tools `learn_scan` and `learn_refresh` write and refresh the index (spec 8.5).
+- The plugin agent `bruh:learner` and its eval set in `tests/eval/` (spec 8.5 and 20).
+- GitLab support through `glab`: the client, `repos_set`, the watcher, the merge train, and `post-findings.sh --hostname`.
+- P1 options in `question_open`.
+- The inputs `subject` and `asker` of `answer_write`.
+- The input `allow` of `role_settings_write`.
+- The init steps: ledger, hosts, pick, learn, confirm, diff with the ledger table, and trust (spec 16).
+- The ledger size check.
+
+### Changed
+
+- A question ID has the form `Q-<project>-<host>-<n>`. When an asker uses an ID again with another subject, bigm asks again with `ANSWER Q-<id>: reask`.
+- The watcher writes each event to the report file of the clanker of its project.
+- Init updates the template text of an existing ledger and keeps its rows.
+- A post grant names the host name.
+- The titles of the plugin options start with "bruh: ".
+- `repos_set` requires `project`.
+
+### Removed
+
+- The init answer keys `delegated_p1_classes`, `merge_grants`, and `remote_environments`. bigm records these values.
+- `init_plan` does not write the plugin options (`pluginConfigs`).
+- The report file `reports/watcher.jsonl` and the role key `watcher` of `report_read`.
 
 [Unreleased]: https://github.com/oter/bruh/commits/main
