@@ -273,16 +273,26 @@ func writeLearnFile(path string, v any) (changed bool, err error) {
 	return true, nil
 }
 
-// ledgerPath returns ledger_path of <data>/init/config.json, which init writes.
+// errNoLedger is the error of ledgerPath when <data>/init/config.json does not exist.
+var errNoLedger = errors.New("no ledger path in <data>/init/config.json; run /bruh:init")
+
+// ledgerPath returns ledger_path of <data>/init/config.json, which init writes. Only a missing file
+// returns errNoLedger. init always writes ledger_path, so a file that cannot be read, is not JSON,
+// or has no ledger_path is damaged and returns another error.
 func ledgerPath(env Env) (string, error) {
-	errNoLedger := errors.New("no ledger path in <data>/init/config.json; run /bruh:init")
 	raw, err := os.ReadFile(filepath.Join(env.DataDir, "init", "config.json"))
-	if err != nil {
+	if errors.Is(err, fs.ErrNotExist) {
 		return "", errNoLedger
 	}
+	if err != nil {
+		return "", fmt.Errorf("read <data>/init/config.json: %w", err)
+	}
 	var cfg initConfig
-	if err := json.Unmarshal(raw, &cfg); err != nil || cfg.LedgerPath == "" {
-		return "", errNoLedger
+	if err := json.Unmarshal(raw, &cfg); err != nil {
+		return "", fmt.Errorf("<data>/init/config.json: %w", err)
+	}
+	if cfg.LedgerPath == "" {
+		return "", errors.New("<data>/init/config.json has no ledger_path; run /bruh:init")
 	}
 	return cfg.LedgerPath, nil
 }

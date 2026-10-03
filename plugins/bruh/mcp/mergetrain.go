@@ -212,12 +212,15 @@ func mergeGate(env Env, r repoConfig, answer string, numbers []int) error {
 // checkAliasIdentity refuses a repository whose chosen remote in <ledger>/learn/projects/<project>.json
 // uses an SSH host alias (G10: the host of its URL differs from host.value, or host.value is null)
 // until a data row of the table under "## Identities" of <ledger>/projects/<project>.md names the
-// alias in its first cell and an account in its second (spec 8.5). No ledger path, no index file,
-// no repository with host_path r.Repo, or no alias: no check.
+// alias in its first cell and an account in its second (spec 8.5). No init config, no index file,
+// no repository with host_path r.Repo, or no alias: no check. A damaged init config refuses.
 func checkAliasIdentity(env Env, r repoConfig) error {
 	ledger, err := ledgerPath(env)
-	if err != nil {
+	if errors.Is(err, errNoLedger) {
 		return nil
+	}
+	if err != nil {
+		return err
 	}
 	raw, err := os.ReadFile(filepath.Join(ledger, "learn", "projects", r.Project+".json"))
 	if errors.Is(err, fs.ErrNotExist) {

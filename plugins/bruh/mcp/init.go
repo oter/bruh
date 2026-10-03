@@ -255,14 +255,14 @@ func fileHash(path string) (string, []byte, error) {
 // shq quotes s as one sh word.
 func shq(s string) string { return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'" }
 
-// mcpAllowRules lists the allow rules of the bruh MCP tools. init_apply is left out, so an
-// agent cannot write user settings without the user.
 // workflowAllowRules are the allow rules of the plugin workflows that the role sessions launch.
 var workflowAllowRules = []string{
 	"Workflow(bruh:deliver)", "Workflow(bruh:tickets)", "Workflow(bruh:implement-tickets)",
 	"Workflow(bruh:review-and-fix)", "Workflow(bruh:review-only)",
 }
 
+// mcpAllowRules lists the allow rules of the bruh MCP tools. init_apply is left out, so an
+// agent cannot write user settings without the user.
 func mcpAllowRules(slack bool) []string {
 	var rules []string
 	for _, t := range AllTools() {

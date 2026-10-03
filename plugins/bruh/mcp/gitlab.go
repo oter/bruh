@@ -46,7 +46,7 @@ func (m glMergeRequest) pull() hostPull {
 		URL:                 m.WebURL,
 		UpdatedAt:           m.UpdatedAt,
 		MergedAt:            m.MergedAt,
-		DetailedMergeStatus: m.DetailedMergeStatus,
+		DetailedMergeStatus: cmp.Or(m.DetailedMergeStatus, "missing"), // a missing field does not merge (G8)
 	}
 	if m.State == "opened" {
 		p.State = "open"

@@ -101,8 +101,10 @@ jq -e '(.workflow == "review-only" or .workflow == "review-and-fix")
 		and ([.file, .rule, .problem, .fix, .severity, .lens] | all(type == "string")))' "$file" >/dev/null 2>&1 ||
 	bad "$file: needs workflow, summaries, refuted, and confirmed[] with file, line, lens, rule, severity, problem, fix"
 
-# config_ledger prints the ledger path of the init config of the data folder.
-config_ledger() { jq -r '.ledger_path // empty' "$data/init/config.json" 2>/dev/null; }
+# config_ledger prints the ledger path of the init config of the data folder. It
+# fails when the file cannot be read, is not one JSON document, or has no
+# ledger_path: init always writes one.
+config_ledger() { jq -ers 'if length == 1 then .[0].ledger_path | select(type == "string" and . != "") else empty end' "$data/init/config.json" 2>/dev/null; }
 
 # has_grant exits 0 when the "Post grants" section of grants.md has a row
 # | <role key> | <host name> | <repository> | ... for BRUH_ROLE_KEY, the host name, and the repository.
@@ -146,10 +148,15 @@ refuse() {
 # (the host part of its scp or ssh:// URL differs from the host name, or
 # host.value is null; an https URL has none), and no row of "## Identities" of
 # projects/<key>.md names the alias with a non-empty account (spec 8.5, G10, as
-# checkAliasIdentity of the merge train). No ledger or no index file: no check.
+# checkAliasIdentity of the merge train). No init config or no index
+# file: no check. An init config that cannot be read or has no ledger_path, or an
+# index file that cannot be read, stops the script (fail closed).
 check_identity() {
-	ledger=$(config_ledger) || return 0
-	[ -n "$ledger" ] || return 0
+	[ -e "$data/init/config.json" ] || return 0
+	ledger=$(config_ledger) || {
+		err "could not read $data/init/config.json"
+		exit 1
+	}
 	set -- "$ledger"/learn/projects/*.json
 	[ -f "$1" ] || return 0
 	# The key is the file name, and neither it nor the alias holds a "/".

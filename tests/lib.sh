@@ -213,8 +213,8 @@ add_scratch_worktree() {
 
 # commit_all commits every file of the worktree $1 with a fixed test identity.
 commit_all() {
-	run git -C "$1" add -A
-	run git -C "$1" -c user.name=bruh-test -c user.email=bruh-test@example.com commit -q -m "$2"
+	run git -C "$1" add -A &&
+		run git -C "$1" -c user.name=bruh-test -c user.email=bruh-test@example.com commit -q -m "$2"
 }
 
 # wait_for polls a command every 10 seconds until it succeeds or $1 minutes pass.

@@ -231,6 +231,41 @@ func TestMergeGate(t *testing.T) {
 	}
 }
 
+// TestMergeGateDamagedConfig pins fail closed: an init config that exists but is damaged stops the
+// gate, also with a valid ANSWER, because the alias check cannot find the ledger. Only a missing
+// init config skips the alias check.
+func TestMergeGateDamagedConfig(t *testing.T) {
+	_, r := newFakeForge(t, "github")
+	for _, c := range []struct{ name, config string }{
+		{"not JSON", "not json"},
+		{"empty file", ""},
+		{"null", "null"},
+		{"no ledger_path", "{}"},
+		{"empty ledger_path", `{"ledger_path": ""}`},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			env := gateEnv(t, r, "")
+			if _, err := call(t, as(env, "bigm"), "mail_post", map[string]any{"to": "clerk-repo-merge", "header": "ANSWER Q-repo-host-4: merge owner/repo#9 approved", "body": "owner: yes"}); err != nil {
+				t.Fatal(err)
+			}
+			if err := mergeGate(env, r, "Q-repo-host-4", []int{9}); err != nil {
+				t.Fatalf("readable config: %v", err)
+			}
+			config := filepath.Join(env.DataDir, "init", "config.json")
+			if err := os.WriteFile(config, []byte(c.config), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			mustErr(t, mergeGate(env, r, "Q-repo-host-4", []int{9}), "<data>/init/config.json")
+			if err := os.Remove(config); err != nil {
+				t.Fatal(err)
+			}
+			if err := mergeGate(env, r, "Q-repo-host-4", []int{9}); err != nil {
+				t.Errorf("no init config: %v", err)
+			}
+		})
+	}
+}
+
 // TestMergeGateRefusesUncheckedAlias pins the identity rule of spec 8.5 (A13.2, G10): when the
 // chosen remote of the repository in the index uses an SSH host alias, the gate needs a confirmed
 // account for that alias in "Identities" of the project file before it checks the grant.
@@ -379,7 +414,7 @@ func TestMergeTrainGitLab(t *testing.T) {
 	r := repoConfig{Repo: "group/sub/shop", Host: "gitlab", APIURL: "https://gitlab.example.com/api/v4", Project: "shop", MergeMethod: "merge"}
 	for _, c := range []struct {
 		name          string
-		first, then   string // detailed_merge_status of the first two reads, and of each later read
+		first, then   string // detailed_merge_status of the first two reads, and of each later read; "" leaves it out
 		result        string
 		reason, value string
 		puts          int
@@ -390,6 +425,8 @@ func TestMergeTrainGitLab(t *testing.T) {
 		// The first read is the one before the checks; the second, after a green pipeline, still
 		// says checking, so the train must read the pipeline again before it merges.
 		{"checking then mergeable", "checking", "mergeable", "merged", "", "merged: true", 1, 2},
+		// An older GitLab sends no detailed_merge_status: the train must not merge (G8).
+		{"no detailed_merge_status", "", "", "skipped", "detailed_merge_status_missing", "detailed_merge_status: missing", 0, 1},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			// The merge call logs its stdin and marks the merge request merged; a read of the merge
@@ -411,7 +448,9 @@ projects/group%2Fsub%2Fshop/merge_requests/7)
 	fi
 	status=`+c.then+`
 	[ "$n" -gt 2 ] || status=`+c.first+`
-	echo '{"iid":7,"state":"opened","draft":false,"sha":"`+head+`","detailed_merge_status":"'"$status"'"}' ;;
+	dms=
+	[ -z "$status" ] || dms=',"detailed_merge_status":"'"$status"'"'
+	echo '{"iid":7,"state":"opened","draft":false,"sha":"`+head+`"'"$dms"'}' ;;
 projects/group%2Fsub%2Fshop/pipelines\?*)
 	echo pipeline >> "$dir/pipelines"
 	echo '[{"status":"success"}]' ;;

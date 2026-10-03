@@ -685,6 +685,39 @@ check "an unresolved alias posts nothing" eq "$(posts "$tmp/pfid5")" 0
 identities '| `gitlab.com-work` | work-account | 2026-10-03T00:00:00Z | read |'
 out=$(BRUH_ROLE_KEY=clerk-app-t5 pf "$tmp/pfid6" --data "$tmp/pfid" gitlab group/app 7 "$tmp/result.json" 2>&1; echo "exit $?")
 check "a null host.value with an Identities row for the alias allows the post" contains "$out" "exit 0"
+# An index file or an init config that cannot be read stops the post (B6).
+printf '{' >"$tmp/pfidledger/learn/projects/app.json"
+out=$(BRUH_ROLE_KEY=clerk-app-t5 pf "$tmp/pfid7" --data "$tmp/pfid" gitlab group/app 7 "$tmp/result.json" 2>&1; echo "exit $?")
+check "an index file that is not JSON stops post-findings (B6)" contains "$out" "exit 1"
+check "a bad index file names the index files" contains "$out" "could not read the index files"
+check "a bad index file posts nothing" eq "$(posts "$tmp/pfid7")" 0
+mkdir -p "$tmp/pfidbad/init" "$tmp/pfidbad/mail/clerk-app-t5"
+printf '{' >"$tmp/pfidbad/init/config.json"
+jq -n '{id: "1", from: "bigm", to: "clerk-app-t5", header: "ANSWER Q-app-host-7: post group/app#7 at ccccccc approved", body: "yes"}' >"$tmp/pfidbad/mail/clerk-app-t5/1.json"
+out=$(BRUH_ROLE_KEY=clerk-app-t5 pf "$tmp/pfid8" --data "$tmp/pfidbad" --answer Q-app-host-7 gitlab group/app 7 "$tmp/result.json" 2>&1; echo "exit $?")
+check "an init config that is not JSON stops post-findings, also with an ANSWER (B6)" contains "$out" "exit 1"
+check "a bad init config names the file" contains "$out" "could not read $tmp/pfidbad/init/config.json"
+check "a bad init config posts nothing" eq "$(posts "$tmp/pfid8")" 0
+# An init config with no ledger_path is damaged too: init always writes one.
+for c in empty null; do
+	if [ "$c" = empty ]; then : >"$tmp/pfidbad/init/config.json"; else echo null >"$tmp/pfidbad/init/config.json"; fi
+	out=$(BRUH_ROLE_KEY=clerk-app-t5 pf "$tmp/pfid9$c" --data "$tmp/pfidbad" --answer Q-app-host-7 gitlab group/app 7 "$tmp/result.json" 2>&1; echo "exit $?")
+	check "an init config that is $c stops post-findings, also with an ANSWER (B6)" contains "$out" "exit 1"
+	check "an init config that is $c names the file" contains "$out" "could not read $tmp/pfidbad/init/config.json"
+	check "an init config that is $c posts nothing" eq "$(posts "$tmp/pfid9$c")" 0
+done
+# Two JSON documents and a folder in place of the file are damaged too.
+printf '{"ledger_path":"%s"}{"ledger_path":"/other"}' "$tmp/pfidledger" >"$tmp/pfidbad/init/config.json"
+out=$(BRUH_ROLE_KEY=clerk-app-t5 pf "$tmp/pfid10" --data "$tmp/pfidbad" --answer Q-app-host-7 gitlab group/app 7 "$tmp/result.json" 2>&1; echo "exit $?")
+check "an init config with two JSON documents stops post-findings (B6)" contains "$out" "exit 1"
+check "an init config with two JSON documents names the file" contains "$out" "could not read $tmp/pfidbad/init/config.json"
+check "an init config with two JSON documents posts nothing" eq "$(posts "$tmp/pfid10")" 0
+rm "$tmp/pfidbad/init/config.json"
+mkdir "$tmp/pfidbad/init/config.json"
+out=$(BRUH_ROLE_KEY=clerk-app-t5 pf "$tmp/pfid11" --data "$tmp/pfidbad" --answer Q-app-host-7 gitlab group/app 7 "$tmp/result.json" 2>&1; echo "exit $?")
+check "an init config that is a folder stops post-findings (B6)" contains "$out" "exit 1"
+check "an init config that is a folder names the file" contains "$out" "could not read $tmp/pfidbad/init/config.json"
+check "an init config that is a folder posts nothing" eq "$(posts "$tmp/pfid11")" 0
 jq '.status = "stopped"' "$tmp/result.json" >"$tmp/stopped.json"
 out=$(unset BRUH_ROLE_KEY; pf "$tmp/pf7" --yes gitlab group/app 7 "$tmp/stopped.json" 2>&1; echo "exit $?")
 check "post-findings refuses a stopped result" contains "$out" "exit 2"

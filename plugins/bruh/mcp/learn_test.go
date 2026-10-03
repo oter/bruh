@@ -345,8 +345,10 @@ func TestWriteLearnFileOnlyOnChange(t *testing.T) {
 	}
 }
 
+// TestLedgerPath pins the errors of ledgerPath. Only a missing file is errNoLedger, which means "no
+// init yet". A file that is not JSON or has no ledger_path is damaged, because init always writes
+// ledger_path, so it gets another error: the alias check fails closed on it.
 func TestLedgerPath(t *testing.T) {
-	const wantErr = "no ledger path in <data>/init/config.json; run /bruh:init"
 	ledger := t.TempDir()
 	good, err := json.Marshal(initConfig{LedgerPath: ledger})
 	if err != nil {
@@ -356,12 +358,14 @@ func TestLedgerPath(t *testing.T) {
 		name    string
 		config  []byte // nil: no file <data>/init/config.json
 		want    string
-		wantErr bool
+		wantErr string // "" means no error
 	}{
-		{name: "no file", wantErr: true},
-		{name: "empty object", config: []byte("{}"), wantErr: true},
-		{name: "empty ledger_path", config: []byte(`{"ledger_path": ""}`), wantErr: true},
-		{name: "not JSON", config: []byte("not json"), wantErr: true},
+		{name: "no file", wantErr: errNoLedger.Error()},
+		{name: "empty object", config: []byte("{}"), wantErr: "<data>/init/config.json has no ledger_path; run /bruh:init"},
+		{name: "null", config: []byte("null"), wantErr: "<data>/init/config.json has no ledger_path; run /bruh:init"},
+		{name: "empty ledger_path", config: []byte(`{"ledger_path": ""}`), wantErr: "<data>/init/config.json has no ledger_path; run /bruh:init"},
+		{name: "not JSON", config: []byte("not json"), wantErr: "<data>/init/config.json: invalid character 'o' in literal null (expecting 'u')"},
+		{name: "empty file", config: []byte{}, wantErr: "<data>/init/config.json: unexpected end of JSON input"},
 		{name: "ledger_path set", config: good, want: ledger},
 	}
 	for _, tt := range tests {
@@ -377,9 +381,9 @@ func TestLedgerPath(t *testing.T) {
 				}
 			}
 			got, err := ledgerPath(env)
-			if tt.wantErr {
-				if err == nil || err.Error() != wantErr {
-					t.Errorf("ledgerPath() = %q, %v, want error %q", got, err, wantErr)
+			if tt.wantErr != "" {
+				if err == nil || err.Error() != tt.wantErr || errors.Is(err, errNoLedger) != (tt.config == nil) {
+					t.Errorf("ledgerPath() = %q, %v, want error %q", got, err, tt.wantErr)
 				}
 				return
 			}
