@@ -213,7 +213,7 @@ Review of L1 to L20 (2026-10-02). Four subagents reviewed the decisions above: a
     - The start commands of spec 3.4, the README, and the Slack README, and the `launch_command` of `init_plan`, have no `--settings`. The release smoke test checks the plain start: a plain `claude -p` in the ledger, with no tool and no MCP server, answers with the role name `bigm`.
 - R12: the plugin `userConfig` dialog opens when the owner installs the plugin. It is the documented way to ask fixed settings (name, handoff threshold, busy clerk cap). Not verified: whether a row of `/config` shows the title or the key (L16).
 
-Decisions of 2026-10-03, L38 to L45. The owner answered the open questions of spec 0.6 and changed the learn step twice: L40 first, then L42 and L43.
+Decisions of 2026-10-03, L38 to L46. The owner answered the open questions of spec 0.6 and changed the learn step twice: L40 first, then L42 and L43.
 
 - L38: the watcher writes each event to the report file of its project, not to one shared file, as spec section 9.2 says. The code changes: `mcp/watch.go` writes one file, `reports/watcher.jsonl`, today (R8). Owner decision 2026-10-03: the owner selected "Per-project files". Rejected: "spec matches code" (one watcher file). This settles item 4 of spec section 22. No decision used the one file as a premise.
   - The details of spec 9.2 are agent-derived, needs owner decision: the file name `reports/clanker-<project>.jsonl`; `project` required in `repos_set` and checked with `projectRE`, and an entry with no `project` skipped and logged; appends of whole lines with `O_APPEND` and no lock; one rule for the events (bigm relays an event from the `Monitor` line to the clanker that must act, with `mail_post` or Orca `send` and the header `DONE: event <project>: <subject>`, and the sweep reads with `since` only for missed lines); no role key `watcher` in `report_read`; the repositories of a retired clanker removed from `repos_set`.
@@ -268,6 +268,8 @@ Decisions of 2026-10-03, L38 to L45. The owner answered the open questions of sp
     - `answer_write` gets the input `subject` and stores it, and bigm calls it for each answer.
     - After a new install of a remote machine, a question can need more than one new ID, because each new ID moves the counter by one.
 - L45 (D8): the new items tagged "Agent-derived, needs owner decision" are built as written. They stay tagged and listed in spec section 22, item 3, and the owner reviews them during the onboarding run. The owner selected "Build as written". Owner decision 2026-10-03. Rejected: "Show me the list first".
+- L46: the first release is `v0.9.0`. It replaces "The first release is `v0.1.0`" of spec section 19. `plugin.json`, the bruh MCP server, and the Slack channel server report this version. Owner decision 2026-10-03.
+  - Premise changed: spec 19 said that the first release is `v0.1.0`, and that the build of version 0.6 keeps the version `0.1.0-dev` until the owner selects the release version. Dependent decisions re-decided: the version item of spec 19 is settled, and item 3 of spec section 22 no longer lists section 19.
 
 ## Knowledge
 

@@ -1,6 +1,6 @@
 # bruh specification
 
-Status: version 0.6, for the build (2026-10-03). The owner approved version 0.5 on 2026-09-30. On 2026-10-03, the owner accepted all earlier agent-derived items of version 0.6 and made eight decisions (design.md, L38 to L45). Section 25 lists the changes from version 0.5, and section 24 the changes from version 0.4.
+Status: version 0.6, for the build (2026-10-03). The owner approved version 0.5 on 2026-09-30. On 2026-10-03, the owner accepted all earlier agent-derived items of version 0.6 and made nine decisions (design.md, L38 to L46). Section 25 lists the changes from version 0.5, and section 24 the changes from version 0.4.
 
 This specification is the input for the implementation plan. The decision log is in [design.md](design.md). The verified facts and the field lessons are in [knowledge.md](knowledge.md). The process is shown as diagrams in [flow.md](flow.md). Each decision in this file has one tag:
 
@@ -773,8 +773,7 @@ Owner decision 2026-09-27: the repository is mature on day 0, proven by what it 
 - CI on each push and pull request: `gofmt`, `go vet`, `go test -race`, Markdown lint, link check, `claude plugin validate`, shellcheck, and the tests of section 20. Verify: `claude plugin validate` runs in CI without a login.
 - CI runs the tests on macOS and on Linux (section 10.2).
 - Branch protection on `main`, with the CI checks required.
-- Semantic version tags with GitHub releases, and `CHANGELOG.md` in the Keep a Changelog format. The first release is `v0.1.0`.
-- The build of version 0.6 keeps the version `0.1.0-dev` in `plugin.json` and in the MCP server. The owner selects the version number at the release. Agent-derived, needs owner decision.
+- Semantic version tags with GitHub releases, and `CHANGELOG.md` in the Keep a Changelog format. The first release is `v0.9.0`, and `plugin.json`, the bruh MCP server, and the Slack channel server report this version (owner decision 2026-10-03).
 - `LICENSE` with Apache-2.0 (the owner delegated the choice on 2026-09-29), `SECURITY.md`, `CONTRIBUTING.md`, issue templates, and a pull request template.
 - Dependabot for GitHub Actions versions. OpenSSF Scorecard workflow and badge.
 - CodeQL default setup on each push and pull request, Go fuzz tests of the parsers and the policy checks, and the CI tools pinned by hash. Agent-derived, accepted 2026-10-03 (the owner asked to handle the Scorecard alerts on 2026-10-01).
@@ -833,7 +832,7 @@ All numbered questions of version 0.3 are decided. Their answers are in design.m
 
 1. The ledger clerk (section 3.6): the reading of "clerks do all pushes" for the ledger.
 2. Each item in this file tagged "Agent-derived, accepted 2026-09-30".
-3. Each item in this file tagged "Agent-derived, needs owner decision". All of them are new on 2026-10-03 (design.md, L37, L38, L39, L42, L43, and L44). The build of 2026-10-03 adds more items with the same tag: the user information of a remote URL, the gaps of this specification that the build found, and five details of the build. They are in sections 3, 3.4, 3.5, 5, 6.4, 8.3, 8.5, 8.6, 9.1, 9.2, 10.1, 12, 14.2, 16, 17, 18, 19, and 20, and in the change list of section 25. Owner decision 2026-10-03: they are built as written, and the owner reviews them during the onboarding run (design.md, L45).
+3. Each item in this file tagged "Agent-derived, needs owner decision". All of them are new on 2026-10-03 (design.md, L37, L38, L39, L42, L43, and L44). The build of 2026-10-03 adds more items with the same tag: the user information of a remote URL, the gaps of this specification that the build found, and five details of the build. They are in sections 3, 3.4, 3.5, 5, 6.4, 8.3, 8.5, 8.6, 9.1, 9.2, 10.1, 12, 14.2, 16, 17, 18, and 20, and in the change list of section 25. The release version of section 19 is settled: owner decision 2026-10-03, the first release is `v0.9.0` (design.md, L46). Owner decision 2026-10-03: the other items are built as written, and the owner reviews them during the onboarding run (design.md, L45).
 4. Inbound messages (design.md, open question 6). Without a `crossSessionInbound` value, a session that bypasses permission prompts holds a message from a session that does not. Options, as design.md lists them: run all roles in one permission mode, or the init skill sets `crossSessionInbound: accept` in user settings. `accept` delivers every message from any session of the same operating-system user.
 
 ## 23. Changes from version 0.3
@@ -858,7 +857,7 @@ All numbered questions of version 0.3 are decided. Their answers are in design.m
 
 ## 25. Changes from version 0.5
 
-The owner ran `/bruh:init` for the first time on 2026-10-02. The changes come from the feedback of the owner, the decisions L1 to L45 of design.md ("Learn step and onboarding"), and reviews by subagents: four on the decisions (an adversarial reviewer, a checker of the claims against the code, a walk through the journey of the owner, and a search of the Claude Code docs), and two rounds of an adversarial reviewer and a checker on this specification. Each dependent that a "Premise changed" line names carries its own tag in its section.
+The owner ran `/bruh:init` for the first time on 2026-10-02. The changes come from the feedback of the owner, the decisions L1 to L46 of design.md ("Learn step and onboarding"), and reviews by subagents: four on the decisions (an adversarial reviewer, a checker of the claims against the code, a walk through the journey of the owner, and a search of the Claude Code docs), and two rounds of an adversarial reviewer and a checker on this specification. Each dependent that a "Premise changed" line names carries its own tag in its section.
 
 - Owner decision 2026-10-02: bruh learns the projects before the owner asks for work (sections 1 and 8.5). The init skill scans a root folder, the owner selects the projects with selects, and init stores the hierarchy and the index of each project as JSON in the ledger. Since the owner decisions of 2026-10-03, the index has no stack and no gates.
 - Premise changed: the delegated ruling of 2026-10-02 had the Go scan find the gates from exact task and target names. The owner decisions of 2026-10-03 below replace it in full: the Go scan reads git facts only. "No learn workflow" holds, so no role other than a clerk starts a workflow (section 3).
@@ -912,3 +911,4 @@ The owner ran `/bruh:init` for the first time on 2026-10-02. The changes come fr
 - Agent-derived, needs owner decision: the init skill checks the role key with `bruh_info` at the start of each run, and stops when the session has one. A session in the ledger folder is bigm, and `learn_scan` refuses a caller with a role key (sections 3.4, 8.5, 16, and 18).
 - Owner decision 2026-10-03: the owner accepted, as a set, every earlier item of version 0.6 tagged "Agent-derived, needs owner decision" ("Accept all, build now"). Each such item now has the tag "Agent-derived, accepted 2026-10-03".
 - Owner decision 2026-10-03: the new items tagged "Agent-derived, needs owner decision" are built as written. They stay tagged and listed in section 22, item 3, and the owner reviews them during the onboarding run. The owner selected "Build as written".
+- Owner decision 2026-10-03: the first release is `v0.9.0` (section 19).

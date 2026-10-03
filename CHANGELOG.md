@@ -6,7 +6,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
-The first release contains all parts of the [specification](docs/spec.md) version 0.6. The plugin version stays `0.1.0-dev`. The owner picks the release version.
+## [0.9.0] - 2026-10-03
+
+This is the first release of bruh. It contains all parts of the [specification](docs/spec.md) version 0.6.
 
 ### Added
 
@@ -48,4 +50,5 @@ The first release contains all parts of the [specification](docs/spec.md) versio
 - `init_plan` does not write the plugin options (`pluginConfigs`).
 - The report file `reports/watcher.jsonl` and the role key `watcher` of `report_read`.
 
-[Unreleased]: https://github.com/oter/bruh/commits/main
+[Unreleased]: https://github.com/oter/bruh/compare/v0.9.0...HEAD
+[0.9.0]: https://github.com/oter/bruh/releases/tag/v0.9.0

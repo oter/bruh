@@ -1,6 +1,6 @@
 {
   "name": "bruh",
-  "version": "0.1.0-dev",
+  "version": "0.9.0",
   "description": "Coordinate Claude Code sessions across projects and machines: bigm, clankers, clerks, and workflows.",
   "author": {
     "name": "oter"

@@ -38,7 +38,8 @@ BRUH_TRUSTED_REPO=<scratch folder>/bruh-smoke-home sh tests/smoke/run.sh --dry-r
 
 Before the run:
 
-- Stop your own bigm and your own `clerk-ledger`. These two role keys are fixed, and a nudge goes to a session name. The driver refuses to start when a live session has a name that the run uses: `bigm`, `clerk-ledger`, `clanker-smoke-<run>`, or a name that starts with `clerk-smoke-<run>-`.
+- Stop your own bigm and your own `clerk-ledger`. These two role keys are fixed, and a nudge goes to a session name. The driver refuses to start when the name of a live session starts with `bigm`, `clerk-ledger`, `clanker-smoke-<run>`, or `clerk-smoke-<run>-`.
+- Claude Code gives a session with no name the name `<folder name>-<hex>`. When the name of your ledger folder starts with `bigm`, each open session in that folder stops the run. Before the run, close or rename each session whose name starts with `bigm`.
 - The driver refuses to start when the plugin data folder of the checkout (`~/.claude/plugins/data/bruh-inline/`) already has state of `bigm` or `clerk-ledger`, such as `mail/bigm/` or `handoffs/bigm.md`.
 
 ## Environment variables

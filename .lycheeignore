@@ -1,0 +1,3 @@
+# Release tag and compare links of this repo resolve only after the release tag is pushed.
+^https://github\.com/oter/bruh/releases/tag/v
+^https://github\.com/oter/bruh/compare/v
