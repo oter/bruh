@@ -429,6 +429,7 @@ while [ $# -gt 0 ]; do
 	case $1 in
 	-X) method=$2; shift ;;
 	--input | -H) [ "$1" = --input ] && input=$2; shift ;;
+	--hostname) shift ;;
 	api | --paginate) ;;
 	*) path=$1 ;;
 	esac
@@ -482,6 +483,8 @@ pf() {
 	FAKE_DIR=$d FAKE_HEAD=${FAKE_HEAD:-$RH} PATH="$tmp/fakebin:$PATH" sh "$post" "$@"
 }
 posts() { grep -c . "$1/posted.jsonl"; }
+# every <file> <text>: the file has lines, and each line contains the text.
+every() { [ -s "$1" ] && ! grep -vqF -- "$2" "$1"; }
 # Each posted body starts and ends with the marker line and says "Agent review".
 marked() {
 	jq -e --arg m "$2" '.body | split("\n") as $l | $l[0] == $m and $l[-1] == $m and contains("Agent review")' "$1/posted.jsonl" >/dev/null &&
@@ -552,7 +555,9 @@ cat >"$tmp/pfledger/grants.md" <<'MD'
 
 | Poster role key | Host | Repository | Conditions | Owner words | Date (UTC) | Question ID |
 |---|---|---|---|---|---|---|
-| `clerk-app-t2` | gitlab | `group/app` | review results | "post reviews" | 2026-09-30T10:00:00Z | Q-app-host-2 |
+| `clerk-app-t2` | gitlab.com | `group/app` | review results | "post reviews" | 2026-09-30T10:00:00Z | Q-app-host-2 |
+| `clerk-app-t3` | gitlab | `group/app` | review results | "post reviews" | 2026-09-30T10:00:00Z | Q-app-host-3 |
+| `clerk-app-t4` | gitlab.example.com | `group/app` | review results | "post reviews" | 2026-09-30T10:00:00Z | Q-app-host-4 |
 MD
 out=$(BRUH_ROLE_KEY=clerk-app-t1 pf "$tmp/pf3" --data "$tmp/pfdata" gitlab group/app 7 "$tmp/result.json" 2>&1; echo "exit $?")
 check "a merge grant row is not a post grant" contains "$out" "exit 3"
@@ -563,6 +568,12 @@ check "a post grant covers only its host" contains "$out" "exit 3"
 out=$(BRUH_ROLE_KEY=clerk-app-t2 pf "$tmp/pf3" --data "$tmp/pfdata" gitlab group/app 7 "$tmp/result.json" 2>&1; echo "exit $?")
 check "a post grant row for the repository and the role key allows the post" contains "$out" "exit 0"
 check "the post grant posts each body" eq "$(posts "$tmp/pf3")" 3
+out=$(BRUH_ROLE_KEY=clerk-app-t3 pf "$tmp/pf3kind" --data "$tmp/pfdata" gitlab group/app 7 "$tmp/result.json" 2>&1; echo "exit $?")
+check "a post grant row with the host kind gitlab is not a grant for gitlab.com" contains "$out" "exit 3"
+out=$(BRUH_ROLE_KEY=clerk-app-t4 pf "$tmp/pf3self" --data "$tmp/pfdata" --hostname gitlab.example.com gitlab group/app 7 "$tmp/result.json" 2>&1; echo "exit $?")
+check "a post grant row for gitlab.example.com allows the post with --hostname gitlab.example.com" contains "$out" "exit 0"
+out=$(BRUH_ROLE_KEY=clerk-app-t4 pf "$tmp/pf3dflt" --data "$tmp/pfdata" gitlab group/app 7 "$tmp/result.json" 2>&1; echo "exit $?")
+check "a post grant row for gitlab.example.com does not allow the post without --hostname" contains "$out" "exit 3"
 out=$(unset BRUH_ROLE_KEY; FAKE_REJECT_INLINE=1 pf "$tmp/pf4" --yes gitlab group/app 7 "$tmp/result.json" 2>&1)
 check "a rejected inline position becomes a general comment" contains "$out" "0 inline, 2 general, 0 failed"
 # shellcheck disable=SC2016 # literal backticks
@@ -576,6 +587,71 @@ check "GitHub inline comments name the commit, the path, and the line" eq "$(jq 
 check "GitHub posts go to the pull request" contains "$(cat "$tmp/pf6/calls")" "repos/owner/app/pulls/7/comments"
 out=$(unset BRUH_ROLE_KEY; pf "$tmp/pf6" --yes github owner/app 7 "$tmp/result.json" 2>&1)
 check "GitHub rerun posts nothing new" eq "$(posts "$tmp/pf6")" 3
+# --hostname goes to each glab and gh call; the default is the public host of the kind.
+(unset BRUH_ROLE_KEY; pf "$tmp/pfhself" --hostname gitlab.example.com --yes gitlab group/app 7 "$tmp/result.json" >/dev/null 2>&1)
+check "each glab call of --hostname gitlab.example.com names the host" every "$tmp/pfhself/calls" '--hostname gitlab.example.com '
+(unset BRUH_ROLE_KEY; pf "$tmp/pfhgl" --yes gitlab group/app 7 "$tmp/result.json" >/dev/null 2>&1)
+check "each glab call without --hostname names gitlab.com" every "$tmp/pfhgl/calls" '--hostname gitlab.com '
+(unset BRUH_ROLE_KEY; pf "$tmp/pfhgh" --yes github owner/app 7 "$tmp/result.json" >/dev/null 2>&1)
+check "each gh call without --hostname names github.com" every "$tmp/pfhgh/calls" '--hostname github.com '
+out=$(unset BRUH_ROLE_KEY; pf "$tmp/pfhbad" --hostname 'x;y' --yes gitlab group/app 7 "$tmp/result.json" 2>&1; echo "exit $?")
+check "post-findings refuses a bad --hostname" contains "$out" "exit 2"
+check "a refused --hostname reaches no code host" eq "$(grep -c . "$tmp/pfhbad/calls")" 0
+# A remote with an SSH host alias needs a confirmed account in "Identities" of the
+# project file before a role session posts, also with a post grant; a manual session is not checked.
+mkdir -p "$tmp/pfid/init" "$tmp/pfidledger/learn/projects" "$tmp/pfidledger/projects"
+jq -n --arg l "$tmp/pfidledger" '{ledger_path: $l}' >"$tmp/pfid/init/config.json"
+cat >"$tmp/pfidledger/grants.md" <<'MD'
+# Grants
+
+## Post grants
+
+| Poster role key | Host | Repository | Conditions | Owner words | Date (UTC) | Question ID |
+|---|---|---|---|---|---|---|
+| `clerk-app-t5` | gitlab.com | `group/app` | review results | "post reviews" | 2026-09-30T10:00:00Z | Q-app-host-5 |
+MD
+cat >"$tmp/pfidledger/learn/projects/app.json" <<'JSON'
+{
+  "key": "app",
+  "purpose": null,
+  "main": "app",
+  "repos": [
+    {
+      "path": "app",
+      "remotes": [{"name": "origin", "url": "git@gitlab.com-work:group/app.git"}],
+      "remote": "origin",
+      "host": {"value": "gitlab.com", "source": "git"},
+      "kind": "gitlab",
+      "api_url": "https://gitlab.com/api/v4",
+      "host_path": "group/app",
+      "default_branch": "main",
+      "state": "present"
+    }
+  ],
+  "links": [],
+  "docs": []
+}
+JSON
+# identities [<row>]: writes projects/app.md with the Identities table and the row, if any.
+identities() {
+	printf '# app\n\n## Identities\n\n| Credential | Identity | Checked (UTC) | Source read |\n|---|---|---|---|\n%s\n' "${1:-}" >"$tmp/pfidledger/projects/app.md"
+}
+identities
+out=$(BRUH_ROLE_KEY=clerk-app-t5 pf "$tmp/pfid1" --data "$tmp/pfid" gitlab group/app 7 "$tmp/result.json" 2>&1; echo "exit $?")
+check "a post grant does not cover a remote with an SSH host alias and no Identities row" contains "$out" "exit 3"
+check "the refusal of an unchecked alias names the alias" contains "$out" "gitlab.com-work"
+check "an unchecked alias posts nothing" eq "$(posts "$tmp/pfid1")" 0
+# shellcheck disable=SC2016 # literal backticks
+identities '| `gitlab.com-work` |  | 2026-10-03T00:00:00Z | read |'
+out=$(BRUH_ROLE_KEY=clerk-app-t5 pf "$tmp/pfid2" --data "$tmp/pfid" gitlab group/app 7 "$tmp/result.json" 2>&1; echo "exit $?")
+check "an Identities row with an empty identity does not confirm the alias" contains "$out" "exit 3"
+# shellcheck disable=SC2016 # literal backticks
+identities '| `gitlab.com-work` | work-account | 2026-10-03T00:00:00Z | read |'
+out=$(BRUH_ROLE_KEY=clerk-app-t5 pf "$tmp/pfid3" --data "$tmp/pfid" gitlab group/app 7 "$tmp/result.json" 2>&1; echo "exit $?")
+check "an Identities row with an identity for the alias allows the post" contains "$out" "exit 0"
+identities
+out=$(unset BRUH_ROLE_KEY; pf "$tmp/pfid4" --data "$tmp/pfid" --yes gitlab group/app 7 "$tmp/result.json" 2>&1; echo "exit $?")
+check "a manual session with --yes is not checked for the alias" contains "$out" "exit 0"
 jq '.status = "stopped"' "$tmp/result.json" >"$tmp/stopped.json"
 out=$(unset BRUH_ROLE_KEY; pf "$tmp/pf7" --yes gitlab group/app 7 "$tmp/stopped.json" 2>&1; echo "exit $?")
 check "post-findings refuses a stopped result" contains "$out" "exit 2"

@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -25,6 +26,10 @@ type trainResult struct {
 	MergeSHA string `json:"merge_commit_sha,omitempty"`
 	Source   Source `json:"source"`
 }
+
+// gitlabWaitStatuses are the values of detailed_merge_status of GitLab that the merge train waits
+// on, as on GitHub unknown (gap G8 of the v0.6 spec): mergeable merges, and each other value skips.
+var gitlabWaitStatuses = []string{"checking", "unchecked", "preparing", "ci_still_running", "approvals_syncing"}
 
 func sleepCtx(ctx context.Context, d time.Duration) bool {
 	select {
@@ -70,7 +75,8 @@ checks:
 			return done("skipped", "checks_"+state, state)
 		}
 		if state == "success" {
-			// GitHub also knows the required checks and reviews of the branch protection.
+			// The host also knows the required checks and reviews: mergeable_state of GitHub, and
+			// detailed_merge_status of GitLab (G8).
 			q, err := h.Pull(ctx, n)
 			if err != nil {
 				return done("skipped", "read failed: "+err.Error(), "error")
@@ -78,6 +84,12 @@ checks:
 			switch {
 			case q.Head.SHA != sha:
 				return done("skipped", "head_moved", "head: "+q.Head.SHA)
+			case q.DetailedMergeStatus == "mergeable":
+				break checks
+			case q.DetailedMergeStatus != "":
+				if v := q.DetailedMergeStatus; !slices.Contains(gitlabWaitStatuses, v) {
+					return done("skipped", "detailed_merge_status_"+v, "detailed_merge_status: "+v)
+				}
 			case q.MergeableState == "blocked" || q.MergeableState == "behind" || q.MergeableState == "dirty":
 				return done("skipped", "mergeable_state_"+q.MergeableState, "mergeable_state: "+q.MergeableState)
 			case q.MergeableState != "unknown":
@@ -142,15 +154,22 @@ func approves(header, qid, repo string, numbers []int) bool {
 	return true
 }
 
-// mergeGate is a speed bump (principle 2): it refuses the merge train unless the caller is the
-// merger clerk clerk-<project>-merge of the project of the repository, and either grants.md of the
-// ledger has a row for this repository and this key, or the mailbox of the caller holds an approval
-// of bigm to the question answer that names this repository and each of numbers. A session with
-// Bash can still merge by other means.
+// mergeGate is a speed bump (principle 2): it refuses the merge train unless the repository has a
+// project (G2), the caller is the merger clerk clerk-<project>-merge of that project, the account
+// of an SSH host alias is confirmed (checkAliasIdentity), and either grants.md of the ledger has a
+// row for this repository and this key, or the mailbox of the caller holds an approval of bigm to
+// the question answer that names this repository and each of numbers. A session with Bash can
+// still merge by other means.
 func mergeGate(env Env, r repoConfig, answer string, numbers []int) error {
+	if r.Project == "" {
+		return fmt.Errorf("%s: no project; bigm calls repos_set with project", r.Repo)
+	}
 	k, err := ParseRoleKey(env.RoleKey)
 	if err != nil || k.Role != "clerk" || k.Task != "merge" || k.Project != r.Project {
 		return fmt.Errorf("merge-train runs only in the merger clerk clerk-%s-merge (BRUH_ROLE_KEY is %q)", r.Project, env.RoleKey)
+	}
+	if err := checkAliasIdentity(env, r); err != nil {
+		return err
 	}
 	if answer != "" {
 		if !qidRE.MatchString(answer) {
@@ -173,12 +192,11 @@ func mergeGate(env Env, r repoConfig, answer string, numbers []int) error {
 		return fmt.Errorf("no ANSWER %s from bigm in the mailbox of %s that approves these merges; its header must be %q",
 			answer, env.RoleKey, "ANSWER "+answer+": merge "+r.Repo+"#"+strings.Join(want, ",#")+" approved")
 	}
-	var cfg initConfig
-	raw, err := os.ReadFile(filepath.Join(env.DataDir, "init", "config.json"))
-	if err != nil || json.Unmarshal(raw, &cfg) != nil || cfg.LedgerPath == "" {
-		return errors.New("no ledger path in <data>/init/config.json; run /bruh:init, or pass --answer Q-<id>")
+	ledger, err := ledgerPath(env)
+	if err != nil {
+		return fmt.Errorf("%w, or pass --answer Q-<id>", err)
 	}
-	grants, err := os.ReadFile(filepath.Join(cfg.LedgerPath, "grants.md"))
+	grants, err := os.ReadFile(filepath.Join(ledger, "grants.md"))
 	if err != nil {
 		return err
 	}
@@ -189,6 +207,55 @@ func mergeGate(env Env, r repoConfig, answer string, numbers []int) error {
 		}
 	}
 	return fmt.Errorf("grants.md has no merge grant for %s and %s; ask for a P1 answer and pass --answer Q-<id>", r.Repo, env.RoleKey)
+}
+
+// checkAliasIdentity refuses a repository whose chosen remote in <ledger>/learn/projects/<project>.json
+// uses an SSH host alias (G10: the host of its URL differs from host.value, or host.value is null)
+// until a data row of the table under "## Identities" of <ledger>/projects/<project>.md names the
+// alias in its first cell and an account in its second (spec 8.5). No ledger path, no index file,
+// no repository with host_path r.Repo, or no alias: no check.
+func checkAliasIdentity(env Env, r repoConfig) error {
+	ledger, err := ledgerPath(env)
+	if err != nil {
+		return nil
+	}
+	raw, err := os.ReadFile(filepath.Join(ledger, "learn", "projects", r.Project+".json"))
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	var pf projectFile
+	if err := json.Unmarshal(raw, &pf); err != nil {
+		return fmt.Errorf("learn/projects/%s.json: %w", r.Project, err)
+	}
+	i := slices.IndexFunc(pf.Repos, func(x indexRepo) bool { return x.HostPath == r.Repo })
+	if i < 0 {
+		return nil
+	}
+	repo := pf.Repos[i]
+	j := slices.IndexFunc(repo.Remotes, func(x remote) bool { return x.Name == repo.Remote })
+	if j < 0 {
+		return nil
+	}
+	_, alias, _, _ := splitRemoteURL(repo.Remotes[j].URL)
+	if alias == "" || repo.Host.Value != nil && strings.EqualFold(alias, *repo.Host.Value) {
+		return nil
+	}
+	md, _ := os.ReadFile(filepath.Join(ledger, "projects", r.Project+".md")) // no file: no row
+	in := false
+	for line := range strings.SplitSeq(string(md), "\n") {
+		if strings.HasPrefix(line, "#") {
+			in = strings.TrimSpace(line) == "## Identities"
+			continue
+		}
+		if cells := tableCells(line); in && len(cells) >= 2 && cells[0] == alias && cells[1] != "" {
+			return nil
+		}
+	}
+	return fmt.Errorf(`the remote of %s uses the SSH host alias %s, so its account is not checked; the owner confirms the account in "Identities" of projects/%s.md (a row for %s)`,
+		r.Repo, alias, r.Project, alias)
 }
 
 // tableCells splits a Markdown table row at the pipes that are not escaped, and trims the cells.
