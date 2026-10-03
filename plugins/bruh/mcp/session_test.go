@@ -91,7 +91,7 @@ func TestSessionLaunchArgv(t *testing.T) {
 	}
 
 	// An installed plugin root gets no --plugin-dir.
-	env.PluginRoot = filepath.Join(env.Home, ".claude", "plugins", "cache", "oter", "bruh", "0.9.0")
+	env.PluginRoot = filepath.Join(env.Home, ".claude", "plugins", "cache", "oter", "bruh", "0.10.0")
 	if err := os.MkdirAll(env.PluginRoot, 0o700); err != nil {
 		t.Fatal(err)
 	}
