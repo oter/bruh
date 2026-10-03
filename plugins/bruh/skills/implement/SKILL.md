@@ -32,7 +32,7 @@ The scripts are `${CLAUDE_PLUGIN_ROOT}/scripts/lane.sh` and `${CLAUDE_PLUGIN_ROO
 - In a bruh role session, a clerk runs this skill. The clerk is the orchestrator. It sends each question to its clanker, and it posts only as "Post a review" says.
 - In a manual session of the owner, the session is the orchestrator, and the owner answers each question in the terminal.
 - The Workflow tool asks for an opt-in before a workflow runs. The init skill adds the allow rule `Workflow(bruh:<name>)` for each workflow of this skill. In a role session, a refusal of the Workflow tool is a P0 to the clanker. Do not try another form.
-- Each workflow can ask a question while it runs (spec 6.2): an agent opens it with `question_open`, sends its header to the session, and waits with `answer_wait` up to `args.deadline_seconds` (default 3600). When the deadline passes, the run returns `status: question`. Answer it, add the answer to `args.answers` (`{"Q-<n>": "<answer>"}`), and relaunch with `resumeFromRunId`: the agents before the question return their cached results.
+- Each workflow can ask a question while it runs (spec 6.2): an agent opens it with `question_open`, sends its header to the session, and waits with `answer_wait` up to `args.deadline_seconds` (default 3600). When the deadline passes, the run returns `status: question`. Answer it, add the answer to `args.answers` (`{"Q-<id>": "<answer>"}`), and relaunch with `resumeFromRunId`: the agents before the question return their cached results.
 
 ## Rule zero: the orchestrator does not touch the code
 
@@ -106,7 +106,7 @@ For a change of another author, run `/bruh:review-only` with `args = {root, base
 A workflow never posts (spec 6.1). A post goes out under an account of the owner, so it is on the list "Never without the owner". The script `post-findings.sh` needs a cover for each post, and it checks the cover by structure:
 
 - In a manual session of the owner (no `BRUH_ROLE_KEY`): `--yes`, after the owner said yes to this post in the terminal.
-- In a role session: `--answer Q-<n>`, with the message of bigm `ANSWER Q-<n>: post <owner/repo>#<number> at <head SHA> approved` in the mailbox of the caller, or a row of the section "Post grants" of `grants.md` for the role key, the host, and the repository. `--yes` is refused.
+- In a role session: `--answer Q-<id>`, with the message of bigm `ANSWER Q-<id>: post <owner/repo>#<number> at <head SHA> approved` in the mailbox of the caller, or a row of the section "Post grants" of `grants.md` for the role key, the host, and the repository. `--yes` is refused.
 
 1. Save the result of the workflow. Use the MCP tool `result_save` (`name`, for example `review-only-42`, and the result object); it returns the path. It works in a manual session too: without `BRUH_ROLE_KEY`, it saves under `<data>/results/owner/`. Never write a result file yourself (principle 3).
 2. Run the dry run and show its output to the owner (in a role session, put it in the question to the clanker):
@@ -116,7 +116,7 @@ A workflow never posts (spec 6.1). A post goes out under an account of the owner
    sh ${CLAUDE_PLUGIN_ROOT}/scripts/post-findings.sh --dry-run github <owner/repo> <pull request number> <result path>
    ```
 
-3. Post with the cover in place of `--dry-run`: `--yes` in a manual session; `--data <data_dir>` (a post grant) or `--data <data_dir> --answer Q-<n>` in a role session. Without a cover, the script refuses (exit code 3).
+3. Post with the cover in place of `--dry-run`: `--yes` in a manual session; `--data <data_dir>` (a post grant) or `--data <data_dir> --answer Q-<id>` in a role session. Without a cover, the script refuses (exit code 3).
 
 The script posts one summary note (the lenses, the confirmed and the refuted counts, and one line for each lens), then one comment for each confirmed finding on its line. For `/bruh:review-and-fix`, it also posts a note of the fixes: what is fixed and what is open. Each body starts and ends with the marker line `<!-- bruh:<role key> -->` (`<!-- bruh:owner -->` in a manual session), and the first text is "Agent review". The watcher uses the marker to tell agent posts from human posts.
 
