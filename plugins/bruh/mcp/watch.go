@@ -76,8 +76,9 @@ type watchEvent struct {
 }
 
 type watcher struct {
-	env Env
-	out io.Writer
+	env    Env
+	out    io.Writer
+	errOut io.Writer // the log of skipped entries; runWatch sets os.Stderr
 }
 
 // emit prints one report line and appends it to reports/clanker-<project>.jsonl, the report
@@ -286,7 +287,7 @@ func (w *watcher) pollAll(ctx context.Context, cfg reposConfig, hosts []codeHost
 
 // runWatch polls every interval_seconds until ctx ends, or once.
 func runWatch(ctx context.Context, env Env, out io.Writer, once bool) error {
-	w := &watcher{env: env, out: out}
+	w := &watcher{env: env, out: out, errOut: os.Stderr}
 	if once {
 		return pollOnce(ctx, env, w)
 	}
@@ -325,7 +326,22 @@ func pollOnce(ctx context.Context, env Env, w *watcher) error {
 	return pollWith(ctx, cfg, w)
 }
 
+// pollWith polls the entries of cfg that have a project. It logs each entry without one
+// and skips it, because an event needs the project of its report file.
 func pollWith(ctx context.Context, cfg reposConfig, w *watcher) error {
+	errOut := w.errOut
+	if errOut == nil {
+		errOut = os.Stderr
+	}
+	all := cfg.Repos
+	cfg.Repos = nil
+	for _, r := range all {
+		if r.Project == "" {
+			fmt.Fprintf(errOut, "%s: no project; bigm calls repos_set with project\n", r.Repo)
+			continue
+		}
+		cfg.Repos = append(cfg.Repos, r)
+	}
 	var hosts []codeHost
 	for _, r := range cfg.Repos {
 		h, err := newHost(r)

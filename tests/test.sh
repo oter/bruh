@@ -1,9 +1,9 @@
 #!/bin/sh
-# Tests for tests/lib.sh and for the dry runs of the smoke and load drivers.
+# Tests for tests/lib.sh and for the dry runs of the smoke, load, and learner eval drivers.
 # No Claude session is started. Run: sh tests/test.sh
 set -u
 here=$(cd "$(dirname "$0")" && pwd)
-# shellcheck source=tests/lib.sh
+# shellcheck source=tests/lib.sh disable=SC1091 # followed when tests/lib.sh is an input, as in CI
 . "$here/lib.sh"
 
 tmp=$(mktemp -d)
@@ -274,6 +274,25 @@ load8=$(BRUH_TRUSTED_REPO="$tmp/repo" LOAD_RUN=dry3 sh "$here/load/run.sh" --dry
 check "load dry run defaults to 8 sessions" contains "$load8" "clerk-load-dry3-p4-s --permission-mode"
 check "load refuses --sessions 1" not sh "$here/load/run.sh" --dry-run --sessions 1
 check "load refuses an odd --sessions" not sh "$here/load/run.sh" --dry-run --sessions 3
+
+# Learner eval driver: dry run and the compare rule of spec 20
+eout=$(sh "$here/eval/run.sh" --dry-run 2>&1)
+check "learner eval dry run exits 0" eq "$(sh "$here/eval/run.sh" --dry-run >/dev/null 2>&1; echo $?)" 0
+check "learner eval dry run prints one learner command for each case" eq "$(printf '%s\n' "$eout" | grep -c 'claude -p --agent bruh:learner')" "$(find "$here/eval/learner" -mindepth 1 -maxdepth 1 -type d | wc -l | tr -d ' ')"
+check "learner eval dry run loads the plugin of the checkout" contains "$eout" "--plugin-dir $(cd "$here/.." && pwd)/plugins/bruh"
+mkdir -p "$tmp/eval"
+printf 'LINK auth: shop/go.mod:5\nDOC: shop/README.md\n' >"$tmp/eval/expected.txt"
+cp "$tmp/eval/expected.txt" "$tmp/eval/passes-the-expected-lines.txt"
+printf 'LINK auth: shop/go.mod:5\nDOC: shop/README.md\nDOC: shop/CLAUDE.md\n' >"$tmp/eval/allows-an-extra-doc-line.txt"
+printf 'PURPOSE: The shop service sells items.\nI read the files of shop.\nLINK auth: shop/go.mod:5\nDOC: shop/README.md\n' >"$tmp/eval/ignores-other-text.txt"
+printf 'LINK auth: shop/go.mod:5\nLINK auth: shop/README.md:3\nDOC: shop/README.md\n' >"$tmp/eval/fails-an-extra-link-line.txt"
+printf 'DOC: shop/README.md\n' >"$tmp/eval/fails-a-missing-line.txt"
+check "learner eval compare passes the expected lines" sh "$here/eval/run.sh" --compare "$tmp/eval/expected.txt" "$tmp/eval/passes-the-expected-lines.txt"
+check "learner eval compare allows an extra DOC line" sh "$here/eval/run.sh" --compare "$tmp/eval/expected.txt" "$tmp/eval/allows-an-extra-doc-line.txt"
+check "learner eval compare ignores other text" sh "$here/eval/run.sh" --compare "$tmp/eval/expected.txt" "$tmp/eval/ignores-other-text.txt"
+check "learner eval compare fails an extra LINK line" not sh "$here/eval/run.sh" --compare "$tmp/eval/expected.txt" "$tmp/eval/fails-an-extra-link-line.txt"
+check "learner eval compare fails a missing line" not sh "$here/eval/run.sh" --compare "$tmp/eval/expected.txt" "$tmp/eval/fails-a-missing-line.txt"
+check "learner eval expected files have only closed lines" not grep -Eqv '^$|^(LINK [a-z0-9-]+: [^ ]+:[0-9]+|DOC: [^ ]+)$' "$here"/eval/learner/*/expected.txt
 
 # The MCP server accepts every call of the drivers: the sender policy of mail_post
 # and the parent checks of role_settings_write (final review M1).

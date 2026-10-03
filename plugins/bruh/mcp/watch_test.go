@@ -234,6 +234,38 @@ func TestWatchWritesReportOfEachProject(t *testing.T) {
 	}
 }
 
+func TestWatchSkipsEntryWithoutProject(t *testing.T) {
+	f, shop := newFakeForge(t, "github")
+	shop.Project = "shop"
+	bare := shop
+	bare.Repo, bare.Project = "owner/"+strings.ToLower(t.Name()), ""
+	var out, errOut bytes.Buffer
+	w := &watcher{env: testEnv(t, ""), out: &out, errOut: &errOut}
+	cfg := reposConfig{IntervalSeconds: 60, Repos: []repoConfig{shop, bare}}
+	want := bare.Repo + ": no project; bigm calls repos_set with project\n"
+	var evs []watchEvent
+	for poll := 1; poll <= 2; poll++ {
+		if poll == 2 {
+			f.branches["main"] = "s2"
+		}
+		if err := pollWith(t.Context(), cfg, w); err != nil {
+			t.Errorf("poll %d: pollWith: %v", poll, err)
+		}
+		if got := errOut.String(); got != want {
+			t.Errorf("poll %d: log = %q, want %q", poll, got, want)
+		}
+		errOut.Reset()
+		evs = append(evs, events(t, &out)...)
+	}
+	if len(evs) != 1 || evs[0].Type != "push" || evs[0].Repo != shop.Repo || evs[0].Project != "shop" || evs[0].SHA != "s2" {
+		t.Errorf("events = %+v, want one push of %s in project shop", evs, shop.Repo)
+	}
+	// The fake records in calls only the requests for owner/repo, and in auth every request.
+	if len(f.auth) != len(f.calls) {
+		t.Errorf("%d requests, %d of them for %s: want none for %s", len(f.auth), len(f.calls), shop.Repo, bare.Repo)
+	}
+}
+
 func TestWatchReportsErrorOnce(t *testing.T) {
 	_, w, out, cfg, hosts := watchSetup(t, "github")
 	cfg.Repos[0].Repo = "owner/missing"

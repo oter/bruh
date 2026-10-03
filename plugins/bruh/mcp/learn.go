@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 	"unicode/utf8"
 )
@@ -284,4 +285,63 @@ func ledgerPath(env Env) (string, error) {
 		return "", errNoLedger
 	}
 	return cfg.LedgerPath, nil
+}
+
+// longFiles returns the ledger-relative paths, sorted, of the *.md files under ledger (except
+// under .git/ and learn/) that have more lines than the cap: the value of the line
+// "ledger_max_lines: <n>" of mode.md, or 300 when the line is missing or bad. The number of
+// lines is the number of "\n", plus 1 when the file does not end with "\n".
+func longFiles(ledger string) ([]string, error) {
+	ledger = filepath.Clean(ledger)
+	limit := 300
+	mode, err := os.ReadFile(filepath.Join(ledger, "mode.md"))
+	if err != nil && !errors.Is(err, fs.ErrNotExist) {
+		return nil, err
+	}
+	for line := range strings.Lines(string(mode)) {
+		v, ok := strings.CutPrefix(strings.TrimRight(line, "\r\n"), "ledger_max_lines: ")
+		if !ok {
+			continue
+		}
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			limit = n
+		}
+		break
+	}
+	long := []string{}
+	err = filepath.WalkDir(ledger, func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if d.IsDir() {
+			if filepath.Dir(path) == ledger && (d.Name() == ".git" || d.Name() == "learn") {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if filepath.Ext(path) != ".md" {
+			return nil
+		}
+		data, err := os.ReadFile(path)
+		if err != nil {
+			return err
+		}
+		lines := bytes.Count(data, []byte("\n"))
+		if !bytes.HasSuffix(data, []byte("\n")) {
+			lines++
+		}
+		if lines > limit {
+			rel, err := filepath.Rel(ledger, path)
+			if err != nil {
+				return err
+			}
+			long = append(long, filepath.ToSlash(rel))
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	slices.Sort(long)
+	return long, nil
 }

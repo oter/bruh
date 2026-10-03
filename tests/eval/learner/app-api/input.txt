@@ -1,0 +1,5 @@
+Root: <root>
+Project key: shop-app
+Repositories of the project: shop-app
+Other projects: shop (repositories: shop)
+SSH host aliases with no host: none

@@ -207,7 +207,7 @@ func writeNewRoleSettings(env Env, key string) (string, error) {
 	if k.Role != "clanker" {
 		return "", fmt.Errorf("role-settings writes only clanker keys, not %s", key)
 	}
-	content, err := roleSettings(env.PluginRoot, k.String(), nil, nil)
+	content, err := roleSettings(env.PluginRoot, k.String(), nil, nil, nil)
 	if err != nil {
 		return "", err
 	}

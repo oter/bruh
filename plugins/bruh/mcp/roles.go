@@ -13,13 +13,14 @@ func rolesTools() []Tool {
 	return []Tool{
 		{
 			Name:        "role_settings_write",
-			Description: "Write the --settings file of a role: BRUH_ROLE_KEY, extra env values (tool accounts), and deny rules. Returns the absolute path.",
+			Description: "Write the --settings file of a role: BRUH_ROLE_KEY, extra env values (tool accounts), deny rules, and allow rules. Only bigm passes allow, and only for a clanker key: each rule is Read(//<path>/**) for a repository of the project in learn/projects/<project>.json. Returns the absolute path.",
 			InputSchema: map[string]any{
 				"type": "object",
 				"properties": map[string]any{
 					"role_key": map[string]any{"type": "string"},
 					"env":      map[string]any{"type": "object", "additionalProperties": map[string]any{"type": "string"}},
 					"deny":     map[string]any{"type": "array", "items": map[string]any{"type": "string"}},
+					"allow":    map[string]any{"type": "array", "items": map[string]any{"type": "string"}},
 				},
 				"required": []string{"role_key"},
 			},
@@ -32,6 +33,7 @@ func rolesTools() []Tool {
 					RoleKey string            `json:"role_key"`
 					Env     map[string]string `json:"env"`
 					Deny    []string          `json:"deny"`
+					Allow   []string          `json:"allow"`
 				}](raw)
 				if err != nil {
 					return nil, err
@@ -52,7 +54,15 @@ func rolesTools() []Tool {
 				if _, ok := a.Env["CLAUDE_CONFIG_DIR"]; ok {
 					return nil, errors.New("env must not set CLAUDE_CONFIG_DIR; bruh never sets it (spec 4.1)")
 				}
-				out, err := roleSettings(c.Env.PluginRoot, key, a.Env, a.Deny)
+				if len(a.Allow) > 0 {
+					if me != "bigm" || target.Role != "clanker" {
+						return nil, errors.New("allow is only for a clanker key, written by bigm")
+					}
+					if err := checkAllowRules(c.Env, target.Project, a.Allow); err != nil {
+						return nil, err
+					}
+				}
+				out, err := roleSettings(c.Env.PluginRoot, key, a.Env, a.Deny, a.Allow)
 				if err != nil {
 					return nil, err
 				}
@@ -74,8 +84,8 @@ func rolesTools() []Tool {
 const telegramPlugin = "telegram@claude-plugins-official"
 
 // roleSettings builds a role settings file: the plugin defaults, the extra env values and
-// deny rules, and BRUH_ROLE_KEY.
-func roleSettings(pluginRoot, key string, extraEnv map[string]string, extraDeny []string) ([]byte, error) {
+// deny rules, the allow rules when extraAllow is not empty, and BRUH_ROLE_KEY.
+func roleSettings(pluginRoot, key string, extraEnv map[string]string, extraDeny, extraAllow []string) ([]byte, error) {
 	data, err := os.ReadFile(filepath.Join(pluginRoot, "defaults", "role-settings.json"))
 	if err != nil {
 		return nil, err
@@ -111,6 +121,9 @@ func roleSettings(pluginRoot, key string, extraEnv map[string]string, extraDeny 
 		}
 	}
 	perms["deny"] = deny
+	if len(extraAllow) > 0 {
+		perms["allow"] = extraAllow
+	}
 	settings["permissions"] = perms
 	// The Telegram server of the official plugin polls the bot at start and ends any other
 	// poller of the token, also in a session without --channels. Only bigm may hold the bot.
@@ -124,4 +137,44 @@ func roleSettings(pluginRoot, key string, extraEnv map[string]string, extraDeny 
 	}
 	out, err := json.MarshalIndent(settings, "", "  ")
 	return append(out, '\n'), err
+}
+
+// checkAllowRules checks the allow rules of role_settings_write for the clanker of project: each
+// rule is exactly "Read(/" + <root of learn/tree.json joined with the path of a repository of
+// learn/projects/<project>.json> + "/**)". It reads the ledger path with ledgerPath.
+func checkAllowRules(env Env, project string, rules []string) error {
+	ledger, err := ledgerPath(env)
+	if err != nil {
+		return err
+	}
+	var tree treeFile
+	if err := readLearn(filepath.Join(ledger, "learn", "tree.json"), &tree); err != nil {
+		return err
+	}
+	var proj projectFile
+	if err := readLearn(filepath.Join(ledger, "learn", "projects", project+".json"), &proj); err != nil {
+		return err
+	}
+	allowed := make(map[string]bool, len(proj.Repos))
+	for _, r := range proj.Repos {
+		allowed["Read(/"+filepath.Join(tree.Root, r.Path)+"/**)"] = true
+	}
+	for _, rule := range rules {
+		if !allowed[rule] {
+			return fmt.Errorf("allow rule %q is not Read(//<path>/**) for a repository of project %s in learn/projects/%s.json", rule, project, project)
+		}
+	}
+	return nil
+}
+
+// readLearn decodes the JSON file at path into v.
+func readLearn(path string, v any) error {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return err
+	}
+	if err := json.Unmarshal(data, v); err != nil {
+		return fmt.Errorf("%s: %w", path, err)
+	}
+	return nil
 }

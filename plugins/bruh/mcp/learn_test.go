@@ -477,3 +477,60 @@ func TestCheckFills(t *testing.T) {
 		})
 	}
 }
+
+func TestLongFiles(t *testing.T) {
+	// lines returns n lines that each end with "\n".
+	lines := func(n int) string { return strings.Repeat("row\n", n) }
+	capFive := map[string]string{
+		"mode.md":          "mode: supervised\nledger_max_lines: 5\n",
+		"five.md":          lines(5),
+		"six.md":           lines(6),
+		"open-end.md":      lines(5) + "last line without a line feed",
+		"projects/shop.md": lines(6),
+		"learn/x.md":       lines(6),
+		".git/y.md":        lines(6),
+		"notes.txt":        lines(6),
+	}
+	// defaultCap returns a ledger with mode.md (none when mode is "") and a file of 300 and one
+	// of 301 lines.
+	defaultCap := func(mode string) map[string]string {
+		files := map[string]string{"ok.md": lines(300), "long.md": lines(301)}
+		if mode != "" {
+			files["mode.md"] = mode
+		}
+		return files
+	}
+	tests := []struct {
+		name  string
+		files map[string]string // ledger-relative path -> content
+		want  []string
+	}{
+		{name: "cap from mode.md", files: capFive, want: []string{"open-end.md", "projects/shop.md", "six.md"}},
+		{name: "no ledger_max_lines line", files: defaultCap("mode: supervised\n"), want: []string{"long.md"}},
+		{name: "ledger_max_lines abc", files: defaultCap("ledger_max_lines: abc\n"), want: []string{"long.md"}},
+		{name: "ledger_max_lines 0", files: defaultCap("ledger_max_lines: 0\n"), want: []string{"long.md"}},
+		{name: "no mode.md", files: defaultCap(""), want: []string{"long.md"}},
+		{name: "no file too long", files: map[string]string{"ok.md": lines(300)}, want: []string{}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ledger := t.TempDir()
+			for rel, content := range tt.files {
+				path := filepath.Join(ledger, rel)
+				if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+					t.Fatalf("os.MkdirAll(%q) error: %v", filepath.Dir(path), err)
+				}
+				if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+					t.Fatalf("os.WriteFile(%q) error: %v", path, err)
+				}
+			}
+			got, err := longFiles(ledger)
+			if err != nil {
+				t.Fatalf("longFiles() error: %v", err)
+			}
+			if got == nil || !slices.Equal(got, tt.want) {
+				t.Errorf("longFiles() = %#v, want %#v", got, tt.want)
+			}
+		})
+	}
+}

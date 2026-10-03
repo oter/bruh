@@ -413,7 +413,7 @@ func planInit(env Env, a InitAnswers, at time.Time) ([]plannedFile, error) {
 			return nil, err
 		}
 	}
-	role, err := roleSettings(root, "bigm", nil, nil)
+	role, err := roleSettings(root, "bigm", nil, nil, nil)
 	if err != nil {
 		return nil, fmt.Errorf("bigm role settings: %w", err)
 	}
