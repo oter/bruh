@@ -6,13 +6,13 @@
 # one note of the fixes. A body that is already on the pull request is not posted
 # again, so a rerun after a partial failure posts only what is missing.
 #
-#   post-findings.sh [--dry-run] [--yes] [--answer Q-<n>] [--data <folder>] gitlab|github <repo> <number> <result.json>
+#   post-findings.sh [--dry-run] [--yes] [--answer Q-<id>] [--data <folder>] gitlab|github <repo> <number> <result.json>
 #
 # A post is outward-facing and goes out under an account of the owner (spec 13).
 # Without --dry-run it needs a cover, checked by structure only:
 # - no BRUH_ROLE_KEY (a manual session of the owner): --yes, after the owner said yes;
-# - a role session: --answer Q-<n>, with a message from bigm in the mailbox of the
-#   caller whose header is exactly "ANSWER Q-<n>: post <repo>#<number> at <sha> approved",
+# - a role session: --answer Q-<id>, with a message from bigm in the mailbox of the
+#   caller whose header is exactly "ANSWER Q-<id>: post <repo>#<number> at <sha> approved",
 #   where <sha> (7 to 40 hex) is a prefix of the head_sha of the result, or
 #   a row of the section "Post grants" of grants.md for BRUH_ROLE_KEY, the host, and
 #   the repository. --yes is refused in a role session.
@@ -29,7 +29,7 @@
 # finding never passes through the shell, and glab gets no bracketed field names.
 set -eu
 
-usage='usage: post-findings.sh [--dry-run] [--yes] [--answer Q-<n>] [--data <folder>] gitlab|github <repo> <number> <result.json>'
+usage='usage: post-findings.sh [--dry-run] [--yes] [--answer Q-<id>] [--data <folder>] gitlab|github <repo> <number> <result.json>'
 err() { printf 'post-findings.sh: %s\n' "$*" >&2; }
 bad() {
 	err "$*"
@@ -74,7 +74,8 @@ case $repo in *"
 "*) bad "bad repository for $host: a newline" ;; esac
 printf '%s\n' "$repo" | grep -Eqx "$re" || bad "bad repository for $host: $repo"
 if [ -n "$answer" ]; then
-	printf '%s\n' "$answer" | grep -Eqx 'Q-[0-9]+' || bad "bad question ID: $answer"
+	# The ERE copy of qidPattern in plugins/bruh/mcp/env.go (spec 5, decision D2).
+	printf '%s\n' "$answer" | grep -Eqx 'Q-[a-z0-9]+(-[a-z0-9]+)+-[0-9]+' || bad "bad question ID: $answer"
 fi
 key=${BRUH_ROLE_KEY:-owner}
 case $key in '' | *[!a-z0-9-]*) bad "bad BRUH_ROLE_KEY: $key" ;; esac
@@ -131,9 +132,9 @@ if [ "$dry" = 0 ]; then
 	if [ -z "${BRUH_ROLE_KEY:-}" ]; then
 		[ "$yes" = 1 ] || refuse "In a manual session, pass --yes only after the owner said yes to this post."
 	else
-		[ "$yes" = 0 ] || refuse "--yes works only in a manual session of the owner; a role session needs --answer Q-<n> or a post grant."
+		[ "$yes" = 0 ] || refuse "--yes works only in a manual session of the owner; a role session needs --answer Q-<id> or a post grant."
 		if ! has_answer && ! has_grant; then
-			refuse "Ask bigm for the ANSWER \"ANSWER Q-<n>: post $repo#$num at <head SHA> approved\" and pass --answer Q-<n>, or ask the owner for a row in the section \"Post grants\" of grants.md for $key, $host, and $repo."
+			refuse "Ask bigm for the ANSWER \"ANSWER Q-<id>: post $repo#$num at <head SHA> approved\" and pass --answer Q-<id>, or ask the owner for a row in the section \"Post grants\" of grants.md for $key, $host, and $repo."
 		fi
 	fi
 fi

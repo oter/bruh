@@ -105,9 +105,9 @@ check "check_trusted_repo names the remote problem" contains "$(check_trusted_re
 
 # count_missed
 mkdir -p "$tmp/box/read"
-printf '{"id":"1","header":"P2 Q-1: old","at":"2026-09-30T10:00:00.000Z"}' >"$tmp/box/1.json"
-printf '{"id":"2","header":"P2 Q-1: new","at":"2026-09-30T10:59:00.000Z"}' >"$tmp/box/2.json"
-printf '{"id":"3","header":"P2 Q-1: read","at":"2026-09-30T09:00:00.000Z"}' >"$tmp/box/read/3.json"
+printf '{"id":"1","header":"P2 Q-load-tick-1: old","at":"2026-09-30T10:00:00.000Z"}' >"$tmp/box/1.json"
+printf '{"id":"2","header":"P2 Q-load-tick-1: new","at":"2026-09-30T10:59:00.000Z"}' >"$tmp/box/2.json"
+printf '{"id":"3","header":"P2 Q-load-tick-1: read","at":"2026-09-30T09:00:00.000Z"}' >"$tmp/box/read/3.json"
 check "count_missed counts an old unread message only" eq "$(count_missed "$tmp/box" 2026-09-30T10:55:00.000Z)" 1
 check "count_missed is 0 for a missing mailbox" eq "$(count_missed "$tmp/nobox" 2026-09-30T10:55:00.000Z)" 0
 check "count_all counts unread and read" eq "$(count_all "$tmp/box")" 3
@@ -190,9 +190,9 @@ check "the main file stays" test -e "$tmp/repo/file.txt"
 
 # window_gaps
 mkdir -p "$tmp/wbox/read"
-printf '{"header":"P2 Q-1: load tick from s1","at":"2026-09-30T10:01:00.000Z"}' >"$tmp/wbox/read/a.json"
-printf '{"header":"P2 Q-1: load tick from s1","at":"2026-09-30T10:12:00.000Z"}' >"$tmp/wbox/b.json"
-printf '{"header":"P2 Q-0: load test start message","at":"2026-09-30T10:06:00.000Z"}' >"$tmp/wbox/read/c.json"
+printf '{"header":"P2 Q-load-tick-1: load tick from s1","at":"2026-09-30T10:01:00.000Z"}' >"$tmp/wbox/read/a.json"
+printf '{"header":"P2 Q-load-tick-1: load tick from s1","at":"2026-09-30T10:12:00.000Z"}' >"$tmp/wbox/b.json"
+printf '{"header":"P2 Q-load-start-0: load test start message","at":"2026-09-30T10:06:00.000Z"}' >"$tmp/wbox/read/c.json"
 t0=$(jq -n '"2026-09-30T10:00:00Z" | fromdateiso8601')
 check "window_gaps finds the window with only a start message" eq "$(window_gaps "$tmp/wbox" "$t0" $((t0 + 900)) 300)" 1
 check "window_gaps is 0 when each window has a tick" eq "$(window_gaps "$tmp/wbox" "$t0" $((t0 + 300)) 300)" 0
@@ -297,7 +297,7 @@ ticks() {
 	[ "$(printf '%s\n' "$pairs" | grep -c .)" -eq "$2" ] || return 1
 	printf '%s\n' "$pairs" | while read -r _ _ _ _ me _ _ _ _ next; do
 		DRY=0 BRUH_DATA="$tmp/replay" BRUH_ROLE_KEY=${me%.} BRUH_PLUGIN_ROOT="$here/../plugins/bruh" BRUH_TEST_MCP="$tmp/bruh-mcp" \
-			mcp_call mail_post "$(jq -cn --arg to "${next%.}" '{to: $to, header: "P2 Q-1: load tick", body: "tick"}')" >/dev/null || return 1
+			mcp_call mail_post "$(jq -cn --arg to "${next%.}" '{to: $to, header: "P2 Q-load-tick-1: load tick", body: "tick"}')" >/dev/null || return 1
 	done
 }
 check "the MCP server accepts each tick of the 8 load sessions" ticks "$load8" 8
@@ -507,33 +507,35 @@ check "post-findings rerun posts nothing new" eq "$(posts "$tmp/pf1")" 3
 check "post-findings rerun reports each body as already posted" contains "$out" "0 inline, 0 general, 0 failed, 2 already posted"
 # A role session needs the approval ANSWER of bigm in its mailbox, or a post grant; --yes is refused.
 mkdir -p "$tmp/pfbox/mail/clerk-app-t1/read"
-jq -n '{id: "1", from: "clanker-app", to: "clerk-app-t1", header: "ANSWER Q-4: post group/app#7 at ccccccc approved", body: "yes"}' >"$tmp/pfbox/mail/clerk-app-t1/1.json"
-jq -n '{id: "2", from: "bigm", to: "clerk-app-t1", header: "ANSWER Q-5: post group/app#8 at ccccccc approved", body: "yes"}' >"$tmp/pfbox/mail/clerk-app-t1/2.json"
-jq -n '{id: "3", from: "bigm", to: "clerk-app-t1", header: "ANSWER Q-6: post group/app#7 at ccccccc refused", body: "no"}' >"$tmp/pfbox/mail/clerk-app-t1/3.json"
+jq -n '{id: "1", from: "clanker-app", to: "clerk-app-t1", header: "ANSWER Q-app-host-4: post group/app#7 at ccccccc approved", body: "yes"}' >"$tmp/pfbox/mail/clerk-app-t1/1.json"
+jq -n '{id: "2", from: "bigm", to: "clerk-app-t1", header: "ANSWER Q-app-host-5: post group/app#8 at ccccccc approved", body: "yes"}' >"$tmp/pfbox/mail/clerk-app-t1/2.json"
+jq -n '{id: "3", from: "bigm", to: "clerk-app-t1", header: "ANSWER Q-app-host-6: post group/app#7 at ccccccc refused", body: "no"}' >"$tmp/pfbox/mail/clerk-app-t1/3.json"
 out=$(BRUH_ROLE_KEY=clerk-app-t1 pf "$tmp/pf2" --yes gitlab group/app 7 "$tmp/result.json" 2>&1; echo "exit $?")
 check "post-findings refuses --yes in a role session" contains "$out" "exit 3"
-for q in Q-4 Q-5 Q-6 Q-9; do
+for q in Q-app-host-4 Q-app-host-5 Q-app-host-6 Q-app-host-9; do
 	out=$(BRUH_ROLE_KEY=clerk-app-t1 pf "$tmp/pf2" --data "$tmp/pfbox" --answer "$q" gitlab group/app 7 "$tmp/result.json" 2>&1; echo "exit $?")
 	check "post-findings refuses $q: not an approval of bigm for this post" contains "$out" "exit 3"
 done
 check "a refused post posts nothing" eq "$(posts "$tmp/pf2")" 0
 # An approval names the reviewed head: one for another head, or with no SHA, does not cover this result.
-jq -n '{id: "5", from: "bigm", to: "clerk-app-t1", header: "ANSWER Q-8: post group/app#7 at ddddddd approved", body: "yes"}' >"$tmp/pfbox/mail/clerk-app-t1/5.json"
-jq -n '{id: "6", from: "bigm", to: "clerk-app-t1", header: "ANSWER Q-3: post group/app#7 approved", body: "yes"}' >"$tmp/pfbox/mail/clerk-app-t1/6.json"
-jq -n '{id: "7", from: "bigm", to: "clerk-app-t1", header: "ANSWER Q-2: post group/app#7 at cc approved", body: "yes"}' >"$tmp/pfbox/mail/clerk-app-t1/7.json"
-for q in Q-8 Q-3 Q-2; do
+jq -n '{id: "5", from: "bigm", to: "clerk-app-t1", header: "ANSWER Q-app-host-8: post group/app#7 at ddddddd approved", body: "yes"}' >"$tmp/pfbox/mail/clerk-app-t1/5.json"
+jq -n '{id: "6", from: "bigm", to: "clerk-app-t1", header: "ANSWER Q-app-host-3: post group/app#7 approved", body: "yes"}' >"$tmp/pfbox/mail/clerk-app-t1/6.json"
+jq -n '{id: "7", from: "bigm", to: "clerk-app-t1", header: "ANSWER Q-app-host-2: post group/app#7 at cc approved", body: "yes"}' >"$tmp/pfbox/mail/clerk-app-t1/7.json"
+for q in Q-app-host-8 Q-app-host-3 Q-app-host-2; do
 	out=$(BRUH_ROLE_KEY=clerk-app-t1 pf "$tmp/pf2" --data "$tmp/pfbox" --answer "$q" gitlab group/app 7 "$tmp/result.json" 2>&1; echo "exit $?")
 	check "post-findings refuses $q: its approval does not name the reviewed head" contains "$out" "exit 3"
 done
-jq -n '{id: "4", from: "bigm", to: "clerk-app-t1", header: "ANSWER Q-7: post group/app#7 at ccccccc approved", body: "owner: yes"}' >"$tmp/pfbox/mail/clerk-app-t1/read/4.json"
+jq -n '{id: "4", from: "bigm", to: "clerk-app-t1", header: "ANSWER Q-app-host-7: post group/app#7 at ccccccc approved", body: "owner: yes"}' >"$tmp/pfbox/mail/clerk-app-t1/read/4.json"
 # The approval SHA must be a prefix of a full 40-hex head_sha: a short head_sha in the result is not enough.
 jq '.head_sha = "ccccccc"' "$tmp/result.json" >"$tmp/short.json"
-out=$(BRUH_ROLE_KEY=clerk-app-t1 pf "$tmp/pf2s" --data "$tmp/pfbox" --answer Q-7 gitlab group/app 7 "$tmp/short.json" 2>&1; echo "exit $?")
+out=$(BRUH_ROLE_KEY=clerk-app-t1 pf "$tmp/pf2s" --data "$tmp/pfbox" --answer Q-app-host-7 gitlab group/app 7 "$tmp/short.json" 2>&1; echo "exit $?")
 check "post-findings refuses an approval for a result whose head_sha is not 40 hex" contains "$out" "exit 3"
-out=$(BRUH_ROLE_KEY=clerk-app-t1 pf "$tmp/pf2" --data "$tmp/pfbox" --answer Q-7 gitlab group/app 7 "$tmp/result.json" 2>&1; echo "exit $?")
+out=$(BRUH_ROLE_KEY=clerk-app-t1 pf "$tmp/pf2" --data "$tmp/pfbox" --answer Q-app-host-7 gitlab group/app 7 "$tmp/result.json" 2>&1; echo "exit $?")
 check "the approval ANSWER of bigm for this post allows it" contains "$out" "exit 0"
 check "post-findings marks each body with the role key" marked "$tmp/pf2" '<!-- bruh:clerk-app-t1 -->'
-check "post-findings refuses a bad question ID" not pf "$tmp/pf2" --answer 'Q-1 x' gitlab group/app 7 "$tmp/result.json"
+check "post-findings refuses a bad question ID" not pf "$tmp/pf2" --answer 'Q-app-host-1 x' gitlab group/app 7 "$tmp/result.json"
+out=$(BRUH_ROLE_KEY=clerk-app-t1 pf "$tmp/pf2" --data "$tmp/pfbox" --answer Q-4 gitlab group/app 7 "$tmp/result.json" 2>&1; echo "exit $?")
+check "post-findings refuses the old question ID form Q-<n>" contains "$out" "exit 2"
 # A post grant row lets the named role key post without --yes; a merge grant row does not.
 mkdir -p "$tmp/pfdata/init" "$tmp/pfledger"
 jq -n --arg l "$tmp/pfledger" '{ledger_path: $l}' >"$tmp/pfdata/init/config.json"
@@ -544,13 +546,13 @@ cat >"$tmp/pfledger/grants.md" <<'MD'
 
 | Repository | Merger role key | Conditions | Owner words | Date (UTC) | Question ID |
 |---|---|---|---|---|---|
-| group/app | clerk-app-t1 | green CI | "merge it" | 2026-09-30T10:00:00Z | Q-1 |
+| group/app | clerk-app-t1 | green CI | "merge it" | 2026-09-30T10:00:00Z | Q-app-host-1 |
 
 ## Post grants
 
 | Poster role key | Host | Repository | Conditions | Owner words | Date (UTC) | Question ID |
 |---|---|---|---|---|---|---|
-| `clerk-app-t2` | gitlab | `group/app` | review results | "post reviews" | 2026-09-30T10:00:00Z | Q-2 |
+| `clerk-app-t2` | gitlab | `group/app` | review results | "post reviews" | 2026-09-30T10:00:00Z | Q-app-host-2 |
 MD
 out=$(BRUH_ROLE_KEY=clerk-app-t1 pf "$tmp/pf3" --data "$tmp/pfdata" gitlab group/app 7 "$tmp/result.json" 2>&1; echo "exit $?")
 check "a merge grant row is not a post grant" contains "$out" "exit 3"

@@ -471,7 +471,7 @@ verify bigm 2 has_live bigm
 need clanker bigm && verify clanker "$step_min" has_live "$clanker"
 need clerk clanker && verify clerk "$step_min" both_clerks
 need deliver clerk && verify deliver "$step_min" deliver_seen
-q_id='Q-<n>'
+q_id='Q-<id>'
 need p1-sent deliver && verify p1-sent "$step_min" p1_opened
 need p1-bigm p1-sent && verify p1-bigm "$step_min" p1_at_bigm
 need answer-same-run p1-bigm && verify answer-same-run "$step_min" answer_same_run
@@ -510,7 +510,7 @@ idle_resume() {
 }
 need idle-resume clanker && idle_resume
 
-remote_q="P1 Q-1: smoke remote $run_id"
+remote_q="P1 Q-smoke-remote-1: smoke remote $run_id"
 remote_nonce=x$(random_id)
 remote_ack=$(printf '%s' "$remote_nonce" | tr 'abcdefghijklmnopqrstuvwxyz' 'nopqrstuvwxyzabcdefghijklm')
 if [ -z "${SMOKE_ORCA_ENV:-}" ] || [ -z "${SMOKE_ORCA_REPO:-}" ]; then

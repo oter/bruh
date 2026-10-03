@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"maps"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -96,6 +97,16 @@ func TestUserConfig(t *testing.T) {
 	}
 	if p.UserConfig["handoff_percent"]["default"] != 50.0 || p.UserConfig["max_busy_clerks"]["default"] != 8.0 {
 		t.Fatalf("defaults = %v", p.UserConfig)
+	}
+	keys := slices.Sorted(maps.Keys(p.UserConfig))
+	wantKeys := []string{"handoff_percent", "max_busy_clerks", "slack_bot_token", "slack_channel_id", "slack_owner_user_id", "user_name"}
+	if !slices.Equal(keys, wantKeys) {
+		t.Errorf("userConfig keys = %v, want %v", keys, wantKeys)
+	}
+	for k, o := range p.UserConfig {
+		if title, _ := o["title"].(string); !strings.HasPrefix(title, "bruh: ") {
+			t.Errorf("userConfig[%q].title = %q, want prefix %q", k, title, "bruh: ")
+		}
 	}
 }
 

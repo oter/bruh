@@ -80,8 +80,12 @@ type watcher struct {
 	out io.Writer
 }
 
-// emit prints one report line and appends it to reports/watcher.jsonl.
+// emit prints one report line and appends it to reports/clanker-<project>.jsonl, the report
+// file of the project of the event, in one write.
 func (w *watcher) emit(ev watchEvent, text, call, value string) error {
+	if !projectRE.MatchString(ev.Project) {
+		return fmt.Errorf("invalid project of %s: %q", ev.Repo, ev.Project)
+	}
 	at := w.env.Stamp()
 	raw, _ := json.Marshal(ev)
 	line, _ := json.Marshal(ReportLine{At: at, From: "watcher", Kind: "event", Text: text, Source: &Source{Call: call, Value: value, At: at}, Event: raw})
@@ -93,7 +97,7 @@ func (w *watcher) emit(ev watchEvent, text, call, value string) error {
 	if err != nil {
 		return err
 	}
-	f, err := os.OpenFile(filepath.Join(dir, "watcher.jsonl"), os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
+	f, err := os.OpenFile(filepath.Join(dir, "clanker-"+ev.Project+".jsonl"), os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
 	if err != nil {
 		return err
 	}

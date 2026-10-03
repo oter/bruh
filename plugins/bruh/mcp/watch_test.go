@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -172,28 +174,63 @@ func TestWatchSeparatesAgentPosts(t *testing.T) {
 	}
 }
 
-func TestWatchAppendsReport(t *testing.T) {
-	f, w, out, cfg, hosts := watchSetup(t, "github")
-	ctx := context.Background()
+func TestWatchWritesReportOfEachProject(t *testing.T) {
+	// Two kinds keep the watch state keys of the two owner/repo repositories apart.
+	shop, rs := newFakeForge(t, "github")
+	auth, ra := newFakeForge(t, "gitea")
+	rs.Project, ra.Project = "shop", "auth"
+	hs, _ := newHost(rs)
+	ha, _ := newHost(ra)
+	var out bytes.Buffer
+	w := &watcher{env: testEnv(t, ""), out: &out}
+	cfg := reposConfig{IntervalSeconds: 60, Repos: []repoConfig{rs, ra}}
+	hosts := []codeHost{hs, ha}
+	ctx := t.Context()
 	if err := w.pollAll(ctx, cfg, hosts); err != nil {
 		t.Fatal(err)
 	}
-	f.branches["main"] = "e1"
+	shop.branches["main"] = "s1"
+	auth.branches["main"] = "a1"
 	if err := w.pollAll(ctx, cfg, hosts); err != nil {
 		t.Fatal(err)
 	}
 	printed := out.String()
-	b, err := os.ReadFile(filepath.Join(w.env.DataDir, "reports", "watcher.jsonl"))
-	if err != nil || string(b) != printed {
-		t.Fatalf("report = %q, printed %q, %v", b, printed, err)
+	dir := filepath.Join(w.env.DataDir, "reports")
+	var files string
+	for _, c := range []struct{ project, sha string }{{"shop", "s1"}, {"auth", "a1"}} {
+		b, err := os.ReadFile(filepath.Join(dir, "clanker-"+c.project+".jsonl"))
+		if err != nil {
+			t.Fatalf("report file of %s: %v", c.project, err)
+		}
+		files += string(b)
+		evs := events(t, bytes.NewBuffer(b))
+		if len(evs) != 1 || evs[0].Type != "push" || evs[0].Project != c.project || evs[0].SHA != c.sha {
+			t.Errorf("events in clanker-%s.jsonl = %+v, want one push of %s", c.project, evs, c.sha)
+		}
 	}
-	lines, err := call(t, as(w.env, "bigm"), "report_read", map[string]any{"role_key": "watcher"})
+	if files != printed {
+		t.Errorf("report files = %q, printed %q", files, printed)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "watcher.jsonl")); !errors.Is(err, fs.ErrNotExist) {
+		t.Errorf("reports/watcher.jsonl: got %v, want it not to exist", err)
+	}
+	if _, err := call(t, as(w.env, "clanker-shop"), "report_write", map[string]any{"kind": "status", "text": "on it"}); err != nil {
+		t.Fatal(err)
+	}
+	got, err := call(t, as(w.env, "bigm"), "report_read", map[string]any{"role_key": "clanker-shop"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	l := lines.([]any)[0].(map[string]any)
-	if l["event"].(map[string]any)["type"] != "push" || !strings.Contains(l["source"].(map[string]any)["call"].(string), "/branches") {
-		t.Fatalf("line = %v", l)
+	lines := got.([]any)
+	if len(lines) != 2 {
+		t.Fatalf("report_read clanker-shop = %v, want the watcher line and the clanker line", lines)
+	}
+	l0, l1 := lines[0].(map[string]any), lines[1].(map[string]any)
+	if l0["from"] != "watcher" || l0["event"].(map[string]any)["project"] != "shop" || l1["from"] != "clanker-shop" || l1["text"] != "on it" {
+		t.Errorf("report_read clanker-shop = %v", lines)
+	}
+	if got, err := call(t, as(w.env, "bigm"), "report_read", map[string]any{"role_key": "watcher"}); err == nil {
+		t.Errorf("report_read watcher = %v, want an error", got)
 	}
 }
 

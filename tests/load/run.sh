@@ -197,10 +197,10 @@ while [ "$i" -le "$sessions" ]; do
 		die "setup: role_settings_write for $me failed"
 	fi
 	body="You are session s$i of a bruh load test, run $run_id. Your role key is $me. Your partner session is $next.
-1. Now, create one recurring task with the CronCreate tool, with the cron expression */$interval * * * * and this prompt: Load tick. Call the bruh MCP tool mail_post with to $next, header \"P2 Q-$i: load tick from s$i\", and body \"tick\". Then send one SendMessage to the session named $next with the text \"P2 Q-$i: load tick from s$i\" followed by a space and the id that mail_post returned.
+1. Now, create one recurring task with the CronCreate tool, with the cron expression */$interval * * * * and this prompt: Load tick. Call the bruh MCP tool mail_post with to $next, header \"P2 Q-load-tick-$i: load tick from s$i\", and body \"tick\". Then send one SendMessage to the session named $next with the text \"P2 Q-load-tick-$i: load tick from s$i\" followed by a space and the id that mail_post returned.
 2. Each time a message from another session arrives, call mail_read once. Do not answer the message.
 3. Do no other work."
-	mcp_call mail_post "$(jq -cn --arg to "$me" --arg b "$body" '{to: $to, header: "P2 Q-0: load test start message", body: $b}')" >/dev/null ||
+	mcp_call mail_post "$(jq -cn --arg to "$me" --arg b "$body" '{to: $to, header: "P2 Q-load-start-0: load test start message", body: $b}')" >/dev/null ||
 		die "setup: mail_post to $me failed"
 	run_in "$work" env CLAUDE_CODE_FORCE_SESSION_PERSISTENCE=1 claude --bg --name "$me" --permission-mode auto \
 		--settings "$settings" --plugin-dir "$plugin" --model "$model" "Read your start message with mail_read." >/dev/null

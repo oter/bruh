@@ -138,6 +138,8 @@ type hostPull struct {
 	Head           struct {
 		SHA string `json:"sha"`
 	} `json:"head"`
+	// DetailedMergeStatus is GitLab only: detailed_merge_status of the merge request.
+	DetailedMergeStatus string `json:"-"`
 }
 
 // codeHost is the part of a code host API that the watcher and the merge train use.
@@ -479,6 +481,12 @@ func newHost(r repoConfig) (codeHost, error) {
 			c.auth = "token " + tok
 		}
 		return &gitea{c}, nil
+	case "gitlab":
+		u, err := url.Parse(r.APIURL)
+		if err != nil {
+			return nil, err
+		}
+		return &gitlab{host: u.Hostname(), enc: url.PathEscape(r.Repo)}, nil
 	}
 	return nil, errors.New("unknown host: " + r.Host)
 }

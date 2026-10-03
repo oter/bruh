@@ -133,6 +133,23 @@ test('the clanker cannot write files', () => {
   for (const t of ['Edit', 'Write', 'NotebookEdit']) assert.ok(denied.includes(t), `clanker must deny ${t}`)
 })
 
+// Build spec A18.1: the learner is a plugin agent, not a role, so it is not in ROLES.
+test('the learner reads files only', () => {
+  const file = join(here, 'learner.md')
+  assert.ok(existsSync(file), 'agents/learner.md is missing')
+  const { fm, body } = frontmatter(read(file))
+  assert.equal(fm.name, 'learner')
+  assert.equal(fm.tools, 'Read, Grep, Glob')
+  assert.equal(fm.model, 'opus[1m]')
+  assert.equal(fm.effort, 'medium')
+  for (const ignored of ['hooks', 'mcpServers', 'permissionMode']) {
+    assert.ok(!(ignored in fm), `a plugin agent ignores ${ignored}`)
+  }
+  for (const line of ['PURPOSE: <text>', 'LINK <project key>: <repo>/<file>:<line>', 'DOC: <repo>/<path>', 'HOST <alias>: <host>']) {
+    assert.ok(body.includes(line), `learner.md does not name ${line}`)
+  }
+})
+
 test('the default priorities have the sections of spec 13 and 14.1', () => {
   const text = read(join(plugin, 'defaults/priorities.md'))
   for (const h of ['## P0', '## P1', '## P2', '## Delegated P1 classes', '## Never without the owner', '## Deny rules']) {
@@ -156,13 +173,14 @@ test('the ledger template has the layout of spec 8', () => {
   }
   const mode = read(join(t, 'mode.md'))
   assert.match(mode, /^mode: human$/m)
-  for (const k of ['changed', 'reason', 'p1_batch_minutes', 'p1_batch_size', 'review_round_cap', 'status_cadence']) {
+  for (const k of ['changed', 'reason', 'p1_batch_minutes', 'p1_batch_size', 'review_round_cap', 'status_cadence', 'ledger_max_lines', 'remote_environments']) {
     assert.match(mode, new RegExp(`^${k}: \\S`, 'm'), `mode.md has no ${k}`)
   }
   const project = read(join(t, 'projects/_template.md'))
-  for (const s of ['Summary', 'In progress', 'Merged', 'Live', 'Decisions', 'Questions and answers', 'Sessions', 'Identities', 'Shared resources and clerk leases', 'Waiting on others']) {
+  for (const s of ['Summary', 'In progress', 'Merged', 'Live', 'Decisions', 'Sessions', 'Identities', 'Shared resources and clerk leases', 'Waiting on others']) {
     assert.ok(project.includes(`\n## ${s}\n`), `projects/_template.md has no section ${s}`)
   }
+  assert.ok(!project.includes('Questions and answers'))
 })
 
 // Interfaces section 4a: the start header, the post marker, and the remote role settings command.
@@ -303,18 +321,29 @@ test('bigm names the Slack tool, asks for the question ID, and resumes the ledge
   assert.doesNotMatch(ledger, /If `session_list` shows no live `clerk-ledger`, call `role_settings_write`/)
 })
 
-// Spec 6.4: a post needs the yes of the owner or a post grant. The init skill
-// appends merge grant rows at the end of grants.md, so the merge table is last.
+// Spec 6.4: a post needs the yes of the owner or a post grant. The merge
+// grants table is the last part of grants.md.
 test('grants.md has the post grants and ends with the merge grants table', () => {
   const text = read(join(plugin, 'ledger-template/grants.md'))
   const post = text.indexOf('\n## Post grants\n')
   const merge = text.indexOf('\n## Merge grants\n')
   assert.ok(post > 0 && merge > post, 'grants.md must have "Post grants" before "Merge grants"')
   assert.ok(text.slice(post).includes('| Poster role key | Host | Repository |'), 'the post grant row starts with the role key and the host')
+  assert.ok(text.slice(post, merge).includes('host name'), 'the section "Post grants" names the host name')
   assert.ok(text.trimEnd().endsWith('|---|---|---|---|---|---|'), 'the merge grants table is the last part of the file')
   const priorities = read(join(plugin, 'defaults/priorities.md'))
   assert.match(priorities, /except under a post grant/)
   assert.match(agents.bigm, /section "Post grants" of `grants.md`/)
+})
+
+// Build spec A7.6: the README names the index files and the close commits, and no stack or gate.
+test('the ledger README names the index and the close commits', () => {
+  const text = read(join(plugin, 'ledger-template/README.md'))
+  for (const s of ['learn/tree.json', 'learn/projects/<key>.json', 'close <kind>: <subject>']) {
+    assert.ok(text.includes(s), `README.md does not name ${s}`)
+  }
+  assert.doesNotMatch(text, /\bstack\b/i)
+  assert.doesNotMatch(text, /\bgates?\b/i)
 })
 
 // Fix round 1, M2 and M3: each workflow relaunches itself, and a post approval has a closed form from bigm.
