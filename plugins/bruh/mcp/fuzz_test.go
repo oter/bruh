@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -199,6 +200,62 @@ func FuzzQuestionID(f *testing.F) {
 		i := strings.LastIndexByte(rest, '-')
 		if i < 0 || i == len(rest)-1 || strings.Trim(rest[i+1:], "0123456789") != "" {
 			t.Fatalf("qidRE accepted %q with no -<digits> at the end", s)
+		}
+	})
+}
+
+// FuzzAllowRule checks that checkAllowRules does not panic and accepts a rule only when it is
+// Read(//<path>/**) with <path> the root of learn/tree.json joined with shop or shop-app,
+// without its first slash (build spec A15.1, G33).
+func FuzzAllowRule(f *testing.F) {
+	env := Env{DataDir: f.TempDir()}
+	ledger := f.TempDir()
+	root := filepath.Join(f.TempDir(), "root")
+	cfg, err := json.Marshal(initConfig{LedgerPath: ledger})
+	if err != nil {
+		f.Fatalf("json.Marshal(initConfig) error: %v", err)
+	}
+	if err := os.MkdirAll(filepath.Join(env.DataDir, "init"), 0o700); err != nil {
+		f.Fatalf("os.MkdirAll() error: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(env.DataDir, "init", "config.json"), cfg, 0o600); err != nil {
+		f.Fatalf("os.WriteFile(config.json) error: %v", err)
+	}
+	tree := &treeFile{Root: root, Projects: []treeProject{{Key: "shop"}}}
+	if _, err := writeLearnFile(filepath.Join(ledger, "learn", "tree.json"), tree); err != nil {
+		f.Fatalf("writeLearnFile(tree.json) error: %v", err)
+	}
+	proj := &projectFile{Key: "shop", Main: "shop", Repos: []indexRepo{{Path: "shop"}, {Path: "shop-app"}}}
+	if _, err := writeLearnFile(filepath.Join(ledger, "learn", "projects", "shop.json"), proj); err != nil {
+		f.Fatalf("writeLearnFile(shop.json) error: %v", err)
+	}
+	rel := strings.TrimPrefix(root, "/")
+	for _, s := range []string{
+		"Read(//" + rel + "/shop/**)",
+		"Read(//" + rel + "/shop-app/**)",
+		"Read(//x/**)",
+		"Write(//" + rel + "/shop/**)",
+		"Read(/" + rel + "/shop/**)",
+		"Read(//" + rel + "/shop/../x/**)",
+		"Read(//" + rel + "/shop/*)",
+		"",
+	} {
+		f.Add(s)
+	}
+	f.Fuzz(func(t *testing.T, rule string) {
+		if checkAllowRules(env, "shop", []string{rule}) != nil {
+			return
+		}
+		path, ok := strings.CutPrefix(rule, "Read(//")
+		if !ok {
+			t.Fatalf("checkAllowRules accepted %q with no Read(// prefix", rule)
+		}
+		path, ok = strings.CutSuffix(path, "/**)")
+		if !ok {
+			t.Fatalf("checkAllowRules accepted %q with no /**) suffix", rule)
+		}
+		if path != rel+"/shop" && path != rel+"/shop-app" {
+			t.Fatalf("checkAllowRules accepted %q for the path %q, want %q or %q", rule, path, rel+"/shop", rel+"/shop-app")
 		}
 	})
 }
