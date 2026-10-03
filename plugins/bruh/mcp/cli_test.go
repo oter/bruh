@@ -12,7 +12,8 @@ import (
 func TestCLIInit(t *testing.T) {
 	env, ledger := initEnv(t)
 	file := filepath.Join(t.TempDir(), "answers.json")
-	b, _ := json.Marshal(answers(ledger, map[string]any{"channels": []string{"telegram"}}))
+	root := repoRoot(t, "app")
+	b, _ := json.Marshal(answers(ledger, map[string]any{"channels": []string{"telegram"}, "root": root, "projects": []any{project("app", "app", "app")}}))
 	if err := os.WriteFile(file, b, 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -21,7 +22,8 @@ func TestCLIInit(t *testing.T) {
 		t.Fatalf("exit %d: %s", code, errOut.String())
 	}
 	s := out.String()
-	for _, want := range []string{"--- /dev/null\n+++ " + filepath.Join(ledger, "mode.md"), "+  \"autoCompactWindow\": 550000", "applied: " + env.SettingsFile, "start bigm with: cd '" + ledger + "'"} {
+	for _, want := range []string{"--- /dev/null\n+++ " + filepath.Join(ledger, "mode.md"), "+  \"autoCompactWindow\": 550000", "applied: " + env.SettingsFile,
+		"applied: " + filepath.Join(ledger, "learn", "tree.json"), "start bigm with: cd '" + ledger + "'"} {
 		if !strings.Contains(s, want) {
 			t.Errorf("output has no %q:\n%s", want, s)
 		}

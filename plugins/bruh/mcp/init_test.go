@@ -3,9 +3,11 @@ package main
 import (
 	"encoding/json"
 	"io/fs"
+	"maps"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"reflect"
 	"slices"
 	"strings"
 	"testing"
@@ -160,7 +162,8 @@ func TestInitApplyWritesPlannedContent(t *testing.T) {
 		t.Fatalf("init_apply: ledger settings file = %v (%v), want mode 0644", fi, err)
 	}
 	mode, _ := os.ReadFile(filepath.Join(ledger, "mode.md"))
-	for _, want := range []string{"\nmode: autonomous\n", "\nreason: init\n", "\np1_batch_minutes: 30\n", "\np1_batch_size: 5\n", "\nreview_round_cap: 2\n", "\nstatus_cadence: on-change\n", "\nchanged: 20"} {
+	for _, want := range []string{"\nmode: autonomous\n", "\nreason: init\n", "\np1_batch_minutes: 30\n", "\np1_batch_size: 5\n", "\nreview_round_cap: 2\n", "\nstatus_cadence: on-change\n", "\nchanged: 20",
+		"\nledger_max_lines: 300\n", "\nremote_environments: none\n"} {
 		if !strings.Contains(string(mode), want) {
 			t.Errorf("mode.md has no %q:\n%s", want, mode)
 		}
@@ -388,20 +391,115 @@ func TestInitKeepsSymlinkedSettings(t *testing.T) {
 	}
 }
 
-func TestInitLedgerKeepsExistingFiles(t *testing.T) {
+// withValue returns text with the value of its line "key: ..." set to value.
+func withValue(t *testing.T, text, key, value string) string {
+	t.Helper()
+	lines := strings.Split(text, "\n")
+	for i, l := range lines {
+		if strings.HasPrefix(l, key+": ") {
+			lines[i] = key + ": " + value
+			return strings.Join(lines, "\n")
+		}
+	}
+	t.Fatalf("no line %q in:\n%s", key+": ", text)
+	return ""
+}
+
+// withRow returns text with row after the separator line of the table with the header line header.
+func withRow(t *testing.T, text, header, row string) string {
+	t.Helper()
+	before, after, ok := strings.Cut(text, header+"\n")
+	sep, rest, ok2 := strings.Cut(after, "\n")
+	if !ok || !ok2 {
+		t.Fatalf("no table %q in:\n%s", header, text)
+	}
+	return before + header + "\n" + sep + "\n" + row + "\n" + rest
+}
+
+// TestInitUpdatesTemplateTextAndKeepsRows updates a ledger of version 0.5 (spec 8.6, G24, G25):
+// each file gets the new template text and keeps its values, its data rows, and its rule sections.
+func TestInitUpdatesTemplateTextAndKeepsRows(t *testing.T) {
 	env, ledger := initEnv(t)
-	if err := os.MkdirAll(ledger, 0o755); err != nil {
-		t.Fatal(err)
+	fixtures := filepath.Join("testdata", "ledger-v05")
+	copyTree(t, fixtures, ledger)
+	read := func(p string) string {
+		t.Helper()
+		b, err := os.ReadFile(p)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return string(b)
 	}
-	if err := os.WriteFile(filepath.Join(ledger, "README.md"), []byte("mine\n"), 0o644); err != nil {
-		t.Fatal(err)
+	tmpl := func(rel string) string {
+		return read(filepath.Join(env.PluginRoot, "ledger-template", filepath.FromSlash(rel)))
 	}
-	applied := apply(t, env, plan(t, env, answers(ledger, nil)))
-	if slices.Contains(applied, filepath.Join(ledger, "README.md")) || !slices.Contains(applied, filepath.Join(ledger, "rules.md")) {
-		t.Fatalf("applied = %v", applied)
+	fixture := func(rel string) string { return read(filepath.Join(fixtures, filepath.FromSlash(rel))) }
+
+	// The rules of G24: the template text before the line "## Rules", then the rule sections.
+	head, _, ok := strings.Cut(tmpl("rules.md"), "\n## Rules\n")
+	_, ruleSections, ok2 := strings.Cut(fixture("rules.md"), "\n## Rules\n")
+	if !ok || !ok2 || !strings.Contains(ruleSections, "## R-1: ") {
+		t.Fatal(`the template or the fixture rules.md has no line "## Rules" with a rule section after it`)
 	}
-	if b, _ := os.ReadFile(filepath.Join(ledger, "README.md")); string(b) != "mine\n" {
-		t.Fatalf("README = %q", b)
+	mode := tmpl("mode.md")
+	for k, v := range map[string]string{
+		"mode": "autonomous", "changed": "2026-09-30T12:00:00Z", "reason": "owner answer Q-2",
+		"p1_batch_minutes": "45", "p1_batch_size": "5", "review_round_cap": "3", "status_cadence": "always",
+	} {
+		mode = withValue(t, mode, k, v)
+	}
+	grants := withRow(t, tmpl("grants.md"), "| Poster role key | Host | Repository | Conditions | Owner words | Date (UTC) | Question ID |",
+		`| clerk-shop-post | gitlab | group/shop | review findings only | "post the findings" | 2026-09-29T09:00:00Z | Q-3 |`)
+	grants = withRow(t, grants, "| Repository | Merger role key | Conditions | Owner words | Date (UTC) | Question ID |",
+		`| group/shop | clerk-shop-merge | green pipeline | "merge when green" | 2026-09-29T09:05:00Z | Q-4 |`)
+	want := map[string]string{
+		"README.md":             tmpl("README.md"),
+		"projects/_template.md": tmpl("projects/_template.md"),
+		// The fixture is the placeholder of version 0.5: the first-run rule replaces it.
+		"priorities.md": read(filepath.Join(env.PluginRoot, "defaults", "priorities.md")),
+		"rules.md":      head + "\n## Rules\n" + ruleSections,
+		"mode.md":       mode,
+		"grants.md":     grants,
+		"questions.md": withRow(t, withValue(t, tmpl("questions.md"), "last_batch", "2026-10-01T00:00:00Z"),
+			"| ID | P-level | From (role key) | Subject | Asked (UTC) | Blocks | Channel message | State |",
+			"| Q-1 | P1 | clanker-shop | Pick the cache size | 2026-10-01T00:00:00Z | shop deploy | none | open |"),
+		"owed.md": withRow(t, tmpl("owed.md"), "| Item | Kind | Added (UTC) | Source | State |",
+			"| Status of the shop build | owed | 2026-09-30T10:00:00Z | terminal | open |"),
+		"leases.md": withRow(t, tmpl("leases.md"), "| Resource | Capacity | Holder (role key) | Until (UTC) | Source read |",
+			"| shop-db | 1 | clanker-shop | 2026-10-01T02:00:00Z | lease_list 2026-10-01T00:00:00Z |"),
+		// G25: a project file is not a template file, so init does not change it.
+		"projects/shop.md": fixture("projects/shop.md"),
+	}
+	if strings.Contains(want["projects/_template.md"], "Questions and answers") || !strings.Contains(want["mode.md"], "\nledger_max_lines: 300\n") {
+		t.Fatal("the ledger template is not the template of version 0.6")
+	}
+
+	p := plan(t, env, answers(ledger, nil))
+	if diff := p["diff"].(string); !strings.Contains(diff, "\n+ledger_max_lines: 300\n") {
+		t.Errorf("init_plan of a version 0.5 ledger: the diff has no line +ledger_max_lines: 300:\n%s", diff)
+	}
+	apply(t, env, p)
+	for _, rel := range slices.Sorted(maps.Keys(want)) {
+		if got := read(filepath.Join(ledger, filepath.FromSlash(rel))); got != want[rel] {
+			t.Errorf("after init_apply, ledger %s =\n%s\nwant\n%s", rel, got, want[rel])
+		}
+	}
+	if p2 := plan(t, env, answers(ledger, nil)); p2["diff"] != "" {
+		t.Errorf("second init_plan: diff =\n%s\nwant empty", p2["diff"])
+	}
+
+	// Two rules that the fixtures do not reach. A table whose header line is not in the template
+	// goes to the end, unchanged.
+	extra := "| Old | Table |\n|---|---|\n| one | two |\n"
+	got, err := mergeLedgerFile("owed.md", []byte(tmpl("owed.md")), []byte(fixture("owed.md")+"\n"+extra), env.PluginRoot)
+	if err != nil || !strings.HasPrefix(string(got), want["owed.md"]) || !strings.HasSuffix(string(got), "\n\n"+extra) {
+		t.Errorf("mergeLedgerFile(owed.md with an extra table) = %q, %v; want the merged file, a blank line, and the extra table %q", got, err, extra)
+	}
+	// A priorities.md with the line "## Never without the owner" is not a placeholder: it stays.
+	prio := "# Priorities\n\n## Never without the owner\n\n- Delete a repository.\n"
+	got, err = mergeLedgerFile("priorities.md", []byte(tmpl("priorities.md")), []byte(prio), env.PluginRoot)
+	if err != nil || string(got) != prio {
+		t.Errorf("mergeLedgerFile(priorities.md) = %q, %v; want %q unchanged", got, err, prio)
 	}
 }
 
@@ -711,4 +809,209 @@ func TestInitPlanRefusesLedgerRepo(t *testing.T) {
 	if out != nil || err == nil || !strings.Contains(err.Error(), "notes") || !strings.Contains(err.Error(), "ledger") {
 		t.Fatalf("init_plan with %v: planned %t, error %v, want no plan and an error that names the ledger repository notes", a, out != nil, err)
 	}
+}
+
+func writeTestFile(t *testing.T, path, text string) {
+	t.Helper()
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte(text), 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestPlanDiffShowsDeletion(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "learn", "projects", "gone.json")
+	old := "{\n  \"key\": \"gone\"\n}\n"
+	writeTestFile(t, path, old)
+	diff, err := planDiff([]plannedFile{{Path: path, Delete: true, Before: sha256Hex(old)}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := "--- " + path + "\n+++ /dev/null\n"; !strings.Contains(diff, want) {
+		t.Errorf("planDiff of a deletion = %q, want the header %q", diff, want)
+	}
+	for _, line := range strings.Split(strings.TrimSuffix(old, "\n"), "\n") {
+		if !strings.Contains(diff, "\n-"+line+"\n") {
+			t.Errorf("planDiff of a deletion = %q, want the line %q", diff, "-"+line)
+		}
+	}
+}
+
+func TestWritePlannedDeletes(t *testing.T) {
+	env, ledger := initEnv(t)
+	a := InitAnswers{LedgerPath: ledger}
+	t.Run("deletion inside the ledger", func(t *testing.T) {
+		path := filepath.Join(ledger, "learn", "projects", "gone.json")
+		writeTestFile(t, path, "{}\n")
+		files := []plannedFile{{Path: path, Delete: true, Before: sha256Hex("{}\n")}}
+		applied, err := writePlanned(env, a, files)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !slices.Equal(applied, files) {
+			t.Errorf("writePlanned(%v) = %v, want the deletion back with Delete true", files, applied)
+		}
+		if _, err := os.Lstat(path); !os.IsNotExist(err) {
+			t.Errorf("after writePlanned: Lstat(%s) error = %v, want the file removed", path, err)
+		}
+	})
+	t.Run("deletion of a missing file", func(t *testing.T) {
+		path := filepath.Join(ledger, "learn", "projects", "missing.json")
+		files := []plannedFile{{Path: path, Delete: true, Before: sha256Hex("{}\n")}}
+		if _, err := writePlanned(env, a, files); err != nil {
+			t.Errorf("writePlanned(%v) error = %v, want none for an already missing file", files, err)
+		}
+	})
+	t.Run("deletion outside the closed list", func(t *testing.T) {
+		path := filepath.Join(t.TempDir(), "keep.json")
+		writeTestFile(t, path, "{}\n")
+		files := []plannedFile{{Path: path, Delete: true, Before: sha256Hex("{}\n")}}
+		if _, err := writePlanned(env, a, files); err == nil {
+			t.Errorf("writePlanned(%v) error = nil, want a refusal of a target outside the closed list", files)
+		}
+		if _, err := os.Stat(path); err != nil {
+			t.Errorf("after the refusal: Stat(%s) error = %v, want the file kept", path, err)
+		}
+	})
+	t.Run("write and settings file last", func(t *testing.T) {
+		settings := plannedFile{Path: env.SettingsFile, Mode: 0o600, Before: "absent", Content: "{\"a\": 1}\n"}
+		write := plannedFile{Path: filepath.Join(ledger, "learn", "tree.json"), Mode: 0o644, Before: "absent", Content: "{}\n"}
+		applied, err := writePlanned(env, a, []plannedFile{settings, write})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if want := []plannedFile{write, settings}; !slices.Equal(applied, want) {
+			t.Errorf("writePlanned applied %v, want %v (the settings file last)", applied, want)
+		}
+		for _, f := range []plannedFile{write, settings} {
+			info, err := os.Stat(f.Path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if b, _ := os.ReadFile(f.Path); string(b) != f.Content || info.Mode().Perm() != os.FileMode(f.Mode) {
+				t.Errorf("%s = %q mode %v, want %q mode %v", f.Path, b, info.Mode().Perm(), f.Content, os.FileMode(f.Mode))
+			}
+		}
+	})
+}
+
+// TestInitPlanLedgerTable checks the ledger_table of init_plan (L32): one row for each project,
+// sorted by key, with only the keys key, purpose, repos, links, and docs.
+func TestInitPlanLedgerTable(t *testing.T) {
+	env, ledger := initEnv(t)
+	root := learnRoot(t)
+	shop := project("shop", "shop", "shop", "shop-app")
+	shop["fills"] = []map[string]any{
+		{"field": "purpose", "value": "Online shop of the team", "source": "owner"},
+		{"field": "link", "value": "auth", "source": "agent", "repo": "shop", "file": "go.mod", "line": 5},
+		{"field": "doc", "value": "README.md", "source": "agent", "repo": "shop"},
+	}
+	a := answers(ledger, map[string]any{"root": root, "projects": []any{shop, project("auth", "team/auth", "team/auth")}})
+	p := plan(t, env, a)
+	rows, ok := p["ledger_table"].([]any)
+	if !ok || len(rows) != 2 {
+		t.Fatalf("init_plan with the projects shop and auth: ledger_table = %#v, want two rows", p["ledger_table"])
+	}
+	wantKeys := []string{"docs", "key", "links", "purpose", "repos"}
+	for i, r := range rows {
+		row, _ := r.(map[string]any)
+		if got := slices.Sorted(maps.Keys(row)); !slices.Equal(got, wantKeys) {
+			t.Errorf("ledger_table row %d has the keys %v, want exactly %v (no stack, no gates)", i, got, wantKeys)
+		}
+	}
+	// The rows are sorted by key: auth, then shop.
+	auth, _ := rows[0].(map[string]any)
+	if auth["key"] != "auth" || auth["purpose"] != "" || !slices.Equal(pathList(auth["repos"]), []string{"team/auth"}) {
+		t.Errorf("ledger_table row 0 = %v, want the key auth, the purpose \"\", and the repos [team/auth]", auth)
+	}
+	want := map[string]any{
+		"key":     "shop",
+		"purpose": "Online shop of the team",
+		"repos":   []any{"shop", "shop-app"},
+		"links":   []any{"auth (shop/go.mod:5)"},
+		"docs":    []any{"shop/README.md"},
+	}
+	if got := rows[1]; !reflect.DeepEqual(got, want) {
+		t.Errorf("ledger_table row 1 = %#v, want %#v", got, want)
+	}
+}
+
+// TestInitPlanSplitsDiff checks the split diff of init_plan (G53): outside_diff has the files
+// outside the ledger and <ledger>/.claude/settings.json, ledger_diff has all other ledger files,
+// diff is both, and init_apply takes the one hash of diff.
+func TestInitPlanSplitsDiff(t *testing.T) {
+	env, ledger := initEnv(t)
+	key := strings.ToLower(t.Name())
+	a := answers(ledger, map[string]any{"root": repoRoot(t, key), "projects": []any{project(key, key, key)}})
+	p := plan(t, env, a)
+	outside, ok := p["outside_diff"].(string)
+	if !ok {
+		t.Fatalf("init_plan with the project %s: outside_diff = %#v, want a string", key, p["outside_diff"])
+	}
+	inLedger, ok := p["ledger_diff"].(string)
+	if !ok {
+		t.Fatalf("init_plan with the project %s: ledger_diff = %#v, want a string", key, p["ledger_diff"])
+	}
+	claudeSettings := filepath.Join(ledger, ".claude", "settings.json")
+	for _, path := range []string{env.SettingsFile, claudeSettings} {
+		if !strings.Contains(outside, "+++ "+path+"\n") {
+			t.Errorf("outside_diff = %q, want the file %s", outside, path)
+		}
+		if strings.Contains(inLedger, path) {
+			t.Errorf("ledger_diff = %q, want no file %s (it is in outside_diff)", inLedger, path)
+		}
+	}
+	if learn := filepath.Join(ledger, "learn") + string(filepath.Separator); strings.Contains(outside, learn) {
+		t.Errorf("outside_diff = %q, want no path under %s", outside, learn)
+	}
+	for _, path := range []string{filepath.Join(ledger, "learn", "tree.json"), filepath.Join(ledger, "mode.md")} {
+		if !strings.Contains(inLedger, "+++ "+path+"\n") {
+			t.Errorf("ledger_diff = %q, want the file %s", inLedger, path)
+		}
+	}
+	if got, want := p["diff"], outside+inLedger; got != want {
+		t.Errorf("diff = %q, want outside_diff + ledger_diff = %q", got, want)
+	}
+	if got, want := p["diff_sha256"], sha256Hex(outside+inLedger); got != want {
+		t.Errorf("diff_sha256 = %v, want sha256Hex(outside_diff + ledger_diff) = %s", got, want)
+	}
+	applied := apply(t, env, p)
+	for _, path := range []string{env.SettingsFile, claudeSettings, filepath.Join(ledger, "learn", "tree.json")} {
+		if !slices.Contains(applied, path) {
+			t.Errorf("init_apply with diff_sha256 %v: applied %v, want %s among them", p["diff_sha256"], applied, path)
+		}
+	}
+}
+
+// TestInitPlanTrustList checks the trust list of init_plan (spec 16, step 12): the ledger with
+// only its path, then each repository of the answers in their order, with its absolute path and
+// whether .claude/settings.json and .mcp.json exist.
+func TestInitPlanTrustList(t *testing.T) {
+	t.Run("two projects", func(t *testing.T) {
+		env, ledger := initEnv(t)
+		root := repoRoot(t, "app", "api", "web")
+		writeTestFile(t, filepath.Join(root, "app", ".claude", "settings.json"), "{}\n")
+		writeTestFile(t, filepath.Join(root, "api", ".mcp.json"), "{}\n")
+		a := answers(ledger, map[string]any{"root": root, "projects": []any{project("app", "app", "app"), project("api", "api", "api", "web")}})
+		p := plan(t, env, a)
+		want := []any{
+			map[string]any{"path": ledger},
+			map[string]any{"path": filepath.Join(root, "app"), "claude_settings": true, "mcp": false},
+			map[string]any{"path": filepath.Join(root, "api"), "claude_settings": false, "mcp": true},
+			map[string]any{"path": filepath.Join(root, "web"), "claude_settings": false, "mcp": false},
+		}
+		if got := p["trust"]; !reflect.DeepEqual(got, want) {
+			t.Errorf("init_plan with the projects app and api: trust = %#v, want %#v", got, want)
+		}
+	})
+	t.Run("no projects", func(t *testing.T) {
+		env, ledger := initEnv(t)
+		p := plan(t, env, answers(ledger, nil))
+		want := []any{map[string]any{"path": ledger}}
+		if got := p["trust"]; !reflect.DeepEqual(got, want) {
+			t.Errorf("init_plan with no projects: trust = %#v, want %#v", got, want)
+		}
+	})
 }
