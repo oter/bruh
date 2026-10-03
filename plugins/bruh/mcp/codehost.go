@@ -15,6 +15,7 @@ import (
 	"os/exec"
 	"path"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strconv"
 	"strings"
@@ -35,9 +36,18 @@ type reposConfig struct {
 	Repos           []repoConfig `json:"repos"`
 }
 
+// gitlabRepoRE is the path of a GitLab project: a group, any subgroups, and the name.
+var gitlabRepoRE = regexp.MustCompile(`^[A-Za-z0-9._-]+(/[A-Za-z0-9._-]+)+$`)
+
 // loadRepos reads <data>/repos.json and sets the defaults.
 func loadRepos(dataDir string) (reposConfig, error) {
 	return loadReposFile(filepath.Join(dataDir, "repos.json"))
+}
+
+// apiURL is the api_url of r with the default of its host and no trailing "/".
+func apiURL(r repoConfig) string {
+	defaults := map[string]string{"github": "https://api.github.com", "gitlab": "https://gitlab.com/api/v4"}
+	return strings.TrimRight(cmp.Or(r.APIURL, defaults[r.Host]), "/")
 }
 
 func loadReposFile(file string) (reposConfig, error) {
@@ -54,27 +64,33 @@ func loadReposFile(file string) (reposConfig, error) {
 	cfg.IntervalSeconds = max(cmp.Or(cfg.IntervalSeconds, 60), 10)
 	for i := range cfg.Repos {
 		r := &cfg.Repos[i]
-		if !repoRE.MatchString(r.Repo) {
-			return cfg, fmt.Errorf("%s: repo must be owner/name: %q", file, r.Repo)
+		if r.Host == "gitlab" {
+			if !gitlabRepoRE.MatchString(r.Repo) {
+				return cfg, fmt.Errorf("%s: repo must be group/name or group/subgroup/.../name for gitlab: %q", file, r.Repo)
+			}
+		} else if !repoRE.MatchString(r.Repo) {
+			return cfg, fmt.Errorf("%s: repo must be owner/name for github and gitea: %q", file, r.Repo)
 		}
 		switch r.Host {
-		case "github":
-			r.APIURL = cmp.Or(r.APIURL, "https://api.github.com")
+		case "github", "gitlab":
 		case "gitea":
 			if r.APIURL == "" {
 				return cfg, fmt.Errorf("%s: %s: api_url is required for gitea", file, r.Repo)
 			}
 		default:
-			return cfg, fmt.Errorf("%s: %s: host must be github or gitea: %q", file, r.Repo, r.Host)
+			return cfg, fmt.Errorf("%s: %s: host must be github, gitlab, or gitea: %q", file, r.Repo, r.Host)
 		}
-		r.APIURL = strings.TrimRight(r.APIURL, "/")
+		r.APIURL = apiURL(*r)
 		if u, err := url.Parse(r.APIURL); err != nil || u.Scheme != "https" || u.Hostname() == "" || u.User != nil || u.RawQuery != "" || u.Fragment != "" {
 			return cfg, fmt.Errorf("%s: %s: api_url must be an https URL with no user, query, or fragment: %q", file, r.Repo, r.APIURL)
 		}
-		r.Project = cmp.Or(r.Project, path.Base(r.Repo))
+		// An empty project stays empty: the watcher skips the entry and the merge train refuses it (G2).
+		if r.Project != "" && !projectRE.MatchString(r.Project) {
+			return cfg, fmt.Errorf("%s: %s: project must be a project key ([a-z0-9-]): %q", file, r.Repo, r.Project)
+		}
 		r.MergeMethod = cmp.Or(r.MergeMethod, "merge")
 		// Gitea "manually-merged" marks a pull request merged without a merge, so it is not accepted.
-		methods := map[string][]string{"github": {"merge", "squash", "rebase"}, "gitea": {"merge", "rebase", "rebase-merge", "squash", "fast-forward-only"}}
+		methods := map[string][]string{"github": {"merge", "squash", "rebase"}, "gitlab": {"merge", "squash"}, "gitea": {"merge", "rebase", "rebase-merge", "squash", "fast-forward-only"}}
 		if !slices.Contains(methods[r.Host], r.MergeMethod) {
 			return cfg, fmt.Errorf("%s: %s: merge_method %q is not one of %v", file, r.Repo, r.MergeMethod, methods[r.Host])
 		}
@@ -393,6 +409,9 @@ func (g *gitea) Merge(ctx context.Context, n int, sha, method string) error {
 // ghBin is the gh binary of the token fallback; tests replace it.
 var ghBin = "gh"
 
+// glabBin is the glab binary of the GitLab client and of the scan; tests replace it.
+var glabBin = "glab"
+
 // hostHTTP is the HTTP client of the code host clients; tests replace it.
 var hostHTTP = &http.Client{Timeout: 30 * time.Second}
 
@@ -468,12 +487,12 @@ func reposTools() []Tool {
 	str := stringSchema()
 	return []Tool{{
 		Name:        "repos_set",
-		Description: "Add, replace, or remove (remove: true) one repository in <data>/repos.json, the code host configuration of the watcher and the merge train. Only bigm. api_url must be https. Tokens are never stored: GitHub uses GITHUB_TOKEN or gh only for api.github.com and the hosts of BRUH_GITHUB_HOSTS; Gitea uses BRUH_GITEA_TOKEN_<HOST>.",
+		Description: "Add, replace, or remove (remove: true) one repository in <data>/repos.json, the code host configuration of the watcher and the merge train. Only bigm. project is the project key of the clanker of the repository ([a-z0-9-]) and is required except with remove: true. A repo that is already configured with another api_url must be removed first. api_url must be https. Tokens are never stored: GitHub uses GITHUB_TOKEN or gh only for api.github.com and the hosts of BRUH_GITHUB_HOSTS; Gitea uses BRUH_GITEA_TOKEN_<HOST>; GitLab uses `glab api --hostname`, and no token passes through bruh.",
 		InputSchema: objectSchema(map[string]any{
-			"repo": str, "host": map[string]any{"type": "string", "enum": []string{"github", "gitea"}}, "api_url": str,
+			"repo": str, "host": map[string]any{"type": "string", "enum": []string{"github", "gitlab", "gitea"}}, "api_url": str,
 			"project": str, "merge_method": str, "remove": map[string]any{"type": "boolean"},
 			"interval_seconds": map[string]any{"type": "integer", "minimum": 10},
-		}, "repo"),
+		}, "repo", "project"),
 		Handler: func(c *Call, raw json.RawMessage) (any, error) {
 			me, err := c.Env.Caller()
 			if err != nil {
@@ -507,6 +526,15 @@ func reposTools() []Tool {
 				}
 				if a.IntervalSeconds != 0 {
 					cfg.IntervalSeconds = a.IntervalSeconds
+				}
+				if !a.Remove {
+					if !projectRE.MatchString(a.Project) {
+						return fmt.Errorf("%s: %s: project is required and must be a project key ([a-z0-9-]); call repos_set with project", file, a.Repo)
+					}
+					// ponytail: repos.json is keyed by repo only, so one path on two hosts is refused (G3); key by api_url and repo if both are needed.
+					if i := slices.IndexFunc(cfg.Repos, func(r repoConfig) bool { return r.Repo == a.Repo }); i >= 0 && apiURL(cfg.Repos[i]) != apiURL(a.repoConfig) {
+						return fmt.Errorf("%s is already configured for %s; remove it first", a.Repo, apiURL(cfg.Repos[i]))
+					}
 				}
 				cfg.Repos = slices.DeleteFunc(cfg.Repos, func(r repoConfig) bool { return r.Repo == a.Repo })
 				if !a.Remove {

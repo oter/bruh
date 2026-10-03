@@ -10,7 +10,7 @@ import (
 	"time"
 )
 
-var qidRE = regexp.MustCompile(`^Q-\d+$`)
+var qidRE = regexp.MustCompile("^" + qidPattern + "$")
 
 type answer struct {
 	Text string `json:"text"`

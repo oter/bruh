@@ -1,6 +1,7 @@
 package main
 
 import (
+	"os"
 	"strings"
 	"testing"
 )
@@ -44,5 +45,35 @@ func TestRoleKeyParent(t *testing.T) {
 		if got := k.Parent(); got != want {
 			t.Errorf("%s.Parent() = %q, want %q", s, got, want)
 		}
+	}
+}
+
+func TestHostNormalize(t *testing.T) {
+	for name, want := range map[string]string{
+		"My_Mac.local":      "my-mac",
+		"Dev-Mac.local":     "dev-mac", // the example of spec 5
+		"web01.example.com": "web01",
+		"--":                "host",
+		"":                  "host",
+		".local":            "host",
+		"Über-Box":          "ber-box",
+	} {
+		if got := hostSlug(name); got != want {
+			t.Errorf("hostSlug(%q) = %q, want %q", name, got, want)
+		}
+	}
+}
+
+func TestEnvFromOSSetsHost(t *testing.T) {
+	name, err := os.Hostname()
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := EnvFromOS().Host
+	if want := hostSlug(name); got != want {
+		t.Errorf("EnvFromOS().Host = %q, want hostSlug(%q) = %q", got, name, want)
+	}
+	if !projectRE.MatchString(got) {
+		t.Errorf("EnvFromOS().Host = %q, want a match of %s", got, projectRE)
 	}
 }

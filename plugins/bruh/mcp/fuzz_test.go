@@ -38,11 +38,11 @@ func FuzzParseRoleKey(f *testing.F) {
 func FuzzMailAllowed(f *testing.F) {
 	for _, c := range [][3]string{
 		{"bigm", "clanker-a", "RULE R-1: x"},
-		{"clanker-a", "clerk-a-1", "ANSWER Q-1: x"},
-		{"clerk-a-1", "clanker-a", "P1 Q-2: x"},
-		{"clerk-a-1", "bigm", "P0 Q-3: x"},
+		{"clanker-a", "clerk-a-1", "ANSWER Q-a-host-1: x"},
+		{"clerk-a-1", "clanker-a", "P1 Q-a-host-2: x"},
+		{"clerk-a-1", "bigm", "P0 Q-a-host-3: x"},
 		{"clerk-a-1", "clanker-b", "RULE R-99: x"},
-		{"clerk-a-1", "clerk-b-1", "ANSWER Q-5: x"},
+		{"clerk-a-1", "clerk-b-1", "ANSWER Q-a-host-5: x"},
 	} {
 		f.Add(c[0], c[1], c[2])
 	}

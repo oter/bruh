@@ -198,19 +198,71 @@ func TestLoadRepos(t *testing.T) {
 	}
 	cfg, _ := loadRepos(dir)
 	gh, gt := cfg.Repos[0], cfg.Repos[1]
-	if cfg.IntervalSeconds != 60 || gh.APIURL != "https://api.github.com" || gh.Project != "app" || gh.MergeMethod != "merge" ||
+	if cfg.IntervalSeconds != 60 || gh.APIURL != "https://api.github.com" || gh.Project != "" || gh.MergeMethod != "merge" ||
 		gt.APIURL != "https://git.example.com/api/v1" {
 		t.Fatalf("cfg = %+v", cfg)
 	}
-	for _, bad := range []string{`{"repos":[{"repo":"x","host":"github"}]}`, `{"repos":[{"repo":"o/x","host":"gitea"}]}`, `{"repos":[{"repo":"o/x","host":"gitlab"}]}`, `{"repo":[]}`,
+	for _, bad := range []string{`{"repos":[{"repo":"x","host":"github"}]}`, `{"repos":[{"repo":"o/x","host":"gitea"}]}`, `{"repo":[]}`,
 		`{"repos":[{"repo":"o/x","host":"github","api_url":"http://attacker.example.com"}]}`,
 		`{"repos":[{"repo":"o/x","host":"gitea","api_url":"https://u:p@git.example.com/api/v1"}]}`,
 		`{"repos":[{"repo":"o/x","host":"github","token_env":"GITHUB_TOKEN"}]}`,
 		`{"repos":[{"repo":"o/x","host":"gitea","api_url":"https://git.example.com/api/v1","merge_method":"manually-merged"}]}`,
-		`{"repos":[{"repo":"o/x","host":"github","merge_method":"fast-forward-only"}]}`} {
+		`{"repos":[{"repo":"o/x","host":"github","merge_method":"fast-forward-only"}]}`,
+		`{"repos":[{"repo":"o/x","host":"github","project":"My_Repo"}]}`} {
 		if err := write(bad); err == nil {
 			t.Errorf("%s: no error", bad)
 		}
+	}
+	// The error of a bad project names the file and the repository.
+	if err := write(`{"repos":[{"repo":"o/x","host":"github","project":"My_Repo"}]}`); err == nil ||
+		!strings.Contains(err.Error(), filepath.Join(dir, "repos.json")) || !strings.Contains(err.Error(), "o/x") {
+		t.Errorf("loadRepos() with project My_Repo: error = %v, want one that names the file and o/x", err)
+	}
+}
+
+func TestLoadReposGitLab(t *testing.T) {
+	good := []struct {
+		name, json string
+		want       repoConfig
+	}{
+		{"subgroup with defaults", `{"repo":"group/sub/shop","host":"gitlab","project":"shop"}`,
+			repoConfig{Repo: "group/sub/shop", Host: "gitlab", APIURL: "https://gitlab.com/api/v4", Project: "shop", MergeMethod: "merge"}},
+		{"squash", `{"repo":"group/sub/shop","host":"gitlab","project":"shop","merge_method":"squash"}`,
+			repoConfig{Repo: "group/sub/shop", Host: "gitlab", APIURL: "https://gitlab.com/api/v4", Project: "shop", MergeMethod: "squash"}},
+		{"self-hosted api_url", `{"repo":"group/shop","host":"gitlab","api_url":"https://gitlab.example.com/api/v4","project":"shop"}`,
+			repoConfig{Repo: "group/shop", Host: "gitlab", APIURL: "https://gitlab.example.com/api/v4", Project: "shop", MergeMethod: "merge"}},
+	}
+	for _, tt := range good {
+		t.Run(tt.name, func(t *testing.T) {
+			file := filepath.Join(t.TempDir(), "repos.json")
+			if err := os.WriteFile(file, []byte(`{"repos":[`+tt.json+`]}`), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			cfg, err := loadReposFile(file)
+			if err != nil {
+				t.Fatalf("loadReposFile(%s) error = %v", tt.json, err)
+			}
+			if len(cfg.Repos) != 1 || cfg.Repos[0] != tt.want {
+				t.Errorf("loadReposFile(%s).Repos = %+v, want [%+v]", tt.json, cfg.Repos, tt.want)
+			}
+		})
+	}
+	bad := []struct{ name, json string }{
+		{"gitlab rebase", `{"repo":"group/sub/shop","host":"gitlab","project":"shop","merge_method":"rebase"}`},
+		{"gitlab one part", `{"repo":"shop","host":"gitlab","project":"shop"}`},
+		{"github three parts", `{"repo":"a/b/c","host":"github","project":"c"}`},
+		{"gitea three parts", `{"repo":"a/b/c","host":"gitea","api_url":"https://git.example.com/api/v1","project":"c"}`},
+	}
+	for _, tt := range bad {
+		t.Run(tt.name, func(t *testing.T) {
+			file := filepath.Join(t.TempDir(), "repos.json")
+			if err := os.WriteFile(file, []byte(`{"repos":[`+tt.json+`]}`), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := loadReposFile(file); err == nil {
+				t.Errorf("loadReposFile(%s) error = nil, want an error", tt.json)
+			}
+		})
 	}
 }
 
@@ -336,19 +388,19 @@ func TestReposSet(t *testing.T) {
 	if err := set(env, map[string]any{"repo": "owner/app", "host": "github", "project": "app"}); err != nil {
 		t.Fatal(err)
 	}
-	if err := set(env, map[string]any{"repo": "o/x", "host": "gitea", "api_url": "https://git.example.com/api/v1", "interval_seconds": 30}); err != nil {
+	if err := set(env, map[string]any{"repo": "o/x", "host": "gitea", "api_url": "https://git.example.com/api/v1", "project": "x", "interval_seconds": 30}); err != nil {
 		t.Fatal(err)
 	}
-	if err := set(env, map[string]any{"repo": "owner/app", "host": "github", "merge_method": "squash"}); err != nil {
+	if err := set(env, map[string]any{"repo": "owner/app", "host": "github", "project": "app", "merge_method": "squash"}); err != nil {
 		t.Fatal(err)
 	}
 	cfg, err := loadRepos(env.DataDir)
 	if err != nil || len(cfg.Repos) != 2 || cfg.Repos[1].Repo != "owner/app" || cfg.Repos[1].MergeMethod != "squash" || cfg.IntervalSeconds != 30 {
 		t.Fatalf("cfg = %+v, %v", cfg, err)
 	}
-	mustErr(t, set(env, map[string]any{"repo": "o/y", "host": "gitea"}), "api_url is required")
-	mustErr(t, set(env, map[string]any{"repo": "o/y", "host": "github", "api_url": "http://attacker.example.com"}), "https")
-	mustErr(t, set(as(env, "clanker-a"), map[string]any{"repo": "o/y", "host": "github"}), "only bigm")
+	mustErr(t, set(env, map[string]any{"repo": "o/y", "host": "gitea", "project": "y"}), "api_url is required")
+	mustErr(t, set(env, map[string]any{"repo": "o/y", "host": "github", "project": "y", "api_url": "http://attacker.example.com"}), "https")
+	mustErr(t, set(as(env, "clanker-a"), map[string]any{"repo": "o/y", "host": "github", "project": "y"}), "only bigm")
 	if err := set(env, map[string]any{"repo": "o/x", "remove": true}); err != nil {
 		t.Fatal(err)
 	}
@@ -357,6 +409,59 @@ func TestReposSet(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(env.DataDir, "repos.json.check")); err == nil {
 		t.Fatal("check file left")
+	}
+}
+
+func TestReposSetRequiresProject(t *testing.T) {
+	env := testEnv(t, "bigm")
+	set := func(args map[string]any) error {
+		_, err := call(t, env, "repos_set", args)
+		return err
+	}
+	mustErr(t, set(map[string]any{"repo": "o/app", "host": "github"}), "project is required")
+	mustErr(t, set(map[string]any{"repo": "o/app", "host": "github", "project": "My_Repo"}), "project is required")
+	if err := set(map[string]any{"repo": "o/app", "remove": true}); err != nil {
+		t.Fatalf("remove without project: %v", err)
+	}
+	if err := set(map[string]any{"repo": "group/sub/shop", "host": "gitlab", "project": "shop"}); err != nil {
+		t.Fatalf("gitlab entry: %v", err)
+	}
+	cfg, err := loadRepos(env.DataDir)
+	if err != nil || len(cfg.Repos) != 1 || cfg.Repos[0].Repo != "group/sub/shop" || cfg.Repos[0].Project != "shop" {
+		t.Fatalf("cfg = %+v, %v", cfg, err)
+	}
+	for _, tool := range reposTools() {
+		schema := tool.InputSchema
+		if got := fmt.Sprint(schema["required"]); got != "[repo project]" {
+			t.Errorf("required = %s, want [repo project]", got)
+		}
+		host := schema["properties"].(map[string]any)["host"].(map[string]any)
+		if got := fmt.Sprint(host["enum"]); got != "[github gitlab gitea]" {
+			t.Errorf("host enum = %s, want [github gitlab gitea]", got)
+		}
+	}
+}
+
+func TestReposSetRefusesSameRepoOtherAPI(t *testing.T) {
+	env := testEnv(t, "bigm")
+	set := func(args map[string]any) error {
+		_, err := call(t, env, "repos_set", args)
+		return err
+	}
+	if err := set(map[string]any{"repo": "group/shop", "host": "gitlab", "project": "shop"}); err != nil {
+		t.Fatal(err)
+	}
+	other := map[string]any{"repo": "group/shop", "host": "gitlab", "project": "shop", "api_url": "https://gitlab.example.com/api/v4"}
+	mustErr(t, set(other), "is already configured for https://gitlab.com/api/v4; remove it first")
+	if err := set(map[string]any{"repo": "group/shop", "remove": true}); err != nil {
+		t.Fatal(err)
+	}
+	if err := set(other); err != nil {
+		t.Fatalf("after remove: %v", err)
+	}
+	cfg, err := loadRepos(env.DataDir)
+	if err != nil || len(cfg.Repos) != 1 || cfg.Repos[0].APIURL != "https://gitlab.example.com/api/v4" {
+		t.Fatalf("cfg = %+v, %v", cfg, err)
 	}
 }
 

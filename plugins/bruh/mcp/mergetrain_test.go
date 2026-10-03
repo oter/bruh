@@ -199,57 +199,68 @@ func TestMergeGate(t *testing.T) {
 	env = gateEnv(t, r, "| owner/repo | clerk-repo-other | CI green | x | y | init |\n| owner/other | clerk-repo-merge | x | x | y | init |\n")
 	mustErr(t, mergeGate(env, r, "", []int{9}), "no merge grant")
 	// An approval of bigm in the mailbox opens the gate; the same header from another role does not.
-	mustErr(t, mergeGate(env, r, "Q-4", []int{9}), "no ANSWER Q-4")
+	mustErr(t, mergeGate(env, r, "Q-repo-host-4", []int{9}), "no ANSWER Q-repo-host-4")
 	post := func(from, header string) {
 		t.Helper()
 		if _, err := call(t, as(env, from), "mail_post", map[string]any{"to": "clerk-repo-merge", "header": header, "body": "owner: yes"}); err != nil {
 			t.Fatal(err)
 		}
 	}
-	post("clanker-repo", "ANSWER Q-4: merge owner/repo#9 approved")
-	mustErr(t, mergeGate(env, r, "Q-4", []int{9}), "no ANSWER Q-4")
-	post("bigm", "ANSWER Q-4: merge owner/repo#9,#11 approved")
-	if err := mergeGate(env, r, "Q-4", []int{9}); err != nil {
+	post("clanker-repo", "ANSWER Q-repo-host-4: merge owner/repo#9 approved")
+	mustErr(t, mergeGate(env, r, "Q-repo-host-4", []int{9}), "no ANSWER Q-repo-host-4")
+	post("bigm", "ANSWER Q-repo-host-4: merge owner/repo#9,#11 approved")
+	if err := mergeGate(env, r, "Q-repo-host-4", []int{9}); err != nil {
 		t.Fatal(err)
 	}
-	if err := mergeGate(env, r, "Q-4", []int{11, 9}); err != nil {
+	if err := mergeGate(env, r, "Q-repo-host-4", []int{11, 9}); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := call(t, env, "mail_read", map[string]any{}); err != nil {
 		t.Fatal(err)
 	}
-	if err := mergeGate(env, r, "Q-4", []int{9}); err != nil {
+	if err := mergeGate(env, r, "Q-repo-host-4", []int{9}); err != nil {
 		t.Fatalf("after mail_read: %v", err)
 	}
-	mustErr(t, mergeGate(env, r, "Q-40", []int{9}), "no ANSWER Q-40")
+	mustErr(t, mergeGate(env, r, "Q-repo-host-40", []int{9}), "no ANSWER Q-repo-host-40")
 }
 
 // Final review M2: the ANSWER must approve these exact pull requests of this repository.
 func TestMergeGateNeedsApprovalOfEachPull(t *testing.T) {
 	_, r := newFakeForge(t, "github")
 	env := gateEnv(t, r, "")
+	gitlab := r
+	gitlab.Host, gitlab.Repo = "gitlab", "group/sub/app" // a GitLab path with a subgroup (A13.4)
 	for i, c := range []struct {
+		repo    repoConfig
 		header  string
 		numbers []int
 		ok      bool
 	}{
-		{"merge owner/repo#12 approved", []int{12}, true},
-		{"merge owner/repo#3,#12 approved", []int{3, 12}, true},
-		{"merge owner/repo#12 refused", []int{12}, false},                // a no
-		{"merge owner/repo#3? No, do not merge.", []int{12}, false},      // the probe of the review
-		{"merge owner/repo#3 approved", []int{12}, false},                // another pull request
-		{"merge owner/repo#12 approved", []int{12, 13}, false},           // one number of the train is not named
-		{"merge owner/other#12 approved", []int{12}, false},              // another repository
-		{"merge owner/repo#12 approved, also #13", []int{12, 13}, false}, // not the closed grammar
-		{"merge owner/repo#012 approved", []int{12}, false},
+		{r, "merge owner/repo#12 approved", []int{12}, true},
+		{r, "merge owner/repo#3,#12 approved", []int{3, 12}, true},
+		{r, "merge owner/repo#12 refused", []int{12}, false},                // a no
+		{r, "merge owner/repo#3? No, do not merge.", []int{12}, false},      // the probe of the review
+		{r, "merge owner/repo#3 approved", []int{12}, false},                // another pull request
+		{r, "merge owner/repo#12 approved", []int{12, 13}, false},           // one number of the train is not named
+		{r, "merge owner/other#12 approved", []int{12}, false},              // another repository
+		{r, "merge owner/repo#12 approved, also #13", []int{12, 13}, false}, // not the closed grammar
+		{r, "merge owner/repo#012 approved", []int{12}, false},
+		{gitlab, "merge group/sub/app#12 approved", []int{12}, true},
 	} {
-		qid := fmt.Sprintf("Q-%d", i+1)
+		qid := fmt.Sprintf("Q-repo-host-%d", i+1)
 		if _, err := call(t, as(env, "bigm"), "mail_post", map[string]any{"to": "clerk-repo-merge", "header": "ANSWER " + qid + ": " + c.header, "body": "owner words"}); err != nil {
 			t.Fatal(err)
 		}
-		if err := mergeGate(env, r, qid, c.numbers); (err == nil) != c.ok {
+		if err := mergeGate(env, c.repo, qid, c.numbers); (err == nil) != c.ok {
 			t.Errorf("%q with %v: err = %v, want ok = %v", c.header, c.numbers, err, c.ok)
 		}
+	}
+	// The old ID form Q-<n> is refused (spec 5): the mailbox does not take it, and the gate does not read it.
+	if _, err := call(t, as(env, "bigm"), "mail_post", map[string]any{"to": "clerk-repo-merge", "header": "ANSWER Q-4: merge owner/repo#9 approved", "body": "owner words"}); err == nil {
+		t.Error("mail_post took the old ID ANSWER Q-4")
+	}
+	if err := mergeGate(env, r, "Q-4", []int{9}); err == nil {
+		t.Error("mergeGate opened for the old ID Q-4")
 	}
 }
 

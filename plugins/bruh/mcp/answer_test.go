@@ -24,14 +24,14 @@ func TestAnswerWaitGetsAnswerWithProgress(t *testing.T) {
 	c := &Call{Env: env, progress: func(int, string) { mu.Lock(); progress++; mu.Unlock() }}
 	done := make(chan any, 1)
 	go func() {
-		out, err := wait(c, json.RawMessage(`{"question_id":"Q-7","deadline_seconds":5}`))
+		out, err := wait(c, json.RawMessage(`{"question_id":"Q-a-testhost-7","deadline_seconds":5}`))
 		if err != nil {
 			t.Error(err)
 		}
 		done <- out
 	}()
 	time.Sleep(150 * time.Millisecond)
-	if _, err := call(t, env, "answer_write", map[string]any{"question_id": "Q-7", "text": "Use option B. Owner, 2026-09-30."}); err != nil {
+	if _, err := call(t, env, "answer_write", map[string]any{"question_id": "Q-a-testhost-7", "text": "Use option B. Owner, 2026-09-30."}); err != nil {
 		t.Fatal(err)
 	}
 	out := (<-done).(map[string]string)
@@ -46,15 +46,18 @@ func TestAnswerWaitGetsAnswerWithProgress(t *testing.T) {
 }
 
 func TestAnswerWaitPendingAtDeadline(t *testing.T) {
-	out, err := call(t, testEnv(t, "clerk-a-1"), "answer_wait", map[string]any{"question_id": "Q-8", "deadline_seconds": 0.2})
+	out, err := call(t, testEnv(t, "clerk-a-1"), "answer_wait", map[string]any{"question_id": "Q-a-testhost-8", "deadline_seconds": 0.2})
 	if err != nil || out.(map[string]any)["status"] != "pending" {
 		t.Fatalf("out = %v, %v", out, err)
 	}
 }
 
 func TestAnswerRefusesBadID(t *testing.T) {
-	_, err := call(t, testEnv(t, "clerk-a-1"), "answer_write", map[string]any{"question_id": "../Q-1", "text": "x"})
-	if err == nil || !strings.Contains(err.Error(), "invalid question ID") {
-		t.Fatalf("err = %v", err)
+	// ../Q-1 leaves the answers folder; Q-7 is the old form, refused since spec 5 (D2).
+	for _, id := range []string{"../Q-1", "Q-7"} {
+		_, err := call(t, testEnv(t, "clerk-a-1"), "answer_write", map[string]any{"question_id": id, "text": "x"})
+		if err == nil || !strings.Contains(err.Error(), "invalid question ID") {
+			t.Errorf("answer_write %q: err = %v", id, err)
+		}
 	}
 }

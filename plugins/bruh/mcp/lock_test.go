@@ -47,19 +47,19 @@ func TestWithLockExcludesAndSurvivesADeadHolder(t *testing.T) {
 func TestQuestionOpenNeverOverwrites(t *testing.T) {
 	env := testEnv(t, "clerk-a-1")
 	dir, _ := env.Dir("questions")
-	// A crash left Q-1.json without moving next.
-	if err := os.WriteFile(filepath.Join(dir, "Q-1.json"), []byte(`{"id":"Q-1","subject":"first"}`), 0o600); err != nil {
+	// A crash left Q-a-testhost-1.json without moving next.
+	if err := os.WriteFile(filepath.Join(dir, "Q-a-testhost-1.json"), []byte(`{"id":"Q-a-testhost-1","subject":"first"}`), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	q, err := openQ(t, env, "second")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if q["id"] != "Q-2" {
+	if q["id"] != "Q-a-testhost-2" {
 		t.Fatalf("id = %v", q["id"])
 	}
-	if b, _ := os.ReadFile(filepath.Join(dir, "Q-1.json")); !strings.Contains(string(b), "first") {
-		t.Fatalf("Q-1 was overwritten: %s", b)
+	if b, _ := os.ReadFile(filepath.Join(dir, "Q-a-testhost-1.json")); !strings.Contains(string(b), "first") {
+		t.Fatalf("Q-a-testhost-1 was overwritten: %s", b)
 	}
 }
 

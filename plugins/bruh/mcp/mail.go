@@ -13,7 +13,7 @@ import (
 	"time"
 )
 
-var headerRE = regexp.MustCompile(`^(P[012] Q-\d+|ANSWER Q-\d+|REC Q-\d+|RULE R-\d+|DONE|START): \S.{0,199}$`)
+var headerRE = regexp.MustCompile(`^(P[012] ` + qidPattern + `|ANSWER ` + qidPattern + `|REC ` + qidPattern + `|RULE R-\d+|DONE|START): \S.{0,199}$`)
 
 var mailSeq atomic.Int64
 
@@ -55,7 +55,7 @@ func mailTools() []Tool {
 				"type": "object",
 				"properties": map[string]any{
 					"to":     map[string]any{"type": "string", "description": "Role key of the receiver"},
-					"header": map[string]any{"type": "string", "description": `One header line, for example "P1 Q-7: merge the login fix?"`},
+					"header": map[string]any{"type": "string", "description": `One header line, for example "P1 Q-shop-dev-mac-7: merge the login fix?"`},
 					"body":   map[string]any{"type": "string"},
 				},
 				"required": []string{"to", "header", "body"},

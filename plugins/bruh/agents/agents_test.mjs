@@ -248,9 +248,13 @@ test('bigm sends a merge approval in the closed form that the merge gate reads',
   assert.ok(merges.includes(yes), 'bigm.md: approval header')
   assert.ok(merges.includes('`ANSWER Q-<n>: merge <owner/repo>#<pr> refused`'), 'bigm.md: refusal header')
   for (const role of ['clanker', 'clerk']) assert.ok(agents[role].includes(yes), `${role}: approval header`)
-  const gate = read(join(plugin, 'mcp/mergetrain.go')).match(/approvalRE = regexp\.MustCompile\(`(.*)`\)/)[1]
-  assert.match('ANSWER Q-7: merge owner/app#12,#14 approved', new RegExp(gate))
-  assert.doesNotMatch('ANSWER Q-7: merge owner/app#12 refused', new RegExp(gate))
+  const qid = read(join(plugin, 'mcp/env.go')).match(/^const qidPattern = `([^`]*)`/m)?.[1]
+  assert.ok(qid, 'env.go: const qidPattern')
+  const approval = read(join(plugin, 'mcp/mergetrain.go')).match(/approvalRE = regexp\.MustCompile\(`(.*)`\)/)[1]
+  const gate = new RegExp(approval.replace('` + qidPattern + `', qid))
+  assert.match('ANSWER Q-shop-host-7: merge owner/shop#12,#14 approved', gate)
+  assert.doesNotMatch('ANSWER Q-shop-host-7: merge owner/shop#12 refused', gate)
+  assert.doesNotMatch('ANSWER Q-7: merge owner/shop#12 approved', gate)
 })
 
 // Final review M3: the merger clerk of every project runs on the machine of bigm; for a remote

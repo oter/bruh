@@ -124,8 +124,8 @@ func mergeTrain(ctx context.Context, env Env, h codeHost, r repoConfig, numbers 
 }
 
 // approvalRE is the closed grammar of a merge approval of bigm:
-// ANSWER Q-<n>: merge <owner/repo>#<pr>[,#<pr>...] approved
-var approvalRE = regexp.MustCompile(`^ANSWER (Q-\d+): merge ([A-Za-z0-9._-]+/[A-Za-z0-9._-]+)#(\d+(?:,#\d+)*) approved$`)
+// ANSWER Q-<id>: merge <repo>#<pr>[,#<pr>...] approved
+var approvalRE = regexp.MustCompile(`^ANSWER (` + qidPattern + `): merge ([A-Za-z0-9._-]+(?:/[A-Za-z0-9._-]+)+)#(\d+(?:,#\d+)*) approved$`)
 
 // approves reports whether header approves the merge of each of numbers in repo, by question qid.
 func approves(header, qid, repo string, numbers []int) bool {
@@ -176,7 +176,7 @@ func mergeGate(env Env, r repoConfig, answer string, numbers []int) error {
 	var cfg initConfig
 	raw, err := os.ReadFile(filepath.Join(env.DataDir, "init", "config.json"))
 	if err != nil || json.Unmarshal(raw, &cfg) != nil || cfg.LedgerPath == "" {
-		return errors.New("no ledger path in <data>/init/config.json; run /bruh:init, or pass --answer Q-<n>")
+		return errors.New("no ledger path in <data>/init/config.json; run /bruh:init, or pass --answer Q-<id>")
 	}
 	grants, err := os.ReadFile(filepath.Join(cfg.LedgerPath, "grants.md"))
 	if err != nil {
@@ -188,7 +188,7 @@ func mergeGate(env Env, r repoConfig, answer string, numbers []int) error {
 			return nil
 		}
 	}
-	return fmt.Errorf("grants.md has no merge grant for %s and %s; ask for a P1 answer and pass --answer Q-<n>", r.Repo, env.RoleKey)
+	return fmt.Errorf("grants.md has no merge grant for %s and %s; ask for a P1 answer and pass --answer Q-<id>", r.Repo, env.RoleKey)
 }
 
 // tableCells splits a Markdown table row at the pipes that are not escaped, and trims the cells.

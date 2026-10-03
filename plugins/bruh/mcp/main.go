@@ -28,7 +28,7 @@ Commands:
   role-settings <role key> write <data>/roles/<role key>.json with the defaults (never overwrites)
   watch [--data <dir>] [--once]
                            poll the code hosts of <data>/repos.json; one JSON line for each event
-  merge-train [--data <dir>] [--wait-minutes <n>] [--answer Q-<n>] <owner/repo> <number>...
+  merge-train [--data <dir>] [--wait-minutes <n>] [--answer Q-<id>] <repo> <number>...
                            merge the pull requests in order, each only with green checks,
                            and confirm each merge by reading the code host API
 `
