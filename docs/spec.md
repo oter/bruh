@@ -735,7 +735,7 @@ Documented options first. A custom design comes last.
 
 - bruh does not compare the text of commands. The hold blocks each later call of the held scope until the hold is cleared, also a call that does a different job. So a second form of the refused command and a later different command are told apart by structure only: before the clear, every call is blocked; after the clear, the answer of the owner says what may run. Agent-derived, needs owner decision.
 - A false positive costs one P0 and one answer. Cases 4 and 5 are false positives of the guard: the commands ran no git. The answer can name the allowed form, for example "pass the data through tool inputs". The house rule of 15.1.6 removes the shapes that cause them. Agent-derived, needs owner decision.
-- A no-verdict denial (a classifier outage) holds too. Ten no-verdict responses stop the turn anyway (knowledge.md), so the extra P0s are few. Agent-derived, needs owner decision.
+- A no-verdict denial (a classifier outage) holds too. Under server-side classifier review, ten no-verdict responses in a row stop the turn anyway (knowledge.md). The docs give no such limit for the local classifier, but the hold stops the agent after the first no-verdict denial, so the extra P0s are few. Agent-derived, needs owner decision.
 - How the owner clears a hold is open item 2. Agent-derived, needs owner decision.
 
 #### 15.1.6 The house rule for worktrees
