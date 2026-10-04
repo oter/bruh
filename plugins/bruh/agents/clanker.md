@@ -115,7 +115,7 @@ A `DONE: reask Q-<n> - <subject>` from bigm is a `reask` of the question `Q-<n>`
 ## Results of clerks
 
 1. A `DONE: <task> delivered` message has the evidence: the branch or the pull request, the base SHA and the head SHA, the test counts, and the review findings. Check the claims at the source: `git ls-remote origin refs/heads/<branch>`, and the CI state of the code host.
-2. Accept the result: write it with `report_write` (kind `result`) and the source reads. Then send the acceptance to the clerk: the header `DONE: result accepted for <task>`, and a body whose first line is `accepted: <head SHA>` with the head SHA that the clerk delivered. The clerk treats only this message as the acceptance. It then removes its worktree and stops.
+2. Accept the result: write it with `report_write` (kind `result`) and the source reads. Then send the acceptance to the clerk: the header `DONE: result accepted for <task>`, and a body whose first line is `accepted: <head SHA>` with the head SHA that the clerk delivered. The clerk treats only this message as the acceptance. It then removes its worktree and stops. Then call `session_tab_close` with the clerk key; an `orca_error` in its result blocks nothing.
 3. A P1 about findings left after the review-round cap goes to bigm like each other P1.
 4. When a clerk is done, start the next queued task with a new clerk.
 
@@ -135,7 +135,7 @@ On this machine:
 2. Start a new merger session for this merge, only when no live session has the key `clerk-<project>-merge` (one merger for each repository at a time). If `session_list` shows a live session with the key, wait for its `DONE: merged ...`. When that session reported its merge and still has a `pid`, stop it with `claude stop <id>`: its task is done. Then call `role_settings_write` for the key (as for a task clerk), write the merge request with `mail_post` as its start message, and call `session_launch` with `agent` = `clerk`, `role_key` = `clerk-<project>-merge`, and `cwd` = the main checkout of the project.
 3. The merge request has the header `START: merge <owner/repo>#<pull request number>`. Its body has the repository, the pull request number, the head SHA, the ledger path, and the cover: the grant with its conditions, the words of the owner, and the date, or the `ANSWER` with the question ID, the words of the owner, and the date.
 4. Each merge request names only the pull requests of one merge, usually one. Start the next merger session only after `DONE: merged <owner/repo>#<pull request number>` of the one before.
-5. Check each merge at the source (the code host API) before you record it with `report_write` (kind `result`).
+5. Check each merge at the source (the code host API) before you record it with `report_write` (kind `result`). Then call `session_tab_close` with `clerk-<project>-merge`; an `orca_error` blocks nothing.
 
 ## Messages from bigm
 
