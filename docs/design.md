@@ -293,6 +293,32 @@ Decisions of 2026-10-03, L38 to L49. The owner answered the open questions of sp
   - bigm makes the offer as a P1. In autonomous mode, the offer is an item of "Never without the owner", and it goes to the owner as `priorities.md` says for those items.
   - An exception to "Posting is clerk work" (spec 6.1): a bug report on the bruh repository is not a post of project work. The session that got the yes of the owner files it, with no clerk.
 
+## On-demand monitors (owner, 2026-10-04)
+
+- L50: monitors start on demand, as one general mechanism for each developer who installs bruh. Owner decision 2026-10-04: the request. The design is spec section 9.5, with the status "Design for owner review, not built". Each design item is agent-derived, needs owner decision, and the open choices M1 to M9 are in spec section 22, item 5.
+  - The words of the owner, word for word (terminal, 2026-10-04T10:12:17Z): "i thin we must tune monitor proceedures - monitors should be started on demand. for example bruh pushed the changes and obviously monitoar must be started to get notification right away. other thing - i asked to work on tasks from some system e.g. linear - monitor that will track progress. other use case - i started work with teammates on some big thing and we work in linear/gitlab - so monitors to see statuses of work done in these system. so, simply speaking wee need a generalized behavioral addition/changes that will help to cover that things. but no need to repeat use cases as i described. thing of bruh as a generalized system that any developer can install".
+  - The task as bigm stated it (2026-10-04T10:13:04Z): "Generalized on-demand monitors. Today there is one fixed watcher (scripts/watcher.sh, which polls repos.json). The owner wants a general behavior: a role starts a monitor on demand for each piece of external state that the work depends on, and stops it when the work no longer needs it. Do not hard-code the owner's examples (a push, an issue tracker, team work in another system). They only show the range. Design one general mechanism: who starts a monitor, what it watches (code hosts, issue trackers, and other systems through their CLIs, APIs, or MCP servers), how events reach the right role, its lifetime and expiry, re-arm after resume, credentials and identity, rate limits, and how the ledger shows the active monitors."
+  - The facts that the design depends on. The vendor facts are in knowledge.md, "Monitors, background tasks, and event delivery (verified 2026-10-04)".
+    - F1: bigm runs the watcher in a `Monitor` tool watch (spec 9.2). A watch has a deadline of at most 30 minutes, and 5 minutes by default. So the watcher stops, and the live events wait until bigm starts it again or until the next sweep. A likely defect of bruh. Agent-derived finding. Verify: a probe of bigm.
+    - F2: a plugin monitor runs for the whole session, with no deadline, but starts only in an interactive session. `/status` shows a `claude --bg` session as `background job`. Verify: plugin monitors in a background session.
+    - F3: a program that the poller starts runs outside the Bash permission rules and the classifier, because the Bash tool does not start it. So a `command` source needs its own approval (M6). The docs do not say if the permission rules apply to the command of a plugin monitor. Verify.
+    - F4: an MCP server puts text into a conversation only as a channel. Channels are a research preview, a custom channel needs the development flag, and only bigm loads channels today.
+    - F5: the watcher of today already has the parts of a general poller: a cursor for each source in `watch/state.json`, one error event for each new error text, appends with `O_APPEND`, the structural marker of agent posts, and token rules that send a token only to its own host.
+    - F6: an `asyncRewake` hook wakes an idle session at once when it exits with code 2. Claude Code enforces its `timeout` and does not deduplicate its firings. Plugin hooks run in each session type.
+    - F7: a running monitor counts as working, so the supervisor does not stop the idle process of a background session that has one.
+  - The design decisions, each agent-derived, needs owner decision (spec 9.5, parts a to j):
+    - Each role can start a monitor for itself with `monitor_start`, when its next step waits on an external state that can change without its action. A workflow agent asks its clerk.
+    - A source is data with a closed schema: `codehost`, `command` (an `argv` with no shell), or `http` (a GET of an `https` URL). Events of `command` and `http` come from JSON pointers only (`items`, `id`, `version`, `title`), never from the meaning of words.
+    - `monitor_start` runs the first poll at once and returns it as the baseline with its source read.
+    - Events go to the mailbox of each local subscriber with the existing header `DONE: event <project>: <subject>`, and to the report file of the project. No new header.
+    - `until` is required, with a default and a cap in `mode.md`. An `expired` event tells the subscriber. bigm stops the monitors of retired roles at each sweep.
+    - The monitors and the cursors are in the plugin data folder, so they survive a resume, a compaction, and a restart.
+    - Tokens: the rules of `hostToken`, a CLI with its own login, or `BRUH_TOKEN_<HOST>` sent only to its own host. No token is stored. A monitor makes no write.
+    - One poll for each source key, a minimum interval, a back-off with `Retry-After`, a cap of source keys for each machine, and a lease check for a source on a paid API.
+  - Rejected for the wake: a channel, because it is a research preview and a custom channel needs the development flag at each launch of each role.
+  - Open choices (spec 9.5, part k, and spec section 22, item 5): M1 the wake, M2 the host of the poller, M3 the topology, M4 a monitor of a clerk at its end, M5 a system with only an MCP server, M6 the approval of a `command` source, M7 the ledger view, M8 the watcher of spec 9.2, and M9 the defaults of the runtime settings.
+  - Tasks 1 and 3 of the same work (a read-only scout clerk, and ledger MCP tools that change a table in one call) can use the monitors. This design does not depend on them.
+
 ## Knowledge
 
 The verified facts that these decisions depend on are in [knowledge.md](knowledge.md).

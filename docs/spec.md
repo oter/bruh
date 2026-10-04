@@ -575,6 +575,178 @@ Agent-derived, accepted 2026-09-30.
 - bigm reports status in three parts: "Ready for you", "Waiting on you", "In progress". Commands that the owner must run are in code blocks, never "see above". The setup of the owner used this form.
 - The status cadence is a runtime setting in `mode.md`: report only on change, or always.
 
+### 9.5 Monitors
+
+Status: Design for owner review, not built.
+
+Owner decision 2026-10-04: a role starts a monitor on demand for each external state that its work depends on, and the mechanism is general, for each developer who installs bruh. The examples of the owner (a push, a task tracker, team work in another system) show the range only. bruh does not hard-code them. The words of the owner are in design.md, L50.
+
+The verified facts for this section are in knowledge.md, "Monitors, background tasks, and event delivery". Each part below gives the documented options first, ranked, and a custom design last. Each decision bullet carries its tag. The open choices M1 to M9 are in part k. They are not decided, and section 22, item 5, lists them.
+
+Terms:
+
+- Monitor: one subscription. It has a source, a subscriber, a project, a reason, and an expiry.
+- Source: the description of one external state, as data (part b).
+- Source key: the canonical identity of a source. Monitors with the same source key share one poll.
+- Subscriber: the role key that gets the events of the monitor. The subscriber owns the monitor.
+- Poller: the process that polls the sources and writes the events.
+- Wake: the step that makes the session of a subscriber read its mailbox.
+- Event: one change of a source, as one JSON line.
+
+#### a. Who starts a monitor
+
+- Each role can start a monitor: bigm, a clanker, or a clerk. The subscriber is the caller. Agent-derived, needs owner decision.
+- The general trigger: the next step of the role waits on a state outside its session, and that state can change without an action of the role. Examples, as categories only: the result of checks after a push, a reply of a person in another system, the state of a task that the role took from a tracker, and the progress of work of others in a shared system. Agent-derived, needs owner decision.
+- A role does not wait with `sleep`, and does not ask the same source again in a loop. Each such wait becomes a monitor. Agent-derived, needs owner decision.
+- The start goes through a new MCP tool, `monitor_start`. It takes the source, the project, the reason, and `until`, and returns the monitor ID, the source key, the expiry, and `shared` (true when another monitor already polls the same source key). Agent-derived, needs owner decision.
+- `monitor_start` runs the first poll at once and returns its result as the baseline, with the source read of principle 1 (the call, the value, and the UTC time). After the baseline, events are changes only. So a change that happens before the first periodic poll is not lost. Agent-derived, needs owner decision.
+- A workflow agent does not start a monitor, because a monitor outlives the run. It asks its clerk, and the clerk starts the monitor. Agent-derived, needs owner decision.
+
+#### b. What a monitor watches
+
+- Plugin code stores each monitor in `<plugin data folder>/monitors.json` (principle 3). The poller reads the file again before each poll, as the watcher of section 9.2 reads `repos.json` today. Agent-derived, needs owner decision.
+- A source has a closed schema. An unknown key is an error. Agent-derived, needs owner decision. A source has `kind` and exactly one object of that kind:
+  - `codehost`: a repository of a code host kind of section 8.5, with `repo`, `host`, and `api_url`, and optional `number` (a pull request or a merge request) or `ref` (a branch). The events are the events of section 9.2: push, red checks, comment, review, and merge.
+  - `command`: a read-only CLI that prints JSON. `argv` is an array, with no shell. The CLI keeps its own login.
+  - `http`: a GET of an `https` URL that returns JSON.
+- A `command` or `http` source also has `items` (a JSON pointer, RFC 6901, to an array, or `""` for the root), `id` (a pointer into each item), `version` (a pointer to a field that changes when the item changes, for example an update time or a state), and the optional `title` (a pointer to a text for the subject). The poller emits `new` for a new `id`, `changed` for a new `version`, and `gone` for an `id` that is not there any more. These rules use structure and exact values only, never the meaning of words (the owner rule against regex classifiers). Agent-derived, needs owner decision.
+- Each monitor also has `project`, `reason` (one line), `until` (part d), and the optional `interval_seconds` (part g). Agent-derived, needs owner decision.
+- The source key is `codehost:<host>:<repo>` with the number or the ref, `command:` with the SHA-256 of the `argv` elements joined with a NUL byte, or `http:` with the SHA-256 of the URL and the pointers. Agent-derived, needs owner decision.
+- Examples use placeholders only: `owner/repo`, `https://api.example.com/v1/items?project=demo`, and `["tracker-cli", "list", "--json"]` for an issue tracker CLI. bruh names no tracker and no code host product as a built-in case. Agent-derived, needs owner decision.
+- A system that has only an MCP server, with no CLI and no HTTP API that the poller can call, is open choice M5 (part k). Not decided.
+- A `command` source runs a program outside the Bash permission rules, because the poller starts it and not the Bash tool. Its approval is open choice M6 (part k). Not decided.
+
+#### c. How events reach the role
+
+- Durable first, as section 5 says for messages. Agent-derived, needs owner decision. Options, ranked:
+  1. The poller writes each event to the mailbox of each local subscriber, with the existing header `DONE: event <project>: <subject>` and the event line as the body. It also writes the event to the report file of the project, `reports/clanker-<project>.jsonl` (owner decision 2026-10-03, section 9.2), so that bigm sees it at the sweep. (recommendation)
+  2. The poller writes only to the report file of the project, and bigm relays each event, as today (section 9.2).
+  3. A new event file for each role, with a new read tool.
+- The recommendation keeps one inbox for each role and one read tool (`mail_read`). The rule of bigm for idle roles (resume a role that has unread mail at each sweep) then covers events too. The poller writes the mail with the sender `bigm`, because it polls for bigm (open choice M2), and the mailbox allows a post from `bigm` to each role (`mail.go`). Agent-derived, needs owner decision.
+- The event adds no new header. The body is one JSON line with `at`, `monitor` (the ID), `key`, `type`, `subject`, the optional `ref`, `number`, and `url`, and `source` (`call`, `value`, `at`, principle 1). Agent-derived, needs owner decision.
+- For a remote subscriber, the poller writes the event to the report file of the project and prints it, and bigm relays it through Orca with the same header, as section 9.2 says today. Agent-derived, needs owner decision.
+- The poller prints a line for bigm only for a remote subscriber, for an `error` event, and for a monitor of bigm itself, so that events of other roles cost no context of bigm. Agent-derived, needs owner decision.
+- The wake of the subscriber session is open choice M1. A channel (section 12) is not an option for the wake: it is a research preview, and a custom channel needs the development flag with a warning dialog at each launch of each role. Agent-derived, needs owner decision.
+
+#### d. Lifetime, expiry, and stop
+
+- `until` is required. It is a UTC time. When the caller gives none, the default is `monitor_default_hours` of `mode.md`, and `monitor_start` refuses a time past `monitor_max_hours`. Both are runtime settings (section 11). Their default values are open choice M9. Agent-derived, needs owner decision.
+- A standing monitor has no `until`: the codehost monitors of a clanker (part i) end when bigm retires the clanker. Agent-derived, needs owner decision.
+- At `until`, the poller stops the polls of that monitor and sends one `expired` event to the subscriber, so that the role can start it again when its work still needs it. This follows the notice of the `Monitor` tool at its deadline. Agent-derived, needs owner decision.
+- The subscriber stops its monitor with the new MCP tool `monitor_stop` when its work no longer waits on the source. The parent of the subscriber and bigm can also stop it. Agent-derived, needs owner decision.
+- At each sweep, bigm calls `monitor_stop` for each monitor whose subscriber is a retired role (section 8.6). Agent-derived, needs owner decision.
+- A monitor of a clerk at the end of its task is open choice M4 (part k). Not decided.
+
+#### e. Re-arm after a resume or a compaction
+
+- The monitors are data in the plugin data folder, and the cursor of each source key is in `watch/state.json`, as today. So the poller keeps its polls while a subscriber session is down, and the events wait in the mailbox. No event is lost. Agent-derived, needs owner decision.
+- The handoff of each role lists the ID of each active monitor in "Waiting on others" (section 7). After a pickup, the role calls the new MCP tool `monitor_list` as the live source before it acts (section 7). Agent-derived, needs owner decision.
+- The re-arm of the wake depends on M1: option 1 re-arms through the `SessionStart` hook with the matchers `resume` and `compact`, option 2 starts again with each session, option 3 re-arms from the handoff, and Claude Code restores the task of option 4 on a resume. Agent-derived, needs owner decision.
+
+#### f. Credentials and identity
+
+Owner decision 2026-09-29 (section 13): a read-only token read inside a process is allowed, and bruh never moves or copies a credential.
+
+- `codehost`: the token rules of today (`hostToken` in `codehost.go`), and `glab api` for that host kind, so that the CLI keeps the login. The use of `glab api`: owner decision 2026-10-02 (design.md, L18). The use of these rules for monitors: agent-derived, needs owner decision.
+- `command`: bruh passes no token. The CLI uses its own login. Agent-derived, needs owner decision.
+- `http`: the poller reads a token only from the environment variable `BRUH_TOKEN_<HOST>`, where `<HOST>` is the host name with the rule of `envHostKey`. It sends the token only to that exact host, over `https`, and follows no redirect to another host. `monitor_start` refuses a URL with user information, and a URL with a query parameter whose name is in an exact list (`token`, `access_token`, `private_token`, `api_key`, `key`), so that no token is stored in `monitors.json`. Agent-derived, needs owner decision.
+- A monitor makes no write. So the identity check before the first write (section 13) does not apply. `monitor_list` shows the name of the credential of each source (the variable name or the CLI), never its value. Agent-derived, needs owner decision.
+
+#### g. Rate limits and shared polling
+
+- One poll for each source key, shared by all its subscribers. Each subscriber gets each event. Agent-derived, needs owner decision.
+- A minimum interval for each kind: the codehost interval of `repos.json` (default 60 seconds, at least 10, as today), and at least 60 seconds for `command` and `http`. `monitor_start` raises a smaller `interval_seconds` to the minimum. Agent-derived, needs owner decision.
+- Back-off: on HTTP 429 or 503, the poller waits for `Retry-After` when the response has it. Otherwise, after each failed poll, it doubles the interval of that source key, up to 30 minutes, and goes back to the normal interval after the next good poll. A failed `command` (an exit code other than 0, or output that is not JSON) counts as a failed poll. Agent-derived, needs owner decision.
+- One `error` event for each new error text of a source key, as the watcher does today. Agent-derived, needs owner decision.
+- `monitor_max_active` of `mode.md` caps the source keys that the machine polls. `monitor_start` refuses a new source key past the cap with a clear error, and the role sends a P2 to its parent. The default is open choice M9. Agent-derived, needs owner decision.
+- A `command` runs with a time limit of 30 seconds and at most 1 MiB of output. An `http` response has the same size limit. Agent-derived, needs owner decision.
+- A source on a paid API is a shared resource (section 8.4). `monitor_start` refuses a source whose host is the name of a resource of `lease_define` when the caller holds no lease of that resource. This is a check in code (principle 2), not a note. Agent-derived, needs owner decision.
+
+#### h. How the ledger shows the active monitors
+
+Open choice M7 (part k). Not decided. The recommendation reads the monitors on demand with `monitor_list`, because the owner decision of 2026-10-02 says that bruh stores no live status (design.md, L24), and the ledger holds only the current state (section 8.6).
+
+#### i. How the watcher of section 9.2 fits
+
+- The watcher of today runs in a `Monitor` tool watch of bigm (section 9.2). A watch of the `Monitor` tool has a deadline of at most 30 minutes, and 5 minutes when Claude passes no `timeout_ms` (knowledge.md). The watcher then stops, and a live event waits until bigm starts it again. bigm finds the missed lines with `report_read` at the next sweep (section 9.1), up to 15 minutes later. This is a likely defect of bruh (design.md, L50, F1). The choice of M2 fixes it. Agent-derived finding. Verify: a probe of bigm shows when the watch of the watcher ends.
+- The fate of the watcher is open choice M8 (part k). Not decided. The recommendation folds it in: the watcher becomes the poller, with the source kind `codehost`, and each repository of `repos_set` becomes a standing monitor of the clanker of its project. So the rule of L15 holds: a project with no clanker gets no events. The merge train keeps `repos.json` for its configuration.
+
+#### j. Test plan
+
+- Go tests of the poller, with the standard library only: a fake HTTP server (`net/http/httptest`), and fake CLIs, as `ghBin` and `glabBin` fake `gh` and `glab` today. Agent-derived, needs owner decision.
+  - Two subscribers of one source key cause one poll, and each subscriber gets each event.
+  - The first poll is the baseline and returns the source read. Then `new`, `changed`, and `gone` follow the pointers, and no rule reads the meaning of a text.
+  - A restart of the poller continues from the cursor and emits no event twice.
+  - At `until`, the polls stop and one `expired` event goes to the subscriber. `monitor_start` refuses a time past `monitor_max_hours`.
+  - `monitor_stop` of a retired subscriber stops its polls, and a shared source key stays while it has another subscriber.
+  - On 429 with `Retry-After`, the next poll waits for that time. On other failures, the interval doubles up to 30 minutes, and one `error` event goes out for each new error text.
+  - An `http` token goes only to its own host, never after a redirect to another host, and `monitor_start` refuses a URL with user information or a query parameter of the exact list.
+  - A `command` source that is not approved (M6) is refused, and an `argv` runs with no shell.
+  - `monitor_start` refuses a new source key past `monitor_max_active`, and a source on a lease resource without a lease.
+  - Each local subscriber gets the event in its mailbox with the header `DONE: event <project>: <subject>`, and the report file of the project gets the same line.
+- Script tests in `tests/test.sh` for the wake of M1: one waiter for each role key, and no waiter when `BRUH_ROLE_KEY` is not set. Agent-derived, needs owner decision.
+- Smoke test steps (section 20): a clerk starts a monitor on a fake source, a change of the source wakes the idle clerk, and after a resume of the clerk the next change wakes it again. Agent-derived, needs owner decision.
+- Each "Verify" fact of knowledge.md that the selected options depend on gets a test or a smoke test step before the build depends on it (section 20). Agent-derived, needs owner decision.
+
+#### k. Open choices
+
+These choices are not decided. Each option list is ranked, and one option of each list is tagged "(recommendation)". Only the owner decides them. Section 22, item 5, lists them.
+
+M1. The wake of a subscriber session. Options, ranked:
+
+1. An `asyncRewake` hook (documented). A plugin `Stop` hook, and a `SessionStart` hook with the matchers `startup`, `resume`, and `compact`, start a waiter with `asyncRewake: true`. The waiter exits with code 2 when the mailbox of its role key has a new message, so Claude wakes at once, also when the session is idle, and calls `mail_read`. The waiter does nothing when `BRUH_ROLE_KEY` is not set. A new waiter replaces the old waiter of the same role key, because Claude Code does not deduplicate async hooks. Plugin hooks run in each session type. Claude Code enforces `timeout` on this hook, so the waiter exits with code 2 and the line "no new mail" before its timeout, which costs one short turn for each timeout period. Verify: the largest `timeout`, and the idle stop of a background session with a running waiter. (recommendation: it wakes an idle session at once in each session type, re-arms at the end of each turn and after each resume and compaction, and costs a turn only for an event or a timeout.)
+2. A plugin monitor (documented) that tails the mailbox of the role key of its session, for the whole session, with no deadline. Plugin monitors start only in interactive sessions, so a role that runs with `claude --bg` can have none (Verify). A running monitor counts as working, so the supervisor never stops the idle process of the role. The monitor also starts in each manual session of the owner, so it exits at once when `BRUH_ROLE_KEY` is not set (Verify: the monitor process gets that variable).
+3. The `Monitor` tool (documented). The role starts a watch of its mailbox, and starts it again at each deadline notice and after each pickup. The Bash rules and the classifier apply to it. A watch lasts at most 30 minutes, so each role spends one turn each 30 minutes for the re-arm, and a role that misses a notice has no wake until its next turn.
+4. A `CronCreate` task (documented) that reads the mailbox each N minutes. Claude Code restores it on a resume. It fires only when the session is idle, at a granularity of 1 minute, up to half of the interval late, with one turn for each fire also when no event came, and it expires after 7 days.
+
+M2. The host of the poller. Options, ranked:
+
+1. A plugin monitor (documented). `monitors/monitors.json` of the plugin starts `scripts/watcher.sh` in each interactive session. The script polls only when `BRUH_ROLE_KEY` is `bigm`, and else exits at once. bigm stays an interactive session (section 3.4), so plugin monitors start there. The monitor runs for the whole session, with no deadline, and each line that it prints reaches bigm as a notification, as the line of a `Monitor` tool watch does today. A lock file in the plugin data folder keeps one poller for each machine, also when the owner starts a second bigm (section 3.4). Verify: the monitor process gets `BRUH_ROLE_KEY` from the start settings of bigm. (recommendation: it has no deadline and needs no re-arm, so it fixes the defect of part i with the least change.)
+2. The `Monitor` tool in bigm, as today, and bigm starts it again at each deadline notice. This costs one turn of bigm each 30 minutes, and each missed notice leaves a gap until the next sweep.
+3. A loop in the bruh MCP server of the session of bigm (custom). The Slack server of bruh already polls only when the role key is `bigm` (section 3.4). It needs no Claude Code feature, but it is new code with the same lock as option 1.
+4. A service of the operating system (custom). It polls also when bigm is down, but it needs install and uninstall steps outside the plugin, for each supported operating system.
+
+M3. The topology of the polls. Options, ranked:
+
+1. One poller on the machine of bigm for all subscribers. bigm relays each event of a remote subscriber through Orca, as section 9.2 says today. (recommendation: one cursor file, one rate limit for each source key, and no lock among sessions.)
+2. A poller in the session of each subscriber, with a shared cursor and a shared result for each source key under a file lock. The polls continue when bigm is down, but each session runs a poller, and the lock rules are new.
+
+M4. A monitor of a clerk at the end of its task. Options, ranked:
+
+1. Hand over to the clanker. When the clanker accepts the result of the clerk or gives up the task, each monitor of the clerk becomes a monitor of the clanker, and the clanker stops each monitor that its work does not need. (recommendation: work can still wait on an external state after the clerk ends, for example a review of a delivered pull request.)
+2. Stop with the clerk. At the accept, the clanker stops each monitor of the clerk, and starts a new monitor when it needs one.
+3. The clerk lists its monitors in its result, and the clanker decides for each one at the accept.
+
+M5. A system that has only an MCP server. Options, ranked:
+
+1. A poll by the role (documented). The subscriber session runs a `CronCreate` task that calls the MCP tool of that system, and reports each change with a new MCP tool `monitor_report`, which writes the event in the form of part c. (recommendation: the MCP server keeps its own login, so no credential moves, and only these systems cost turns.)
+2. Sources with a CLI or an HTTP API only. A role reads a system that has only an MCP server on demand.
+3. The poller starts the MCP server of the source itself and calls its tool (custom). This needs the command and the credentials of the server outside Claude Code, which can move a credential (section 13), and it does not work for a remote MCP server whose login is in Claude Code.
+
+M6. The approval of a `command` source. Options, ranked:
+
+1. A command grant. The owner approves a CLI with its fixed first arguments, and bigm records it in `grants.md`, as a merge grant or a post grant (sections 8.3 and 13). `monitor_start` accepts a `command` source only when its `argv` starts with the `argv` of a grant, by exact match. (recommendation: a check in code (principle 2), and the owner sees each program that runs outside the permission rules.)
+2. A `command` source runs only in a `Monitor` tool watch of the subscriber session, so the Bash rules and the classifier apply. Such a source has no shared poll, and it has the deadline of 30 minutes.
+3. No `command` kind. Only `codehost` and `http` sources.
+
+M7. How the ledger shows the active monitors. Options, ranked:
+
+1. On demand only. `monitor_list` returns the active monitors, and bigm shows them under "In progress" of the status report (section 9.4) when the owner asks. The ledger stores nothing. (recommendation: bruh stores no live status (owner decision 2026-10-02, L24), the ledger holds only the current state (section 8.6), and `monitors.json` is already the durable record.)
+2. A table "Monitors" in each project file, which bigm updates at each sweep. It shows in git, but each start and stop adds a commit, and the copy can be out of date.
+3. A separate ledger file, `monitors.md`. One place, with the same commits as option 2, and one more file for the size check.
+
+M8. The watcher of section 9.2. Options, ranked:
+
+1. Fold it in. The watcher becomes the poller with the kind `codehost`, and `repos_set` makes the standing monitors of the clanker of each project. (recommendation: one poller, one cursor file, and one set of rules.)
+2. Keep both. The watcher stays as today, and the monitors have a second poller. Two cursor files and two code paths, and a repository can get two polls.
+3. Replace it. No standing monitor: each role starts a monitor for each pull request or branch that it needs. A push of a person to a project with a clanker then gives no event, which changes L15.
+
+M9. The defaults of the runtime settings `monitor_default_hours`, `monitor_max_hours`, and `monitor_max_active`. Options, ranked:
+
+1. 24, 168, and 20. (recommendation: one day by default, a maximum equal to the 7-day expiry of a `CronCreate` task, and a small cap, because a `codehost` poll makes several API calls each minute.)
+2. 8, 72, and 10.
+3. 72, 336, and 50.
+
 ## 10. Files, the MCP server, and environments
 
 ### 10.1 Files and the MCP server
@@ -836,6 +1008,17 @@ All numbered questions of version 0.3 are decided. Their answers are in design.m
 2. Each item in this file tagged "Agent-derived, accepted 2026-09-30".
 3. Each item in this file tagged "Agent-derived, needs owner decision". All of them are new on 2026-10-03 (design.md, L37, L38, L39, L42, L43, L44, L47, L48, and L49). The items of L49 are in sections 2 and 6.1. The build of 2026-10-03 adds more items with the same tag: the user information of a remote URL, the gaps of this specification that the build found, and five details of the build. They are in sections 3, 3.4, 3.5, 5, 6.4, 7, 8.3, 8.5, 8.6, 9.1, 9.2, 10.1, 12, 14.2, 16, 17, 18, and 20, and in the change list of section 25. The release version of section 19 is settled: owner decision 2026-10-03, the first release is `v0.9.0` (design.md, L46). Owner decision 2026-10-03: the other items are built as written, and the owner reviews them during the onboarding run (design.md, L45).
 4. Inbound messages (design.md, open question 6). Without a `crossSessionInbound` value, a session that bypasses permission prompts holds a message from a session that does not. Options, as design.md lists them: run all roles in one permission mode, or the init skill sets `crossSessionInbound: accept` in user settings. `accept` delivers every message from any session of the same operating-system user.
+5. Monitors ([section 9.5](#95-monitors)), design for owner review, not built. The owner request of 2026-10-04 is in design.md, L50. Each choice has ranked options and a recommendation in section 9.5, part k:
+   - M1: the wake of a subscriber session: an `asyncRewake` hook, a plugin monitor, the `Monitor` tool, or a `CronCreate` task.
+   - M2: the host of the poller: a plugin monitor of bigm, the `Monitor` tool in bigm, a loop in the bruh MCP server, or a service of the operating system.
+   - M3: the topology of the polls: one poller on the machine of bigm, or a poller in each subscriber session.
+   - M4: a monitor of a clerk at the end of its task: hand over to the clanker, stop with the clerk, or the clanker decides for each monitor.
+   - M5: a system that has only an MCP server: a poll by the role, CLI and HTTP sources only, or the poller starts the MCP server.
+   - M6: the approval of a `command` source: a command grant, the `Monitor` tool only, or no `command` kind.
+   - M7: how the ledger shows the active monitors: on demand with `monitor_list`, a table in each project file, or a file `monitors.md`.
+   - M8: the watcher of section 9.2: fold it in, keep both, or replace it.
+   - M9: the defaults of `monitor_default_hours`, `monitor_max_hours`, and `monitor_max_active`.
+   - Each other item of section 9.5 is tagged "Agent-derived, needs owner decision".
 
 ## 23. Changes from version 0.3
 
