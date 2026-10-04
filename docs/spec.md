@@ -591,7 +591,7 @@ The rest of this section describes option 2. Under option 1, only the parts "The
 
 - `ledger_row_add` adds one row at the end of a table. `ledger_row_update` changes the named cells of one row, and each other cell keeps its bytes. `ledger_row_close` deletes one row. The inputs are those of the table above. Agent-derived, needs owner decision.
 - For an add, `cells` must have each header of the table, so a forgotten column is an error and not a silent empty cell. Agent-derived, needs owner decision.
-- `ledger_row_add` refuses a row whose cells are equal to the cells of a row of the same table. So a second call after a lost reply does not add the row twice. Agent-derived, needs owner decision.
+- `ledger_row_add` refuses a row when the value of each header in `cells` is equal to the cell text (see "File and table") of the same column of a row of the same table. A missing cell of that row is an empty string. A value of `cells` reads back as the same cell text (see "Plain Markdown that a human can edit by hand"), so a second call after a lost reply does not add the row twice. Agent-derived, needs owner decision.
 - The output of each tool has `sha`, `short_sha`, `subject`, `file`, `mail_id`, and `nudge`. `nudge` has `to` (`clerk-ledger`) and `header` (`DONE: ledger commit <short SHA>`). Agent-derived, needs owner decision.
 - No table name, column name, file of one owner, or project is in the code. The tools read the names from the ledger, so they work for each developer who installs bruh. Agent-derived, needs owner decision.
 
@@ -600,16 +600,17 @@ The rest of this section describes option 2. Under option 1, only the parts "The
 - `file` is a path relative to the ledger folder: `owed.md`, `questions.md`, `leases.md`, `grants.md`, or `projects/<key>.md`. `<key>` matches the project grammar of a role key (`projectRE`, section 3.2). `rules.md` and `mode.md` are on the list only through OC4. Agent-derived, needs owner decision.
 - The tools refuse each other path: a path under `learn/` or `.claude/`, `README.md`, `priorities.md`, `projects/_template.md`, an absolute path, a path with `..`, and a symbolic link that resolves outside the ledger folder. Agent-derived, needs owner decision.
 - `table` is the text of the nearest heading above the table, at any level, without the `#` signs and the spaces at its two ends. A table with no heading above it can be used only when it is the one table of the file. Two tables under headings with the same text are an error. Agent-derived, needs owner decision.
-- A column is named by the text of its header cell, after the trim of `tableCells`. Agent-derived, needs owner decision.
+- The cell text of a cell is the text between two pipes that are not escaped, with `\|` read as `|`, and with the spaces and tabs at its two ends removed. The backticks stay: the cell text of `` `a` and `b` `` is `` `a` and `b` ``, as in the file. The tools do not use the backtick trim of `tableCells`, because that trim changes a value that starts or ends with a backtick. Agent-derived, needs owner decision.
+- A column is named by the cell text of its header cell. Agent-derived, needs owner decision.
 
 #### How a row is found
 
-- `match` is an object of header text to an exact cell value. The tool compares each value with the cell after the trim of `tableCells`, with case. A row matches when each pair of `match` matches. Exactly one data row of the table must match. With 0 matching rows, or with more than 1, the tool returns an error with the count and writes nothing. Rejected: a match on the first column only, because the first column is not unique (see "Facts of the code"). Rejected: a row number, because a hand edit between two calls moves the rows. Agent-derived, needs owner decision.
+- `match` is an object of header text to an exact cell value. The tool compares each value byte for byte with the cell text (see "File and table"), with case and with the backticks. So bigm copies the value from the file as it is. A row matches when each pair of `match` matches. Exactly one data row of the table must match. With 0 matching rows, or with more than 1, the tool returns an error with the count and writes nothing. Rejected: a match on the first column only, because the first column is not unique (see "Facts of the code"). Rejected: a row number, because a hand edit between two calls moves the rows. Agent-derived, needs owner decision.
 
 #### The commit inside the tool
 
 - The tool holds the new lock `ledger` (`Env.WithLock`) from the read of the file to the end of the commit. It reads the ledger folder with `ledgerPath`, and it writes the file with `atomicWrite`. Agent-derived, needs owner decision.
-- The tool runs `git` only in the ledger folder (`git -C <ledger>`), never in a project repository. It stages the file with `git add -- <file>`, and commits with `git commit --only -F - -- <file>`. The commit message goes on the standard input, never on a command line. The commit holds only the target file. Each other change of the working tree and of the index stays as it is. Agent-derived, needs owner decision.
+- The tool runs `git` only in the ledger folder (`git -C <ledger>`), never in a project repository. It stages the file with `git add -- <file>`, and commits with `git commit --only --cleanup=verbatim -F - -- <file>`. The commit message goes on the standard input, never on a command line. With `--cleanup=verbatim`, git keeps each line of the message as the tool wrote it. The commit holds only the target file. Each other change of the working tree and of the index stays as it is. Agent-derived, needs owner decision.
 - The subject of the commit is `add <kind>: <subject>`, `update <kind>: <subject>`, or `close <kind>: <subject>`. Agent-derived, needs owner decision.
 - The subject of a close is `close <kind>: <subject>`, and the subject of a question is `<role key> <id> - <subject>`, with the question ID of section 5 (section 8.6). Agent-derived, accepted 2026-10-03.
 - `kind` is one of the kinds of section 8.6: `task`, `merge`, `live`, `question`, `owed`, `decision`, `lease`, `waiting`, `session`, `rule`, or `grant`. An add and an update also accept `identity`, for a row of "Identities". Agent-derived, needs owner decision.
@@ -618,11 +619,15 @@ The rest of this section describes option 2. Under option 1, only the parts "The
 - The body of a close has these lines. The tag line is `Tag: bigm decision <date>` when `decision_by` is `bigm`. `<date>` is the UTC date of the server clock. The body of an add and of an update has only the line `Recorded (UTC)`. Agent-derived, needs owner decision.
 
   ```text
-  Words: "<words>"
+  Words:
+  > <line 1 of the words>
+  > <line 2 of the words>
   Source: <source>
   Recorded (UTC): <server time>
   Tag: owner decision <date>
   ```
+
+- The words go in a quote block under the line `Words:`. Each line of `words` gets the prefix `>` and one space, and an empty line of `words` is the line `>`. Each other character, a double quote too, is written as it is, with no escape. So a long answer and an answer with more than one line keep each word and each line break. The tool reads a CR LF and a CR in `words` as a LF. It refuses empty `words`, and `words` with a control character other than a LF or a tab. The tool sets no length limit and does not wrap a line. `source` is one line, with the rules of `subject`. Agent-derived, needs owner decision.
 
 - `words`, `source`, and `decision_by` are required for a close of the kinds `question`, `rule`, and `grant`, because section 8.6 asks for the words of the owner for these closes. For a close of another kind, they are optional, and the body without them has only the line `Recorded (UTC)`. Agent-derived, needs owner decision.
 - The date of the tag is the date of the record, not the date when the owner said the words. When bigm records an answer on a later day, `source` (the question ID or the channel thread) leads to the exact time. Agent-derived, needs owner decision.
@@ -671,10 +676,10 @@ The recommendation is option 1. Only option 1 makes sure that each time in a tim
 #### Plain Markdown that a human can edit by hand
 
 - The ledger is Markdown in a separate private repository (section 8). Owner decision 2026-09-27.
-- Tolerant parsing: the tools find a table with `isTableHeader` and `tableRows`, and read the cells with `tableCells`, with the same rules as init. Agent-derived, needs owner decision.
+- Tolerant parsing: the tools find a table with `isTableHeader` and `tableRows`, with the same rules as init. They split a row into cells at the pipes that are not escaped, as `tableCells` does, and read each cell as its cell text (see "File and table"). Agent-derived, needs owner decision.
 - The tool changes only the line of the target row, or adds one line. Each other byte of the file stays the same: the line endings (LF or CRLF) and the end of the file (with or without a last newline) too. Agent-derived, needs owner decision.
 - A row with fewer cells than the header reads its missing cells as empty. An update writes the missing cells that it changes. A row with more cells than the header keeps its extra cells. Agent-derived, needs owner decision.
-- The tool writes a row as `| <cell> | <cell> |`. It writes a `|` in a value as `\|`. It refuses a value with a newline or another control character, because a table row is one line. Agent-derived, needs owner decision.
+- The tool writes a row as `| <cell> | <cell> |`. It writes a `|` in a value as `\|`. It refuses a value with a newline or another control character, because a table row is one line. It refuses a value of `cells` or `match` that starts or ends with a space or a tab, because the cell text has no space at its two ends. So each value that the tool writes reads back as the same cell text. Agent-derived, needs owner decision.
 - A new row goes at the end of its table, as the ledger templates say. Agent-derived, needs owner decision.
 - A hand edit between two calls: each call reads the file again, and the tools keep no copy of a table between calls. The lock `ledger` serializes the calls of the tools. It does not stop a human editor or a `git` command of bigm. Agent-derived, needs owner decision.
 - A table that does not parse: a header line with an empty header cell, or with two header cells of the same text, does not parse. A heading with no table under it is "no such table". In both cases the tool returns an error that names the file and the heading, and writes nothing. Agent-derived, needs owner decision.
@@ -711,7 +716,8 @@ The recommendation is option 2. `last_batch` changes at each P1 batch, so it nee
 | An add of a row that is equal to a row of the table | Nothing written |
 | A bad value in a time column (OC5) | Nothing written |
 | A dirty target (OC3) | Nothing written |
-| A bad `subject` or `kind`, or a value with a newline or a control character | Nothing written |
+| A bad `subject`, `kind`, or `source`, a value with a newline or a control character, or a value with a space or a tab at its start or end | Nothing written |
+| Empty `words`, or `words` with a control character other than a LF or a tab | Nothing written |
 | `words`, `source`, or `decision_by` missing for a kind that needs them | Nothing written |
 | `git` missing, no git identity, a detached `HEAD`, or a merge, rebase, or cherry-pick in progress | Nothing written |
 | The lock `ledger` is busy for 10 seconds | Nothing written |
@@ -737,7 +743,11 @@ The recommendation is option 2. `last_batch` changes at each P1 batch, so it nee
 | A `\|` in a value, and a value with a newline | The pipe reads back through `tableCells`, and the newline is refused |
 | A `pre-commit` hook that fails in the temporary repository | The file and its index entry are restored |
 | A mailbox that cannot be written after the commit | The commit stays, and the output has the SHA and the error |
-| A second identical add | The add is refused |
+| A second identical add, also with a value that starts and ends with a backtick, for example `` `x` `` | The add is refused |
+| A `match` on a cell `` `a` and `b` ``, with the value as it is in the file | Exactly 1 row matches |
+| A value with a space or a tab at its start or end | The value is refused, and nothing is written |
+| A close with `words` of more than one line, with an empty line, double quotes, and CR LF line ends | The body has the quote block with each line, the empty line as `>`, and the double quotes as they are. `git log -1 --format=%B` gives the exact body |
+| `words` with a control character other than a LF or a tab, and empty `words` | The close is refused, and nothing is written |
 | `../x.md`, `learn/tree.json`, and a symbolic link to a file outside the ledger | Each path is refused |
 | A fuzz target for the table code, in `fuzz_test.go` | No panic, and no change outside the target line |
 | The tool list and `mcpAllowRules` | The new tools are listed and get allow rules |
