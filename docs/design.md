@@ -347,20 +347,21 @@ Status: design for owner review, not built. The design is in spec section 8.7. T
   - The tool holds a new lock `ledger`, writes the file with `atomicWrite`, and commits only the target file with `git -C <ledger> commit --only --cleanup=verbatim -F - -- <file>`. Agent-derived, needs owner decision.
   - The subject forms are `add <kind>: <subject>`, `update <kind>: <subject>`, `close <kind>: <subject>`, and `set <key>: <subject>`. The kinds are those of spec 8.6, plus `identity` for an add and an update. Agent-derived, needs owner decision.
   - The close subject `close <kind>: <subject>`, and the body of the commit that closes a question with the words of the owner, the date, and the source, stay as spec 8.6 says. Agent-derived, accepted 2026-10-03.
-  - The close body has the lines `Words`, `Source`, `Recorded (UTC)`, and `Tag` (`owner decision <date>` or `bigm decision <date>`), with the date of the server clock. An empty line of the words is `>`. The tool refuses words with a CR or a CR LF, because a CR is a control character (owner decision 2026-10-04, fix plan 2b). Agent-derived, needs owner decision.
+  - The tool refuses words with a CR or a CR LF, because a CR is a control character other than a newline and a tab, as fix plan 2b says. Owner decision 2026-10-04.
+  - The close body has the lines `Words`, `Source`, `Recorded (UTC)`, and `Tag` (`owner decision <date>` or `bigm decision <date>`), with the date of the server clock. An empty line of the words is `>`. Agent-derived, needs owner decision.
   - After the commit, the tool writes `DONE: ledger commit <short SHA>` from `bigm` to `clerk-ledger` with the code of `mail_post`, and returns the nudge (OC2). Agent-derived, needs owner decision.
   - Clerks do all pushes, so `ledger_edit` does not push. Owner decision 2026-09-30.
   - Each time that `ledger_edit` writes comes from the server clock, in the layout of `date -u +%Y-%m-%dT%H:%M:%SZ`. A column whose header ends with `(UTC)` is a time column. Agent-derived, needs owner decision.
   - Only the role key `bigm` calls `ledger_edit`. The check is a speed bump (SECURITY.md), and a hand edit of the owner stays allowed. Agent-derived, needs owner decision.
   - `ledger_edit` changes only the line of the target row or key, or adds one line, and keeps each other byte, the line endings, and the end of the file. It escapes `|` as `\|` and refuses a newline in a value. Each call reads the file again, so a hand edit between calls stays. A table that does not parse is an error, and nothing is written. Agent-derived, needs owner decision.
   - The errors, the test plan, and the dependents at the build are those of spec 8.7. `ledger_edit` retries no step automatically. Agent-derived, needs owner decision.
-  - Premise changed, when the owner approves the design: bigm wrote the ledger with hand-made commands and `git add -A`. Dependent decisions, each re-decided at the build, in the same pull request as the code, and each agent-derived, needs owner decision:
-    - `agents/bigm.md`, "The ledger", rule 1, and "Current state only": bigm uses `ledger_edit`. A rule section of `rules.md`, "Summary", and "Decisions" keep the hand procedure (OC4).
-    - `agents/bigm.md`, "The ledger clerk", step 2: `ledger_edit` posts the DONE mail, and bigm sends the nudge and calls `session_resume` when needed (OC2).
-    - Spec 8.2: bigm commits through `ledger_edit`. Spec 10.1: the tool list has `ledger_edit`.
-    - `SECURITY.md`: the list of role checks has `ledger_edit`, and the MCP server runs `git` in the ledger folder.
-    - `README.md`, the ledger template `README.md`, and `docs/flow.md`: the commit and push flow of the ledger.
-    - The ledger template text of `last_batch` and of `changed`: the value comes from `ledger_edit` with `now`.
-    - The design of the on-demand monitors: it names `ledger_edit` for the rows of `monitors.md`.
-    - The allow rules: the owner runs `/bruh:init` again, because `mcpAllowRules` makes them from the tool list.
-    - `agents/clerk.md`, "The ledger clerk": no change. The clerk checks, pushes, and reads `git ls-remote` as today.
+  - Premise changed, when the owner approves the design: bigm wrote the ledger with hand-made commands and `git add -A`. Dependent decisions, each re-decided at the build, in the same pull request as the code:
+    - `agents/bigm.md`, "The ledger", rule 1, and "Current state only": bigm uses `ledger_edit`. A rule section of `rules.md`, "Summary", and "Decisions" keep the hand procedure (OC4). Agent-derived, needs owner decision.
+    - `agents/bigm.md`, "The ledger clerk", step 2: `ledger_edit` posts the DONE mail, and bigm sends the nudge and calls `session_resume` when needed (OC2). Agent-derived, needs owner decision.
+    - Spec 8.2: bigm commits through `ledger_edit`. Spec 10.1: the tool list has `ledger_edit`. Agent-derived, needs owner decision.
+    - `SECURITY.md`: the list of role checks has `ledger_edit`, and the MCP server runs `git` in the ledger folder. Agent-derived, needs owner decision.
+    - `README.md`, the ledger template `README.md`, and `docs/flow.md`: the commit and push flow of the ledger. Agent-derived, needs owner decision.
+    - The ledger template text of `last_batch` and of `changed`: the value comes from `ledger_edit` with `now`. Agent-derived, needs owner decision.
+    - The design of the on-demand monitors: it names `ledger_edit` for the rows of `monitors.md`. Agent-derived, needs owner decision.
+    - The allow rules: the owner runs `/bruh:init` again, because `mcpAllowRules` makes them from the tool list. Agent-derived, needs owner decision.
+    - `agents/clerk.md`, "The ledger clerk": no change. The clerk checks, pushes, and reads `git ls-remote` as today. Agent-derived, needs owner decision.
