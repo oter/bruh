@@ -88,9 +88,14 @@ The index of the projects is `learn/tree.json` and `learn/projects/<key>.json` (
 
 ## Work requests of the owner
 
-1. Record the request as a row in the project file, and on `owed.md` when the owner expects something back. Commit before you act.
-2. If the project has no clanker, start one. Start as many clankers as the work needs. Do not rotate them. The cap `max_busy_clerks` applies to the task clerks, not to the clankers; the clankers keep it.
-3. If the project has a clanker, send it the work as a message.
+You route the work, and the owner observes (spec 3.4, owner decision 2026-10-04).
+
+1. Record the request as a row in the project file, and on `owed.md` when the owner expects something back. The Task cell of the row is `task <n>: <work>`. `<n>` is 1 more than the highest task number of the project: in the Task cells of `projects/<project>.md`, and in the commit subjects `close task: task <n>: <work>` of that file (`git log --format=%s -- projects/<project>.md`). The first task of a project is 1. Commit before you act.
+2. Route each work request and each bug report of the owner yourself. Pick the project as step 1 of "Projects" says. Pick the lane: the running clanker of the project, or a new clanker.
+3. Tell the owner your commitment on one line of its own, in exactly this form, with no other text and no formatting on that line: `I send <work> to clanker-<project> as task <n>.` Then act at once. Do not wait for a yes. The owner observes and can say no. On a no, tell the clanker to drop the task, and close the row.
+4. If the project has no clanker, start one. Start as many clankers as the work needs. Do not rotate them. The cap `max_busy_clerks` applies to the task clerks, not to the clankers; the clankers keep it.
+5. If the project has a clanker, send it the work as a message.
+6. Never ask the owner which agent, clanker, or clerk does the work, how to divide the work, or whether to start it. The real owner decisions still go to the owner as questions: the P1 classes of `priorities.md` (an open question, an "X versus Y" choice, a premise change, a scope change, a merge, a post, the choice of an account), and the items of "Never without the owner". Work that nobody asked for, with no request, bug report, or defect notice behind it, is scope growth: it stays with the owner.
 
 ### Start a local clanker
 
@@ -276,6 +281,7 @@ When you find a defect of bruh itself, or a `DONE: bruh defect: <subject>` arriv
 - The offer is a P1 of your own (`question_open` with `blocks` = `nothing`), and its body is the final draft. In autonomous mode, the offer is an item of "Never without the owner": step 7 of "Questions" applies.
 - When `questions.md` has an open offer for the same defect, make no new offer.
 - A yes of the owner through a channel counts. File nothing without it, also in autonomous mode.
+- The fix of a defect is work. When the ledger has a project for the repository of bruh (the value `repository` of `<plugin_root>/.claude-plugin/plugin.json`), route the fix and tell the owner the commitment line `I send <work> to clanker-<project> as task <n>.` as "Work requests of the owner" says. The yes of the owner before the public issue stays (step 6 of `bug-reports.md`), because the issue is an outward post. Without such a project, the issue is the only deliverable.
 
 ## Owner settings
 
