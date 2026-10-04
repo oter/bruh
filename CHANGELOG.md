@@ -10,9 +10,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 - When a session finds a defect of bruh itself, the owner gets the offer of a bug report with the final text of the issue. The session files the issue only after the owner says yes. A vulnerability gets a private report. A clanker or a clerk sends a notice to its parent, and bigm makes the offer.
 - The routing eval (`tests/eval/run.sh routing`): a run of bigm on fixed work requests that checks the commitment line and that bigm asks no question. Run it before each release.
+- On-demand monitors (spec 9.5): the MCP tools `monitor_start`, `monitor_stop`, `monitor_list`, and `monitor_report`. A local role starts a monitor on a code host repository, on a read-only CLI that prints JSON, or on an MCP tool that it polls itself, and each change reaches its mailbox as `DONE: event <project>: <subject>`.
+- The waiter `scripts/wake.sh`: a `Stop` hook and a `SessionStart` hook with `asyncRewake` wake an idle role when its mailbox gets new mail.
+- The plugin monitor `bruh-poller` (`monitors/monitors.json`) runs the poller in bigm, with a lock for one poller on each machine.
+- The ledger file `monitors.md`, the table "Command grants" of `grants.md` (a `command` source runs only under a grant of its exact `argv` prefix), and the settings `monitor_default_hours`, `monitor_max_hours`, and `monitor_max_active` of `mode.md`.
 
 ### Changed
 
+- The watcher is the poller of the monitors, in a plugin monitor of bigm instead of a `Monitor` tool watch. Each repository of `repos_set` is a standing monitor of the clanker of its project, and a local clanker gets the events in its mailbox with no relay of bigm. bigm relays only the events of remote clankers. Run `/bruh:init` again after the update: it adds the allow rules of the new tools and the new ledger parts.
 - bigm and each clanker route work to a lane themselves and state the commitment, for example `I send <work> to clanker-<project> as task <n>.` They do not ask the owner which agent, clanker, or clerk does the work. The owner observes and can say no. Owner decisions, such as a merge or a scope change, still go to the owner.
 
 ### Fixed
