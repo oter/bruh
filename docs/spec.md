@@ -1,6 +1,6 @@
 # bruh specification
 
-Status: version 0.6, for the build (2026-10-03). The owner approved version 0.5 on 2026-09-30. On 2026-10-03, the owner accepted all earlier agent-derived items of version 0.6 and made eleven decisions (design.md, L38 to L48). Section 25 lists the changes from version 0.5, and section 24 the changes from version 0.4.
+Status: version 0.6, for the build (2026-10-03). The owner approved version 0.5 on 2026-09-30. On 2026-10-03, the owner accepted all earlier agent-derived items of version 0.6 and made twelve decisions (design.md, L38 to L49). Section 25 lists the changes from version 0.5, and section 24 the changes from version 0.4.
 
 This specification is the input for the implementation plan. The decision log is in [design.md](design.md). The verified facts and the field lessons are in [knowledge.md](knowledge.md). The process is shown as diagrams in [flow.md](flow.md). Each decision in this file has one tag:
 
@@ -34,6 +34,7 @@ These rules apply to every role. Each is agent-derived, accepted 2026-09-30, and
 5. **Rules are kept word for word.** An owner rule is stored with its words, its date, and its source. A rule with no source is a recommendation, not a rule.
 6. **A refusal is escalated, never handed on.** A permission prompt or a classifier refusal goes to the owner. No other session runs the refused command.
 7. **The owner terminal is for the owner.** No role types into the input of the owner.
+8. **A defect of bruh gets the offer of a bug report.** When a session finds a defect of bruh itself, the session that talks to the owner offers the owner a bug report with the final text of the issue. It files the issue only after a yes of the owner for that text. A vulnerability gets a private report, never a public issue. A clanker or a clerk sends a notice to its parent, and bigm makes the offer. The steps are in `defaults/bug-reports.md`. Owner decision 2026-10-03: the offer. Agent-derived, needs owner decision: the rest (design.md, L49).
 
 ## 3. Roles
 
@@ -222,7 +223,7 @@ Agent-derived, accepted 2026-09-30.
 - The plugin ships its workflows in `plugins/bruh/workflows/`. They run as `/bruh:<name>`. Agent-derived, accepted 2026-09-30. Verify: the Workflow tool accepts a plugin workflow, because it refuses a `scriptPath` outside the working directory.
 - The clerk starts a workflow with a slash command in its start message. In the setup of the owner, a workflow needed the typed opt-in of the owner in each session, and a relayed opt-in did not count. Verify: a clerk started by a script can launch `/bruh:deliver`, and the allow rule `Workflow(bruh:deliver)` matches a namespaced plugin workflow. Agent-derived, accepted 2026-09-30.
 - The script cannot write files. Agents and MCP tools do all writes.
-- No agent inside a workflow posts outside the project, for example comments on a pull request. In the setup of the owner, an in-workflow post agent refused twice because it saw the latest chat message of the owner. Posting is clerk work and is outward-facing. Agent-derived, accepted 2026-09-30.
+- No agent inside a workflow posts outside the project, for example comments on a pull request. In the setup of the owner, an in-workflow post agent refused twice because it saw the latest chat message of the owner. Posting is clerk work and is outward-facing. Agent-derived, accepted 2026-09-30. A bug report on the bruh repository is not a post of project work: the session that got the yes of the owner files it (section 2, principle 8). Agent-derived, needs owner decision.
 
 ### 6.2 Questions during a run
 
@@ -744,6 +745,7 @@ plugins/bruh/scripts/lane.sh
 plugins/bruh/scripts/post-findings.sh
 plugins/bruh/defaults/priorities.md
 plugins/bruh/defaults/house-rules.md
+plugins/bruh/defaults/bug-reports.md
 plugins/bruh/defaults/role-settings.json
 ```
 
@@ -832,7 +834,7 @@ All numbered questions of version 0.3 are decided. Their answers are in design.m
 
 1. The ledger clerk (section 3.6): the reading of "clerks do all pushes" for the ledger.
 2. Each item in this file tagged "Agent-derived, accepted 2026-09-30".
-3. Each item in this file tagged "Agent-derived, needs owner decision". All of them are new on 2026-10-03 (design.md, L37, L38, L39, L42, L43, L44, L47, and L48). The build of 2026-10-03 adds more items with the same tag: the user information of a remote URL, the gaps of this specification that the build found, and five details of the build. They are in sections 3, 3.4, 3.5, 5, 6.4, 7, 8.3, 8.5, 8.6, 9.1, 9.2, 10.1, 12, 14.2, 16, 17, 18, and 20, and in the change list of section 25. The release version of section 19 is settled: owner decision 2026-10-03, the first release is `v0.9.0` (design.md, L46). Owner decision 2026-10-03: the other items are built as written, and the owner reviews them during the onboarding run (design.md, L45).
+3. Each item in this file tagged "Agent-derived, needs owner decision". All of them are new on 2026-10-03 (design.md, L37, L38, L39, L42, L43, L44, L47, L48, and L49). The items of L49 are in sections 2 and 6.1. The build of 2026-10-03 adds more items with the same tag: the user information of a remote URL, the gaps of this specification that the build found, and five details of the build. They are in sections 3, 3.4, 3.5, 5, 6.4, 7, 8.3, 8.5, 8.6, 9.1, 9.2, 10.1, 12, 14.2, 16, 17, 18, and 20, and in the change list of section 25. The release version of section 19 is settled: owner decision 2026-10-03, the first release is `v0.9.0` (design.md, L46). Owner decision 2026-10-03: the other items are built as written, and the owner reviews them during the onboarding run (design.md, L45).
 4. Inbound messages (design.md, open question 6). Without a `crossSessionInbound` value, a session that bypasses permission prompts holds a message from a session that does not. Options, as design.md lists them: run all roles in one permission mode, or the init skill sets `crossSessionInbound: accept` in user settings. `accept` delivers every message from any session of the same operating-system user.
 
 ## 23. Changes from version 0.3
@@ -857,7 +859,7 @@ All numbered questions of version 0.3 are decided. Their answers are in design.m
 
 ## 25. Changes from version 0.5
 
-The owner ran `/bruh:init` for the first time on 2026-10-02. The changes come from the feedback of the owner, the decisions L1 to L48 of design.md ("Learn step and onboarding"), and reviews by subagents: four on the decisions (an adversarial reviewer, a checker of the claims against the code, a walk through the journey of the owner, and a search of the Claude Code docs), and two rounds of an adversarial reviewer and a checker on this specification. Each dependent that a "Premise changed" line names carries its own tag in its section.
+The owner ran `/bruh:init` for the first time on 2026-10-02. The changes come from the feedback of the owner, the decisions L1 to L49 of design.md ("Learn step and onboarding"), and reviews by subagents: four on the decisions (an adversarial reviewer, a checker of the claims against the code, a walk through the journey of the owner, and a search of the Claude Code docs), and two rounds of an adversarial reviewer and a checker on this specification. Each dependent that a "Premise changed" line names carries its own tag in its section.
 
 - Owner decision 2026-10-02: bruh learns the projects before the owner asks for work (sections 1 and 8.5). The init skill scans a root folder, the owner selects the projects with selects, and init stores the hierarchy and the index of each project as JSON in the ledger. Since the owner decisions of 2026-10-03, the index has no stack and no gates.
 - Premise changed: the delegated ruling of 2026-10-02 had the Go scan find the gates from exact task and target names. The owner decisions of 2026-10-03 below replace it in full: the Go scan reads git facts only. "No learn workflow" holds, so no role other than a clerk starts a workflow (section 3).
@@ -914,3 +916,4 @@ The owner ran `/bruh:init` for the first time on 2026-10-02. The changes come fr
 - Owner decision 2026-10-03: the first release is `v0.9.0` (section 19).
 - Owner decision 2026-10-03: the marketplace name is `oter`, and the plugin ID is `bruh@oter` (section 18).
 - Owner decision 2026-10-03: init removes a bruh status line tap of another bruh data folder before it wraps the status line command again (section 7).
+- Owner decision 2026-10-03: when a session finds a defect of bruh, the owner gets the offer of a bug report (section 2, principle 8).
