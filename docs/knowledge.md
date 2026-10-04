@@ -174,3 +174,59 @@ Every background session above (`probe-p2`, `probe-p4`, `probe-p5`, `probe-p6`, 
 - `EnterWorktree` of a session in a linked worktree makes its worktree under `.claude/worktrees/` of the main repository, on a new branch `worktree-<name>` from the HEAD of the main repository.
 - bigm raised a P0 when the deny rule `Bash(git push:*)` refused the push of the ledger clerk, so a refusal is escalated, not retried (principle 6).
 - Load test (`tests/load/run.sh`, 8 background sessions on Haiku 4.5, 60 minutes, one message every 2 minutes): 244 messages, 0 missed, each session got a message in each 5-minute window, 0 resumes needed. This passes the Verify item of spec section 4.1 for the transport. The sessions ran in manual mode, because Haiku 4.5 has no auto mode.
+
+## Hooks, refusals, and workflows (read 2026-10-04)
+
+Facts for spec section 15.1. Each fact is from a read of the vendor docs on 2026-10-04. No session, background session, or workflow was started to probe them. A fact that the docs do not state is tagged "Verify".
+
+Hook events and their control:
+
+- The hook events include `PreToolUse`, `PermissionRequest`, `PermissionDenied`, `PostToolUse`, `PostToolUseFailure`, `PostToolBatch`, `SubagentStart`, `SubagentStop`, `Stop`, and `StopFailure`. Source: <https://code.claude.com/docs/en/hooks.md>, the event table. Read 2026-10-04.
+- `PermissionDenied` fires "when auto mode denies a tool call, including denials without a classifier verdict". It cannot block: Claude Code ignores its exit code and its stderr, because the denial already occurred. Its only decision field is `hookSpecificOutput.retry: true`, which tells the model that it may retry. Claude Code ignores `retry` when the classifier gave no verdict. Source: hooks.md, the event table, "Exit code 2 behavior per event", and "Decision control". Read 2026-10-04.
+- `PermissionDenied` input: `tool_name`, `tool_input`, and `tool_use_id`, plus a text field `denial_reason` and a field `denial_source` with the values `classifier` and `no_verdict`. Verify: the names `denial_reason` and `denial_source` come from one extract of hooks.md, and a second extract did not find them. No read found a field named `classifier_verdict`. Source: hooks.md, "PermissionDenied input". Read 2026-10-04.
+- The matcher of `PreToolUse`, `PostToolUse`, `PostToolUseFailure`, `PermissionRequest`, and `PermissionDenied` is the tool name. MCP tools match the same way. Source: hooks.md, the matcher table. Read 2026-10-04.
+- `PostToolUseFailure` fires after a tool call fails. Its input has `tool_name`, `tool_input`, `tool_use_id`, and `error` (the error message of the tool). It cannot block. Exit code 2 shows the stderr of the hook to Claude. Source: hooks.md, the event table and "Exit code 2 behavior per event"; the field list is from one extract of "PostToolUseFailure input". Read 2026-10-04.
+- `PermissionRequest` fires when a tool call needs a permission decision in the default mode, or when a permission rule gives an `ask` verdict. Its input has `tool_name`, `tool_input`, `tool_use_id`, and, when a rule asked, `permission_rule_id` and `permission_rule_origin`. It decides with `hookSpecificOutput.decision.behavior` (`allow` or `deny`). Exit code 2 is not honored. Source: hooks.md, "PermissionRequest" and "Decision control". Read 2026-10-04.
+- `PreToolUse` decides with `hookSpecificOutput.permissionDecision`: `allow`, `deny`, `ask`, or `defer`. On `deny`, Claude sees `permissionDecisionReason`. Exit code 2 also blocks the call, and no JSON can override it. Source: hooks.md, "PreToolUse decision control" and "Exit code 2". Read 2026-10-04.
+- A `PreToolUse` hook that exits 2 stops the call before the permission rules are evaluated, so the block applies also when an allow rule matches. A deny rule still blocks when a hook returns `allow`. Source: <https://code.claude.com/docs/en/permissions.md>, "Extend permissions with hooks". Read 2026-10-04.
+- A timed-out command hook on `PreToolUse` does not block the call. A hook that cannot start (for example a wrong path) is a non-blocking error, and the call goes on. Source: hooks.md, "Timeouts" and "Other exit codes". Read 2026-10-04.
+- The common output field `continue: false` makes Claude stop processing after the hook runs. It takes precedence over the decision fields of the event. `stopReason` is shown to the user and stays in the conversation. For `PreToolUse` and `PostToolUse`, the stop applies also when the tool call fails. Source: hooks.md, "JSON output". Read 2026-10-04. Verify: what `continue: false` stops when the hook fires inside a subagent or a workflow agent (the agent, or the whole session).
+- `Stop` and `SubagentStop` take `decision: "block"` with a `reason`. On a block, Claude (or the subagent) goes on and can use tools again. Exit code 2 does the same. `SubagentStop` input has `agent_id`, `agent_type`, `agent_transcript_path`, and `last_assistant_message`. Source: hooks.md, "Stop" and "SubagentStop". Read 2026-10-04.
+- Every hook input has `session_id`, `cwd`, and `hook_event_name`. Inside a subagent, the input also has `agent_id` and `agent_type`. The main thread has no `agent_id`. Source: hooks.md, "Common input fields". Read 2026-10-04.
+- Hooks of settings files, managed settings, and plugins also run inside subagents. The tool events of a subagent carry its `agent_id` and `agent_type`. Source: hooks.md, "Hook locations". Read 2026-10-04. Verify: the same holds for the agents of a workflow run, and their `session_id` is the `session_id` of the session that started the run.
+
+Permission rules and modes:
+
+- Rules are evaluated in the order deny, ask, allow. The first match decides. A deny rule blocks in every mode, also in `bypassPermissions`. Source: permissions.md, "Manage permissions", and <https://code.claude.com/docs/en/permission-modes.md>, "Available modes". Read 2026-10-04.
+- A deny or ask rule applies when any subcommand of a compound command matches it, also inside a subshell, a command substitution, or a loop body. Source: permissions.md, "Compound commands". Read 2026-10-04.
+- When a deny rule that names a whole tool blocks a call of a Cowork tool, the message is `Permission to use <tool> has been denied.` Source: permissions.md, the Cowork paragraph. Read 2026-10-04. Verify: which hook event, if any, fires when a deny rule blocks a call. The docs name `PermissionDenied` only for auto mode denials.
+- `permissions.deny` blocks before the classifier is consulted. Source: <https://code.claude.com/docs/en/auto-mode-config.md>, "Add a human checkpoint". Read 2026-10-04.
+
+The auto mode classifier:
+
+- When the classifier blocks, Claude gets the reason. In most sessions the reason is the name of the matched rule in square brackets, for example `[Data Exfiltration]`. The transcript shows `Denied by auto mode classifier` with that reason. Source: permission-modes.md, "How the classifier evaluates actions", and auto-mode-config.md, "Review denials". Read 2026-10-04.
+- The notice near the input box gives only the tool and the reason. To capture the exact input of a denial, the docs name a `PermissionDenied` hook, which gets it as `tool_input`. Source: auto-mode-config.md, "Fix a denial with an allow rule, an environment entry, or a retry". Read 2026-10-04.
+- After 3 blocks in a row or 20 blocks in total, auto mode pauses and prompts. The thresholds cannot be changed. In a `-p` run without `--permission-prompt-tool`, the action does not run, Claude keeps working, and Claude Code does not stop the run. Source: permission-modes.md, "When auto mode falls back" and "Repeated-block thresholds". Read 2026-10-04.
+- The classifier checks a subagent at spawn, at each action with the block and allow rules of the parent, and at the end, when it reviews the report. Source: permission-modes.md, "How auto mode handles subagents". Read 2026-10-04.
+- A boundary that the user states in the conversation (for example "don't push") is a block signal for the classifier until the user lifts it. Source: permission-modes.md, "Boundaries you state in conversation". Read 2026-10-04.
+- In auto mode, the prompt that a workflow script passes to `agent()` does not count as a request of the user, because Claude Code marks it as text that the script computed. Source: <https://code.claude.com/docs/en/workflows.md>, "What the saved script looks like". Read 2026-10-04.
+- When the main conversation runs in auto mode, a subagent runs in auto mode too, and Claude Code ignores its `permissionMode`. Source: <https://code.claude.com/docs/en/sub-agents.md>, "Permission modes". Read 2026-10-04.
+
+The worktree isolation guard:
+
+- In a session that is isolated in a worktree, Claude Code applies four checks: file edits into the main checkout, the working directory of a command, git redirects into the main checkout, and the command shape. The shape check blocks a Bash or Monitor command when Claude Code cannot verify from the command text that any git that the command runs stays inside the worktree, for example when the syntax cannot be parsed or an expansion can run a command that the text does not spell out. The shape check cannot be turned off. The checks also cover each subagent of the isolated session. Source: <https://code.claude.com/docs/en/worktrees.md>, "How Claude Code enforces isolation". Read 2026-10-04.
+- Claude sees each refusal of the guard as a tool error that names the worktree and says how to go on. For a refused command, Claude Code tells Claude how to rewrite it, "such as splitting it into plain, separate commands". Source: worktrees.md, same section. Read 2026-10-04.
+- The error texts are `is isolated in the worktree <path>, but this command <reason>. Refusing to run it` and `too complex to verify that it stays inside the worktree`. Source: <https://code.claude.com/docs/en/errors.md>, "Command blocked by the worktree isolation checks". Read 2026-10-04. Verify: which hook event, if any, fires for a refusal of the guard (`PostToolUseFailure` or none). The section does not name a hook.
+
+Background sessions and subagents:
+
+- A background session that needs approval goes into the state "Needs input". `claude agents --json` shows `waitingFor` with the values `permission prompt`, `input needed`, `sandbox request`, `worker request`, or `dialog open`. Source: <https://code.claude.com/docs/en/agent-view.md>. Read 2026-10-04.
+- A background subagent shows each of its permission prompts in the main session. Source: sub-agents.md, "Run subagents in foreground or background". Read 2026-10-04.
+- A background session stops with `claude stop <id>`, or with a reply that is exactly `/stop`. Source: agent-view.md. Read 2026-10-04.
+
+The Workflow tool:
+
+- An `agent()` call resolves to `null` when the agent is stopped during the run or hits an API error that it cannot recover from. An agent with a `schema` whose output still fails validation after five attempts makes the call fail with an error. Source: workflows.md, "What the saved script looks like". Read 2026-10-04.
+- A run pauses on its own only for a permission prompt of an agent and for a usage-limit wait. The script itself has no file and no shell access. Source: workflows.md, "Behavior and limits". Read 2026-10-04.
+- The tool calls of workflow agents get the same permission checks and sandbox as other tool calls of the session. Source: workflows.md, "Ask for a workflow in your prompt". Read 2026-10-04.
+- The docs name no field or event by which a script sees that a permission check refused a tool call of an agent. Source: workflows.md. Read 2026-10-04.
