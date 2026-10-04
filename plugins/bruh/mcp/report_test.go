@@ -39,16 +39,28 @@ func TestReportWriteScoutNeedsSource(t *testing.T) {
 	if _, err := call(t, env, "report_write", map[string]any{"kind": "result", "text": "owner/a#3 is merged", "source": src}); err != nil {
 		t.Fatalf("scout line with a source: %v", err)
 	}
-	for name, source := range map[string]any{
-		"no source":  nil,
-		"no call":    map[string]any{"value": "MERGED", "at": "2026-10-04T10:12:17Z"},
-		"no value":   map[string]any{"call": "gh pr view 3", "at": "2026-10-04T10:12:17Z"},
-		"no time":    map[string]any{"call": "gh pr view 3", "value": "MERGED"},
-		"plain time": map[string]any{"call": "gh pr view 3", "value": "MERGED", "at": "this morning"},
+	// A read that finds nothing often prints nothing: an empty value is valid output.
+	empty := map[string]any{"call": "git -C /repo log --grep=fix main..main", "value": "", "at": "2026-10-04T10:12:17Z"}
+	if _, err := call(t, env, "report_write", map[string]any{"kind": "result", "text": "not found: fix commit", "source": empty}); err != nil {
+		t.Fatalf("scout line with an empty value: %v", err)
+	}
+	// The event line of the mail procedure (clerk.md) has no source, so the bigm sweep can resume
+	// an idle starter.
+	if _, err := call(t, env, "report_write", map[string]any{"kind": "event", "text": "clanker-a not running; mail pending"}); err != nil {
+		t.Fatalf("scout mail-pending event: %v", err)
+	}
+	for name, args := range map[string]map[string]any{
+		"no source":   {"kind": "result"},
+		"no call":     {"kind": "result", "source": map[string]any{"value": "MERGED", "at": "2026-10-04T10:12:17Z"}},
+		"no value":    {"kind": "result", "source": map[string]any{"call": "gh pr view 3", "at": "2026-10-04T10:12:17Z"}},
+		"no time":     {"kind": "result", "source": map[string]any{"call": "gh pr view 3", "value": "MERGED"}},
+		"plain time":  {"kind": "result", "source": map[string]any{"call": "gh pr view 3", "value": "MERGED", "at": "this morning"}},
+		"other event": {"kind": "event"},
+		"bad key":     {"kind": "event", "text": "Clanker A not running; mail pending"},
+		"not event":   {"kind": "status", "text": "clanker-a not running; mail pending"},
 	} {
-		args := map[string]any{"kind": "result", "text": "owner/a#3 is merged"}
-		if source != nil {
-			args["source"] = source
+		if args["text"] == nil {
+			args["text"] = "owner/a#3 is merged"
 		}
 		_, err := call(t, env, "report_write", args)
 		if err == nil || !strings.Contains(err.Error(), "a scout report line needs source") {
@@ -56,8 +68,11 @@ func TestReportWriteScoutNeedsSource(t *testing.T) {
 		}
 	}
 	lines, _ := call(t, env, "report_read", map[string]any{"role_key": "clerk-a-scout1"})
-	if n := len(lines.([]any)); n != 1 {
-		t.Fatalf("report lines = %d, want 1: a refused line must not reach the file", n)
+	if n := len(lines.([]any)); n != 3 {
+		t.Fatalf("report lines = %d, want 3: a refused line must not reach the file", n)
+	}
+	if v := lines.([]any)[1].(map[string]any)["source"].(map[string]any)["value"]; v != "" {
+		t.Errorf("empty value stored as %q", v)
 	}
 	// A task clerk still writes a line with no source.
 	if _, err := call(t, as(env, "clerk-a-1"), "report_write", map[string]any{"kind": "status", "text": "started"}); err != nil {

@@ -27,19 +27,35 @@ func bigmMayStart(k RoleKey) bool { return bigmActsFor(k) || isScout(k) }
 
 const bruhTool = "mcp__plugin_bruh_bruh__"
 
+// scoutGitWrites are the git subcommands that change a repository or a remote.
+var scoutGitWrites = []string{
+	"push", "commit", "add", "rm", "mv", "merge", "rebase", "reset", "checkout", "switch",
+	"restore", "stash", "tag", "worktree", "clean", "pull", "apply", "cherry-pick", "revert",
+}
+
+// scoutGitDeny returns three deny rules for each subcommand of scoutGitWrites: git <sub>, and
+// git -C <path> <sub> with and without arguments, the form that the scout procedure prescribes
+// (clerk.md, spec 3.6.1). A trailing " *" matches the bare command only when it is the only
+// wildcard of the rule, so the -C form needs both rules.
+// ponytail: a glob, so "git -C <path> log --grep push x" is denied too; a PreToolUse hook that
+// parses the git options is the upgrade if a scout needs such a read.
+func scoutGitDeny() []string {
+	var out []string
+	for _, sub := range scoutGitWrites {
+		out = append(out, "Bash(git "+sub+":*)", "Bash(git -C * "+sub+")", "Bash(git -C * "+sub+" *)")
+	}
+	return out
+}
+
 // scoutDeny are the deny rules that role_settings_write adds to each scout settings file, so
 // that its starter cannot leave them out (spec principle 2). The tool rules remove the tools;
 // the Bash rules match only the command text, so they are speed bumps (spec 3.6.1).
-var scoutDeny = []string{
+var scoutDeny = append(scoutGitDeny(), []string{
 	"Edit", "Write", "NotebookEdit", "Workflow", "EnterWorktree",
 	bruhTool + "session_launch", bruhTool + "session_resume", bruhTool + "role_settings_write",
 	bruhTool + "lease_define", bruhTool + "lease_request", bruhTool + "lease_grant", bruhTool + "lease_release",
 	bruhTool + "answer_write", bruhTool + "question_open", bruhTool + "repos_set", bruhTool + "result_save",
 	bruhTool + "init_plan", bruhTool + "init_apply", bruhTool + "learn_refresh", bruhTool + "learn_scan",
-	"Bash(git push:*)", "Bash(git commit:*)", "Bash(git add:*)", "Bash(git rm:*)", "Bash(git mv:*)",
-	"Bash(git merge:*)", "Bash(git rebase:*)", "Bash(git reset:*)", "Bash(git checkout:*)", "Bash(git switch:*)",
-	"Bash(git restore:*)", "Bash(git stash:*)", "Bash(git tag:*)", "Bash(git worktree:*)", "Bash(git clean:*)",
-	"Bash(git pull:*)", "Bash(git apply:*)", "Bash(git cherry-pick:*)", "Bash(git revert:*)",
 	"Bash(rm:*)", "Bash(mv:*)", "Bash(cp:*)", "Bash(mkdir:*)", "Bash(touch:*)", "Bash(tee:*)", "Bash(chmod:*)", "Bash(ln:*)",
 	"Bash(claude:*)", "Bash(go run:*)", "Bash(sh:*)", "Bash(bash:*)",
 	"Bash(gh pr merge:*)", "Bash(gh pr create:*)", "Bash(gh pr comment:*)", "Bash(gh pr review:*)",
@@ -51,7 +67,7 @@ var scoutDeny = []string{
 	"Bash(glab mr merge:*)", "Bash(glab mr create:*)", "Bash(glab mr note:*)", "Bash(glab mr close:*)",
 	"Bash(glab issue create:*)", "Bash(glab issue note:*)", "Bash(glab api * -X *)", "Bash(glab api * --method *)",
 	"Bash(tea pr merge:*)", "Bash(tea pr create:*)", "Bash(tea comment:*)",
-}
+}...)
 
 // nextScoutKey returns the scout key of project whose n is one more than the highest n of the
 // scout settings files in dir (a bare "scout" counts as 0).

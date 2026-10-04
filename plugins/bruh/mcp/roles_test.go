@@ -285,7 +285,9 @@ func TestRoleSettingsWriteScout(t *testing.T) {
 			t.Errorf("clerk-a-scout1: deny = %q, want it to contain %q", s.Permissions.Deny, d)
 		}
 	}
-	for _, d := range []string{"Edit", "Write", "NotebookEdit", "Workflow", "mcp__plugin_bruh_bruh__session_launch", "Bash(git push:*)"} {
+	// The git rules cover the git -C <path> form that the scout procedure prescribes.
+	for _, d := range []string{"Edit", "Write", "NotebookEdit", "Workflow", "mcp__plugin_bruh_bruh__session_launch",
+		"Bash(git push:*)", "Bash(git -C * push)", "Bash(git -C * push *)", "Bash(git -C * commit *)", "Bash(git -C * reset *)"} {
 		if !slices.Contains(scoutDeny, d) {
 			t.Errorf("scoutDeny has no %q", d)
 		}
