@@ -482,3 +482,48 @@ test('spec 3.4, 3.5, and 14.2 carry the routing decision of 2026-10-04', () => {
     assert.ok(section(spec, h).includes('Owner decision 2026-10-04'), `spec ${h} has no owner decision of 2026-10-04`)
   }
 })
+
+// The routing eval driver with no model call: the dry run and the compare rule of spec 20.
+// CI runs this file, so the driver is checked in CI; the eval itself is not.
+test('the routing eval driver: dry run and compare rule', async () => {
+  const { mkdtempSync, writeFileSync, readdirSync, rmSync } = await import('node:fs')
+  const { tmpdir } = await import('node:os')
+  const { spawnSync } = await import('node:child_process')
+  const runSh = join(repo, 'tests/eval/run.sh')
+  const sh = (...args) => spawnSync('sh', [runSh, 'routing', ...args], { encoding: 'utf8' })
+  const dry = sh('--dry-run')
+  assert.equal(dry.status, 0, dry.stderr)
+  const cases = readdirSync(join(repo, 'tests/eval/routing'), { withFileTypes: true })
+    .filter((d) => d.isDirectory() && d.name !== 'ledger').map((d) => d.name)
+  assert.equal(dry.stdout.split('\n').filter((l) => l.includes('claude -p --agent bruh:bigm')).length, cases.length, 'one bigm command for each case')
+  assert.ok(dry.stdout.includes(`--plugin-dir ${plugin}`), 'the plugin of the checkout')
+  assert.ok(dry.stdout.includes('--tools Read,Grep,Glob,AskUserQuestion --strict-mcp-config'), 'only tools that read, no MCP server')
+  assert.ok(dry.stdout.includes('env -u BRUH_ROLE_KEY'), 'no role key')
+  assert.ok(!dry.stdout.includes('bruh:learner'), 'no learner')
+  for (const c of cases) {
+    for (const line of read(join(repo, 'tests/eval/routing', c, 'expected.txt')).split('\n').filter(Boolean)) {
+      assert.match(line, /^(ROUTE clanker-[a-z0-9-]+ [0-9]+|NOASK)$/, `${c}/expected.txt: closed lines only`)
+    }
+  }
+
+  const tmp = mkdtempSync(join(tmpdir(), 'route-'))
+  try {
+    const j = (o) => JSON.stringify(o)
+    const say = (text) => j({ type: 'assistant', message: { content: [{ type: 'text', text }] } })
+    const ask = j({ type: 'assistant', message: { content: [{ type: 'tool_use', name: 'AskUserQuestion', input: {} }] } })
+    const readOk = j({ type: 'assistant', message: { content: [{ type: 'text', text: 'I read the ledger.' }, { type: 'tool_use', name: 'Read', input: {} }] } })
+    const result = (r) => j({ type: 'result', result: r })
+    const file = (name, ...lines) => { const p = join(tmp, name); writeFileSync(p, lines.join('\n') + '\n'); return p }
+    const expected = file('expected.txt', 'ROUTE clanker-shop 3', 'NOASK')
+    const compare = (exp, ...lines) => sh('--compare', exp, file('out.jsonl', ...lines)).status
+    assert.equal(compare(expected, readOk, result('I send the wish list to clanker-shop as task 3.\nYou can say no.')), 0, 'passes a ROUTE line and no question')
+    assert.equal(compare(expected, readOk, result('Shall I send the wish list to clanker-shop?')), 1, 'fails a missing commitment line')
+    assert.equal(compare(expected, readOk, result('I send the wish list to clanker-shop as task 4.')), 1, 'fails a wrong task number')
+    assert.equal(compare(expected, ask, result('I send the wish list to clanker-shop as task 3.')), 1, 'fails an AskUserQuestion call under NOASK')
+    assert.equal(compare(expected, 'warning: not JSON', say('Some text.\nI send the wish list to clanker-shop as task 3.\nMore text.'), result('Done.')), 0, 'ignores other text')
+    const offer = file('offer.txt', 'ROUTE clanker-bruh 5')
+    assert.equal(compare(offer, ask, result('I send the watcher fix to clanker-bruh as task 5.')), 0, 'allows an AskUserQuestion call with no NOASK')
+  } finally {
+    rmSync(tmp, { recursive: true, force: true })
+  }
+})

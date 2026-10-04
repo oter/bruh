@@ -303,32 +303,6 @@ check "learner eval compare fails an extra LINK line" not sh "$here/eval/run.sh"
 check "learner eval compare fails a missing line" not sh "$here/eval/run.sh" --compare "$tmp/eval/expected.txt" "$tmp/eval/fails-a-missing-line.txt"
 check "learner eval expected files have only closed lines" not grep -Eqv '^$|^(LINK [a-z0-9-]+: [^ ]+:[0-9]+|DOC: [^ ]+)$' "$here"/eval/learner/*/expected.txt
 
-# Routing eval driver: dry run and the compare rule of spec 20
-rdry=$(sh "$here/eval/run.sh" routing --dry-run 2>&1)
-check "routing eval dry run exits 0" eq "$(sh "$here/eval/run.sh" routing --dry-run >/dev/null 2>&1; echo $?)" 0
-check "routing eval dry run prints one bigm command for each case" eq "$(printf '%s\n' "$rdry" | grep -c 'claude -p --agent bruh:bigm')" "$(find "$here/eval/routing" -mindepth 1 -maxdepth 1 -type d ! -name ledger | wc -l | tr -d ' ')"
-check "routing eval dry run loads the plugin of the checkout" contains "$rdry" "--plugin-dir $(cd "$here/.." && pwd)/plugins/bruh"
-check "routing eval dry run gives bigm only tools that read and no MCP server" contains "$rdry" "--tools Read,Grep,Glob,AskUserQuestion --strict-mcp-config"
-check "routing eval dry run unsets the role key" contains "$rdry" "env -u BRUH_ROLE_KEY"
-check "routing eval dry run starts no learner" not contains "$rdry" "bruh:learner"
-mkdir -p "$tmp/route"
-printf 'ROUTE clanker-shop 3\nNOASK\n' >"$tmp/route/expected.txt"
-read_ok='{"type":"assistant","message":{"content":[{"type":"text","text":"I read the ledger."},{"type":"tool_use","name":"Read","input":{}}]}}'
-printf '%s\n%s\n' "$read_ok" '{"type":"result","result":"I send the wish list to clanker-shop as task 3.\nYou can say no."}' >"$tmp/route/passes.jsonl"
-printf '%s\n%s\n' "$read_ok" '{"type":"result","result":"Shall I send the wish list to clanker-shop?"}' >"$tmp/route/missing.jsonl"
-printf '%s\n%s\n' "$read_ok" '{"type":"result","result":"I send the wish list to clanker-shop as task 4."}' >"$tmp/route/wrong-number.jsonl"
-printf '%s\n%s\n' '{"type":"assistant","message":{"content":[{"type":"tool_use","name":"AskUserQuestion","input":{}}]}}' '{"type":"result","result":"I send the wish list to clanker-shop as task 3."}' >"$tmp/route/asks.jsonl"
-printf '%s\n%s\n%s\n' 'warning: not JSON' '{"type":"assistant","message":{"content":[{"type":"text","text":"Some text.\nI send the wish list to clanker-shop as task 3.\nMore text."}]}}' '{"type":"result","result":"Done."}' >"$tmp/route/other-text.jsonl"
-check "routing eval compare passes a ROUTE line and no question" sh "$here/eval/run.sh" routing --compare "$tmp/route/expected.txt" "$tmp/route/passes.jsonl"
-check "routing eval compare fails a missing commitment line" not sh "$here/eval/run.sh" routing --compare "$tmp/route/expected.txt" "$tmp/route/missing.jsonl"
-check "routing eval compare fails a wrong task number" not sh "$here/eval/run.sh" routing --compare "$tmp/route/expected.txt" "$tmp/route/wrong-number.jsonl"
-check "routing eval compare fails an AskUserQuestion call under NOASK" not sh "$here/eval/run.sh" routing --compare "$tmp/route/expected.txt" "$tmp/route/asks.jsonl"
-check "routing eval compare ignores other text" sh "$here/eval/run.sh" routing --compare "$tmp/route/expected.txt" "$tmp/route/other-text.jsonl"
-printf 'ROUTE clanker-bruh 5\n' >"$tmp/route/offer.txt"
-printf '%s\n%s\n' '{"type":"assistant","message":{"content":[{"type":"tool_use","name":"AskUserQuestion","input":{}}]}}' '{"type":"result","result":"I send the watcher fix to clanker-bruh as task 5."}' >"$tmp/route/offer.jsonl"
-check "routing eval compare allows an AskUserQuestion call with no NOASK" sh "$here/eval/run.sh" routing --compare "$tmp/route/offer.txt" "$tmp/route/offer.jsonl"
-check "routing eval expected files have only closed lines" not grep -Eqv '^(ROUTE clanker-[a-z0-9-]+ [0-9]+|NOASK)$' "$here"/eval/routing/*/expected.txt
-
 # The MCP server accepts every call of the drivers: the sender policy of mail_post
 # and the parent checks of role_settings_write (final review M1).
 replay() {

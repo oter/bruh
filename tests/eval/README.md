@@ -92,7 +92,7 @@ For each case, the driver does these steps:
 
 At the end, it prints the summary line `routing eval: <passed> of <cases>`. The options `--dry-run` and `--compare <expected> <output>` and the variable `EVAL_TIMEOUT` work as for the learner eval. Put `routing` before the option, for example `sh tests/eval/run.sh routing --dry-run`. With no `routing`, the driver runs the learner eval.
 
-Run the routing eval before each release, and put its summary line into the release notes. It does not run in CI.
+Run the routing eval before each release, and put its summary line into the release notes. It does not run in CI. CI runs only `plugins/bruh/agents/agents_test.mjs`, which checks the dry run and the compare rule of the routing eval with no model call.
 
 ### Add a routing case
 
