@@ -330,7 +330,13 @@ The owner looked for the running bruh sessions (bigm, its clankers, and their cl
 - L50: local role sessions in Orca. The owner said in the terminal on 2026-10-04 (2026-10-04T11:39:24Z): "yo, bruh yes, for local case - see if orca installed and make sure running sessions are visible in orca. but you also should support claude --bg". Owner decision 2026-10-04: when Orca is on the machine and runs, the running local role sessions are visible in Orca, and bruh also supports `claude --bg`. The design decisions below are each agent-derived, needs owner decision:
   - Without Orca, the local mechanism of spec 4.1 stays exactly as it is today: the launch command, `session_list`, `session_resume`, the P0 with `claude attach <id>`, the idle stop of the supervisor, the reboot check, the failure handling, the worktrees, and the launch flags. Orca is optional, and nothing of the setup of one user goes into the plugin.
   - Why Orca shows nothing today: the Claude hook of Orca exits when `CLAUDE_JOB_DIR` is set, `orca terminal list` lists only the terminals that Orca manages, and an Orca tab needs a repository that Orca knows. A read of the hook script of Orca 1.4.218 confirms the line about the Orca hook in spec 4.1.
-  - The MCP server detects Orca in code at each launch, resume, and open of a tab: the executable in the order of the `orca-cli` skill (never `orca-dev`, and never a bare `orca` on Linux), a lookup on `PATH`, `orca status --json` with a running app and a ready runtime, and a minimum version. bruh never runs `orca open`. A failed step gives the path without Orca.
+  - The MCP server detects Orca in code at each launch, resume, and open of a tab. It does these checks in this order:
+    1. Find the executable in the order of the `orca-cli` skill (never `orca-dev`, and never a bare `orca` on Linux).
+    2. Look it up on `PATH`.
+    3. Run `orca status --json` and require a running app and a ready runtime.
+    4. Require a minimum version.
+
+    bruh never runs `orca open`. A failed step gives the path without Orca.
   - The plugin option `orca_local` is the knob, read at each call.
   - The title of a tab is the role key. The tab is in the Orca worktree of the start folder of the role. The MCP server keeps the handle in `<plugin data folder>/orca/<role key>.json`, with the time of its clock, and finds a stale handle again by the exact title and path.
   - An Orca failure never fails a launch and is never a P0, because the session runs. The tool result names the failure, and the caller writes a report event.

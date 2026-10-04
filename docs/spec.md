@@ -186,7 +186,7 @@ The facts below explain why Orca shows no local role today. Each fact is in know
 1. `session_launch` starts each local role with `claude --bg` (`plugins/bruh/mcp/session.go`, `session_launch` and `launchBackground`), as section 4.1 says.
 2. The Claude hook of Orca exits at once when `CLAUDE_JOB_DIR` is set. So Orca gets no event of a background session. A read of the hook script of Orca 1.4.218 confirms the line about the Orca hook in section 4.1.
 3. `orca terminal list` lists only the terminals that Orca manages. A background session has no Orca terminal.
-4. An Orca terminal is in a worktree of a repository that Orca knows. Orca has no place for a tab of a repository that the user did not add to Orca.
+4. An Orca terminal is in a worktree of a repository that Orca knows. Orca has no place for a tab of a repository that the user did not add to Orca. Verify (probe P6).
 5. A background session can have the `ORCA_*` variables of another Orca terminal, for example of the terminal of bigm. So an `ORCA_*` variable does not prove that a session runs in its own Orca terminal.
 
 In this section, "with Orca" means that the detection below is true at the time of the call. "Without Orca" means that the detection is false, or that the plugin option turns it off. The open choices are O1 to O6. Section 22 lists them too.
@@ -244,6 +244,7 @@ O3: the launch with Orca. The documented options come first, then the custom des
 - Without Orca: `session_list` does not change. It returns the entries of `claude agents --json --all` whose name is a role key. Agent-derived, needs owner decision.
 - Under option 4 of O3: the entries do not change. Each entry with a handle file gets the field `orca_tab`: `open`, `closed`, or `unknown`, from one `orca terminal list --json` call for each `session_list` call. An Orca error gives `unknown` and does not fail the call. The liveness rules of bigm, the clanker, and the clerk read `pid`, `state`, and `waitingFor` as today. Agent-derived, needs owner decision.
 - Under option 1 of O3: the entry of a role has `kind: "interactive"`, `pid`, `status`, `sessionId`, and `name`, and no `id` and no `state`. A role with no entry has ended. The liveness rules read `pid`, and `agentWait` of `orca terminal show --json` for a prompt. Agent-derived, needs owner decision.
+- Verify (probe P3): whether an interactive entry stays in `claude agents --json --all` after its process exits. If it stays, a role with no `pid` has ended.
 
 #### `session_resume`
 
@@ -279,7 +280,7 @@ O3: the launch with Orca. The documented options come first, then the custom des
 
 O4: when a viewer tab opens and closes (option 4 of O3 only). The options, ranked:
 
-1. A viewer opens at each launch and each resume. The parent closes the viewer of a retired role with `orca terminal close --terminal <handle> --json`, only for a handle of its own handle files. The viewer is a temporary resource of the session.
+1. A viewer opens at each launch and each resume. The parent closes the viewer of a retired role with `orca terminal close --terminal <handle> --tab --json`, only for a handle of its own handle files. The viewer is a temporary resource of the session.
 2. A viewer opens at each launch and each resume. bruh never closes a tab, and the owner closes the tabs.
 3. A viewer opens at the launch of a long-lived role only (a clanker and `clerk-ledger`). bigm opens the viewer of a clerk when the owner asks, or with the P0 of a prompt of that clerk.
 4. A viewer opens only on demand: bigm opens it when the owner asks, or with each P0 of a prompt.
@@ -319,14 +320,15 @@ O6: a start folder in a repository that Orca does not know. The options, ranked:
 3. bruh adds no repository to Orca. A folder that Orca does not know gives no tab, `orca_error` says so, and the README tells the user to add the repository in Orca.
 
 - Recommendation: option 1, because bruh changes the state of Orca only after a yes of the owner. Option 2 adds repositories to Orca with no yes. Agent-derived, needs owner decision.
+- This choice depends on the result of probe P6 (fact 4). If `orca terminal create --worktree path:<folder>` works for a repository that Orca does not know, option 3 needs no README step, and options 1 and 2 add repositories to Orca with no need.
 
 #### Probes for later
 
 Each probe starts something, so it runs only after a yes of the owner. Each runs in a scratch linked worktree of a trusted repository (knowledge.md, "Workspace trust for test repositories"), in a repository that Orca knows, and the cleanup stops each session and closes each tab that the probe made.
 
-- Verify, probe P1 (the viewer): `claude --bg --name probe-o1 "Reply ok, then wait."`, then `orca terminal create --worktree path:<scratch> --title probe-o1 --command "claude attach <short ID>" --json`. Pass when `orca terminal list --json` has the tab, `/status` in the tab shows `background job · attached`, and after `orca terminal close --terminal <handle> --json` the session still has a `pid` in `claude agents --json`.
+- Verify, probe P1 (the viewer): `claude --bg --name probe-o1 "Reply ok, then wait."`, then `orca terminal create --worktree path:<scratch> --title probe-o1 --command "claude attach <short ID>" --json`. Pass when `orca terminal list --json` has the tab, `/status` in the tab shows `background job · attached`, and after `orca terminal close --terminal <handle> --tab --json` the session still has a `pid` in `claude agents --json`.
 - Verify, probe P2 (two attaches): with the viewer of P1 open, run `claude attach <short ID>` in another terminal. Record what each terminal shows. Then run `claude respawn <short ID>` and record what the viewer shows.
-- Verify, probe P3 (an interactive role in Orca): `orca terminal create --worktree path:<scratch> --title probe-o3 --command "claude --agent bruh:clerk --name probe-o3 --permission-mode auto --settings <file> 'Run ./gate.sh.'" --json`, with an ask rule for `./gate.sh` in `<file>`. Record the entry of `probe-o3` in `claude agents --json` and `--all` (is `waitingFor` there during the prompt), `agentWait` of `orca terminal show --json`, and the state after the tab closes. Repeat in a repository that is not trusted, and record what the tab shows.
+- Verify, probe P3 (an interactive role in Orca): `orca terminal create --worktree path:<scratch> --title probe-o3 --command "claude --agent bruh:clerk --name probe-o3 --permission-mode auto --settings <file> 'Run ./gate.sh.'" --json`, with an ask rule for `./gate.sh` in `<file>`. Record the entry of `probe-o3` in `claude agents --json` and `--all` (is `waitingFor` there during the prompt), `agentWait` of `orca terminal show --json`, and whether the entry of `probe-o3` is in `claude agents --json --all` after the tab closes. Repeat in a repository that is not trusted, and record what the tab shows.
 - Verify, probe P4 (restore): with the tab of P1 open, quit and open the Orca app. Record whether the tab is restored and whether its command runs again. With the session stopped first (`claude stop <short ID>`), record whether the restored tab restarts it.
 - Verify, probe P5 (the Orca app quits): with the tabs of P1 and P3 open, quit the Orca app. Record which session processes stay in `claude agents --json`.
 - Verify, probe P6 (the folder selector): `orca terminal create --worktree path:<folder> --title probe-o6 --command "true" --json` for a folder of a repository that Orca does not know, and for a folder under `.claude/worktrees/` of a repository with the visibility "hide". Record the result.
