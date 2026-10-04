@@ -46,6 +46,36 @@ func mailAllowed(from, to, header string) error {
 	return nil
 }
 
+// postMail checks a message and writes it to the mailbox of to. mail_post and ledger_edit use it.
+func postMail(env Env, from, to, header, body string) (Message, error) {
+	if _, err := checkKey(to, "role key"); err != nil {
+		return Message{}, err
+	}
+	if !headerRE.MatchString(header) {
+		return Message{}, fmt.Errorf("invalid header: %q", header)
+	}
+	if err := mailAllowed(from, to, header); err != nil {
+		return Message{}, err
+	}
+	box, err := env.Dir("mail", to)
+	if err != nil {
+		return Message{}, err
+	}
+	msg := Message{
+		ID:     fmt.Sprintf("%015d-%06d-%s", time.Now().UnixMilli(), mailSeq.Add(1), strings.ToLower(rand.Text()[:8])),
+		From:   from,
+		To:     to,
+		Header: header,
+		Body:   body,
+		At:     env.Stamp(),
+	}
+	data, _ := json.Marshal(msg)
+	if err := atomicWrite(filepath.Join(box, msg.ID+".json"), data); err != nil {
+		return Message{}, err
+	}
+	return msg, nil
+}
+
 func mailTools() []Tool {
 	return []Tool{
 		{
@@ -69,29 +99,8 @@ func mailTools() []Tool {
 				if err != nil {
 					return nil, err
 				}
-				if _, err := checkKey(a.To, "role key"); err != nil {
-					return nil, err
-				}
-				if !headerRE.MatchString(a.Header) {
-					return nil, fmt.Errorf("invalid header: %q", a.Header)
-				}
-				if err := mailAllowed(from, a.To, a.Header); err != nil {
-					return nil, err
-				}
-				box, err := c.Env.Dir("mail", a.To)
+				msg, err := postMail(c.Env, from, a.To, a.Header, a.Body)
 				if err != nil {
-					return nil, err
-				}
-				msg := Message{
-					ID:     fmt.Sprintf("%015d-%06d-%s", time.Now().UnixMilli(), mailSeq.Add(1), strings.ToLower(rand.Text()[:8])),
-					From:   from,
-					To:     a.To,
-					Header: a.Header,
-					Body:   a.Body,
-					At:     c.Env.Stamp(),
-				}
-				data, _ := json.Marshal(msg)
-				if err := atomicWrite(filepath.Join(box, msg.ID+".json"), data); err != nil {
 					return nil, err
 				}
 				return map[string]string{"id": msg.ID, "at": msg.At}, nil
