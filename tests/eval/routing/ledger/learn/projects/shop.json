@@ -1,0 +1,20 @@
+{
+  "key": "shop",
+  "purpose": {"value": "The shop service: the item list, the cart, and the checkout.", "source": "agent"},
+  "main": "shop",
+  "repos": [
+    {
+      "path": "shop",
+      "remotes": [{"name": "origin", "url": "git@example.com:owner/shop.git"}],
+      "remote": "origin",
+      "host": {"value": "example.com", "source": "git"},
+      "kind": "gitea",
+      "api_url": "https://example.com/api/v1",
+      "host_path": "owner/shop",
+      "default_branch": "main",
+      "state": "present"
+    }
+  ],
+  "links": [{"project": "auth", "repo": "shop", "file": "go.mod", "line": 5, "source": "agent"}],
+  "docs": [{"repo": "shop", "path": "README.md", "source": "agent", "gone": false}]
+}

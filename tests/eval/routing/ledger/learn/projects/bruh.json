@@ -1,0 +1,20 @@
+{
+  "key": "bruh",
+  "purpose": {"value": "The bruh plugin of Claude Code: bigm, clankers, clerks, and workflows.", "source": "agent"},
+  "main": "bruh",
+  "repos": [
+    {
+      "path": "bruh",
+      "remotes": [{"name": "origin", "url": "git@github.com:owner/bruh.git"}],
+      "remote": "origin",
+      "host": {"value": "github.com", "source": "git"},
+      "kind": "github",
+      "api_url": "https://api.github.com",
+      "host_path": "owner/bruh",
+      "default_branch": "main",
+      "state": "present"
+    }
+  ],
+  "links": [],
+  "docs": [{"repo": "bruh", "path": "README.md", "source": "agent", "gone": false}]
+}

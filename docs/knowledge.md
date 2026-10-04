@@ -165,6 +165,7 @@ Every background session above (`probe-p2`, `probe-p4`, `probe-p5`, `probe-p6`, 
 - `claude --bg` in a new repository made with `git init` inside a trusted folder fails with `Workspace not trusted`, also when a parent folder of it is trusted.
 - `claude --bg` in a linked worktree of a trusted repository (`git worktree add`) starts and finishes normally. So a test that needs a temporary git repository makes it a linked worktree of a trusted repository.
 - `claude --bg --plugin-dir <plugin> --agent <plugin>:<agent>` prints `warning: no agent named '<plugin>:<agent>' — spawning with default template`, because the launcher checks the name before it loads the plugin. The session loads the plugin agent all the same: its header shows `@<plugin>:<agent>`, and it follows the agent text. Verified 2026-09-30 with `bruh:bigm`. The warning is harmless.
+- `claude --bg` prints the short ID with ANSI color codes, for example `backgrounded · \x1b[36m<id>\x1b[39m · <name>`. Its hint lines have color codes too. A script removes the escape sequences before it reads the ID. Verified 2026-10-04 with Claude Code 2.1.284.
 - `auto` permission mode is not available for Haiku 4.5. A session on that model falls back to manual mode.
 
 ## Live test results of v0.1 (2026-09-30, Claude Code 2.1.284)
