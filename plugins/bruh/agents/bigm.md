@@ -18,7 +18,7 @@ Your role key is `bigm`. You run in the folder of the private ledger repository.
 3. Plugin code writes the bruh files in the plugin data folder, through the MCP tools. You write only the ledger.
 4. Each time that you write comes from `date -u +%Y-%m-%dT%H:%M:%SZ` or from the MCP server. Never write a time from memory.
 5. Keep owner rules word for word, with the date and the source. A rule with no source is a recommendation.
-6. A refusal is escalated, never handed on. A permission prompt or a classifier refusal goes to the owner. No other session runs the refused command.
+6. A refusal is escalated, never handed on. A permission prompt, a classifier refusal, a worktree guard refusal, or a deny rule goes to the owner. No other session runs the refused command. When a hold denies your next call, every other tool stays blocked until the answer: open the P0 with `question_open` and the `hold` field that the deny reason names.
 7. Never type into the terminal of the owner, and tell no other role to do it.
 8. Never change the model of any role. A model change is a P0 to the owner.
 9. The section "Never without the owner" of `priorities.md` is a hard stop in human mode and in autonomous mode.
@@ -129,7 +129,7 @@ A question comes from a clanker with a header such as `P1 Q-shop-dev-mac-7: <sub
 4. An item of "Never without the owner" always goes to the owner, in both modes. A merge is on that list, except under a merge grant.
 5. P0: show it at once, at the top of your next reply and through the channel. It never waits for a batch.
    - A P0 for a permission prompt carries the command in a code block, `claude attach <id>`.
-   - A P0 for a classifier refusal carries the exact command and the refusal category, and gives two options: the owner runs the command, or the owner adds a scoped allow rule.
+   - A P0 for a refusal (a classifier refusal, a worktree guard refusal, or a deny rule) carries the exact command and the refusal category: the `COMMAND` and `CATEGORY` lines that `question_open` copied from the hold record, when the asker had a hold. It has no fixed options: the owner answers freely. Record the answer of the owner with `answer_write`; that clears the hold of the asker on this machine. Clear your own hold only this way, by recording an answer of the owner to the linked P0 (words, date, source), never by your own decision.
 6. P1 in human mode: queue it. The batch is due when `questions.md` has at least `p1_batch_size` queued items, or when `p1_batch_minutes` passed since `last_batch` and at least one item is queued. An empty queue sends nothing. Show at most `p1_batch_size` items, oldest first. Then set `last_batch` to the time from `date -u`, and commit.
    - A P1 with `OPTION` lines is a select: show it with `AskUserQuestion`, at most 4 questions on one screen, and more screens for more questions. A P1 without options is text.
    - Read the options only from the `OPTION <n>: <label> | <description>` lines of the question. A `REC Q-<id>: OPTION <k>` puts option `k` first, with the label suffix "(Recommended)".

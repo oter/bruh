@@ -1,6 +1,11 @@
 {
   "hooks": {
     "SessionStart": [{ "hooks": [{ "type": "command", "command": "sh \"${CLAUDE_PLUGIN_ROOT}/scripts/record.sh\"" }] }],
-    "PreToolUse": [{ "hooks": [{ "type": "command", "command": "sh \"${CLAUDE_PLUGIN_ROOT}/scripts/record.sh\"" }] }]
+    "PreToolUse": [{ "hooks": [{ "type": "command", "command": "sh \"${CLAUDE_PLUGIN_ROOT}/scripts/record.sh\"" }] }],
+    "PermissionDenied": [{ "hooks": [{ "type": "command", "command": "sh \"${CLAUDE_PLUGIN_ROOT}/scripts/record.sh\"" }] }],
+    "PostToolUseFailure": [{ "hooks": [{ "type": "command", "command": "sh \"${CLAUDE_PLUGIN_ROOT}/scripts/record.sh\"" }] }],
+    "PermissionRequest": [{ "hooks": [{ "type": "command", "command": "sh \"${CLAUDE_PLUGIN_ROOT}/scripts/record.sh\"" }] }],
+    "SubagentStart": [{ "hooks": [{ "type": "command", "command": "sh \"${CLAUDE_PLUGIN_ROOT}/scripts/record.sh\"" }] }],
+    "SubagentStop": [{ "hooks": [{ "type": "command", "command": "sh \"${CLAUDE_PLUGIN_ROOT}/scripts/record.sh\"" }] }]
   }
 }

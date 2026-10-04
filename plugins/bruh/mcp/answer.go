@@ -37,6 +37,29 @@ func answerFile(env Env, qid string) (string, error) {
 	return filepath.Join(dir, qid+".answer"), nil
 }
 
+// clearHolds removes each hold whose P0 is the question qid: the answer is the decision of the
+// owner (spec 15.1).
+func clearHolds(env Env, qid string) error {
+	return env.WithLock("holds", func() error {
+		files, _ := filepath.Glob(filepath.Join(env.DataDir, "holds", "H-*.json"))
+		for _, f := range files {
+			data, err := os.ReadFile(f)
+			if err != nil {
+				continue
+			}
+			var h struct {
+				QuestionID string `json:"question_id"`
+			}
+			if json.Unmarshal(data, &h) == nil && h.QuestionID == qid {
+				if err := os.Remove(f); err != nil && !errors.Is(err, fs.ErrNotExist) {
+					return err
+				}
+			}
+		}
+		return nil
+	})
+}
+
 func answerTools() []Tool {
 	return []Tool{
 		{
@@ -79,7 +102,10 @@ func answerTools() []Tool {
 				}
 				at := c.Env.Stamp()
 				data, _ := json.Marshal(answer{Text: a.Text, At: at, Subject: a.Subject, Asker: a.Asker})
-				return map[string]string{"at": at}, atomicWrite(file, data)
+				if err := atomicWrite(file, data); err != nil {
+					return nil, err
+				}
+				return map[string]string{"at": at}, clearHolds(c.Env, a.QuestionID)
 			},
 		},
 		{

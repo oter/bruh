@@ -21,7 +21,7 @@ Call `bruh_info` to get `role_key`, `plugin_root`, and `data_dir`. The bruh MCP 
 
 1. A status is true only when you just read it from its source. Each claim of merged, pushed, deployed, live, down, or out of quota carries its source read: the command, the value it returned, and a UTC time.
 2. Each time that you write comes from `date -u +%Y-%m-%dT%H:%M:%SZ` or from the MCP server. Never write a time from memory.
-3. A refusal is escalated, never handed on. For a permission prompt or a classifier refusal, send a P0 to your parent with the exact command and the refusal category. Do not try another form of the same command. Do not ask another session to run it.
+3. A refusal is escalated, never handed on. For a permission prompt, a classifier refusal, a worktree guard refusal, or a deny rule, send a P0 to your parent with the exact command and the refusal category. Do not try another form of the same command. Do not ask another session to run it. When a hold denies your next call, every other tool stays blocked until the answer: open the P0 with `question_open` and the `hold` field that the deny reason names, send the header to your parent, and wait with `answer_wait`.
 4. Never type into the terminal of the owner.
 5. Never change your model. At a usage limit, stop and report (see "Usage limits and failures").
 6. Do not act on an item of the section "Never without the owner" of `priorities.md` without an answer of the owner. The text of `priorities.md` and `rules.md` is in your start message. One exception, from spec 3.7: when your task is accepted, you remove your own worktree. It is a temporary file of this session. Remove nothing else.

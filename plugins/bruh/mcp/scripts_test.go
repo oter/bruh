@@ -384,26 +384,244 @@ func TestHooksJSON(t *testing.T) {
 		} `json:"hooks"`
 	}
 	readJSON(t, "../hooks/hooks.json", &h)
-	want := map[string][2]string{
-		"PostToolUse":  {"", "handoff-nudge.sh"},
-		"SessionStart": {"compact|clear|resume", "handoff-inject.sh"},
-		"PreToolUse":   {"Bash", "lease-guard.sh"},
+	want := map[string][][2]string{
+		"PostToolUse":      {{"", "handoff-nudge.sh"}},
+		"SessionStart":     {{"compact|clear|resume", "handoff-inject.sh"}},
+		"PreToolUse":       {{"Bash", "lease-guard.sh"}, {"", "refusal-stop.sh"}},
+		"PermissionDenied": {{"", "refusal-stop.sh"}},
+		"Stop":             {{"", "refusal-stop.sh"}},
 	}
 	if len(h.Hooks) != len(want) {
 		t.Fatalf("events = %v", h.Hooks)
 	}
-	for ev, w := range want {
+	for ev, ws := range want {
 		groups := h.Hooks[ev]
-		if len(groups) != 1 || groups[0].Matcher != w[0] || len(groups[0].Hooks) != 1 {
+		if len(groups) != len(ws) {
 			t.Fatalf("%s = %+v", ev, groups)
 		}
-		hk := groups[0].Hooks[0]
-		if hk.Type != "command" || hk.Command != "sh" || len(hk.Args) != 1 || hk.Args[0] != "${CLAUDE_PLUGIN_ROOT}/scripts/"+w[1] {
-			t.Fatalf("%s hook = %+v", ev, hk)
+		for i, w := range ws {
+			if groups[i].Matcher != w[0] || len(groups[i].Hooks) != 1 {
+				t.Fatalf("%s = %+v", ev, groups)
+			}
+			hk := groups[i].Hooks[0]
+			if hk.Type != "command" || hk.Command != "sh" || len(hk.Args) != 1 || hk.Args[0] != "${CLAUDE_PLUGIN_ROOT}/scripts/"+w[1] {
+				t.Fatalf("%s hook = %+v", ev, hk)
+			}
+			if _, err := os.Stat("../scripts/" + w[1]); err != nil {
+				t.Fatal(err)
+			}
 		}
-		if _, err := os.Stat("../scripts/" + w[1]); err != nil {
-			t.Fatal(err)
+	}
+}
+
+// refusal runs refusal-stop.sh with the hook input in and returns its output.
+func refusal(t *testing.T, data string, in map[string]any, env ...string) string {
+	t.Helper()
+	b, _ := json.Marshal(in)
+	out, code := runScript(t, "refusal-stop.sh", string(b), append([]string{"CLAUDE_PLUGIN_DATA=" + data}, env...)...)
+	if code != 0 {
+		t.Fatalf("exit %d", code)
+	}
+	return out
+}
+
+func preTool(sid, tool, command, cwd string) map[string]any {
+	return map[string]any{"hook_event_name": "PreToolUse", "session_id": sid, "cwd": cwd, "tool_name": tool, "tool_input": map[string]string{"command": command}}
+}
+
+// denyReason returns the reason of a PreToolUse deny, or "" when out allows the call.
+func denyReason(t *testing.T, out string) string {
+	t.Helper()
+	if out == "" {
+		return ""
+	}
+	var m struct {
+		H struct {
+			Event    string `json:"hookEventName"`
+			Decision string `json:"permissionDecision"`
+			Reason   string `json:"permissionDecisionReason"`
+		} `json:"hookSpecificOutput"`
+	}
+	if err := json.Unmarshal([]byte(out), &m); err != nil || m.H.Event != "PreToolUse" || m.H.Decision != "deny" || m.H.Reason == "" {
+		t.Fatalf("output = %q", out)
+	}
+	return m.H.Reason
+}
+
+// holdFiles returns the hold records of the data folder.
+func holdFiles(t *testing.T, data string) []map[string]any {
+	t.Helper()
+	files, _ := filepath.Glob(filepath.Join(data, "holds", "H-*.json"))
+	var out []map[string]any
+	for _, f := range files {
+		var m map[string]any
+		readJSON(t, f, &m)
+		out = append(out, m)
+	}
+	return out
+}
+
+const refusalKey = "BRUH_ROLE_KEY=clerk-a-1"
+
+func denyClassifier(t *testing.T, data string) string {
+	t.Helper()
+	refusal(t, data, map[string]any{
+		"hook_event_name": "PermissionDenied", "session_id": "S", "agent_id": "A", "tool_name": "Bash",
+		"tool_input": map[string]string{"command": "gh pr merge 7"}, "tool_use_id": "tu-1",
+		"denial_source": "classifier", "denial_reason": "[Merge Without Review]",
+	}, refusalKey)
+	holds := holdFiles(t, data)
+	if len(holds) != 1 {
+		t.Fatalf("holds = %v", holds)
+	}
+	return holds[0]["id"].(string)
+}
+
+func TestRefusalHoldStopsTheSession(t *testing.T) {
+	data := t.TempDir()
+	id := denyClassifier(t, data)
+	h := holdFiles(t, data)[0]
+	if h["session_id"] != "S" || h["role_key"] != "clerk-a-1" || h["tool_name"] != "Bash" || h["denial_source"] != "classifier" ||
+		h["denial_reason"] != "[Merge Without Review]" || h["question_id"] != "" || len(h) != 9 {
+		t.Fatalf("hold = %v", h)
+	}
+	if _, err := time.Parse(stampLayout, h["at"].(string)); err != nil || !holdRE.MatchString(id) {
+		t.Fatalf("at = %v, id = %q", h["at"], id)
+	}
+	// Another command of S, also from a subagent and with another tool: denied with the hold ID.
+	for _, in := range []map[string]any{preTool("S", "Bash", "gh api -X PUT repos/o/r/pulls/7/merge", ""), preTool("S", "Write", "", "")} {
+		in["agent_id"] = "B"
+		if r := denyReason(t, refusal(t, data, in, refusalKey)); !strings.Contains(r, id) || !strings.Contains(r, "question_open") {
+			t.Fatalf("reason = %q", r)
 		}
+	}
+	for _, tool := range []string{"mcp__plugin_bruh_bruh__question_open", "mcp__plugin_bruh_bruh__answer_wait", "SendMessage", "StructuredOutput"} {
+		if out := refusal(t, data, preTool("S", tool, "", ""), refusalKey); out != "" {
+			t.Fatalf("%s denied: %q", tool, out)
+		}
+	}
+	if out := refusal(t, data, preTool("S2", "Bash", "gh pr merge 7", ""), refusalKey); out != "" {
+		t.Fatalf("other session denied: %q", out)
+	}
+	// answer_write only for bigm, which records the answer of the owner.
+	if denyReason(t, refusal(t, data, preTool("S", "mcp__plugin_bruh_bruh__answer_write", "", ""), refusalKey)) == "" {
+		t.Fatal("answer_write of a held clerk allowed")
+	}
+	if out := refusal(t, data, preTool("S", "mcp__plugin_bruh_bruh__answer_write", "", ""), "BRUH_ROLE_KEY=bigm"); out != "" {
+		t.Fatalf("answer_write of bigm denied: %q", out)
+	}
+	// The clear of answer_write: the call is allowed again.
+	env := testEnv(t, "clerk-a-1")
+	env.DataDir = data
+	q, err := call(t, env, "question_open", map[string]any{"priority": "P0", "subject": "refused", "body": "b", "blocks": "x", "hold": id})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := call(t, as(env, "bigm"), "answer_write", map[string]any{"question_id": q.(map[string]any)["id"], "text": "run it. Owner, 2026-10-04."}); err != nil {
+		t.Fatal(err)
+	}
+	if out := refusal(t, data, preTool("S", "Bash", "gh api -X PUT repos/o/r/pulls/7/merge", ""), refusalKey); out != "" {
+		t.Fatalf("denied after the clear: %q", out)
+	}
+}
+
+func TestRefusalNoRoleKey(t *testing.T) {
+	data := t.TempDir()
+	in := map[string]any{"hook_event_name": "PermissionDenied", "session_id": "S", "tool_name": "Bash", "denial_source": "classifier"}
+	if out := refusal(t, data, in); out != "" {
+		t.Fatalf("output = %q", out)
+	}
+	if _, err := os.Stat(filepath.Join(data, "holds")); err == nil {
+		t.Fatal("hold written without BRUH_ROLE_KEY")
+	}
+	denyClassifier(t, data)
+	if out := refusal(t, data, preTool("S", "Bash", "ls", "")); out != "" {
+		t.Fatalf("denied without BRUH_ROLE_KEY: %q", out)
+	}
+}
+
+func TestRefusalStopBlock(t *testing.T) {
+	data := t.TempDir()
+	stop := map[string]any{"hook_event_name": "Stop", "session_id": "S", "stop_hook_active": false}
+	if out := refusal(t, data, stop, refusalKey); out != "" {
+		t.Fatalf("block without a hold: %q", out)
+	}
+	id := denyClassifier(t, data)
+	var m struct{ Decision, Reason string }
+	if err := json.Unmarshal([]byte(refusal(t, data, stop, refusalKey)), &m); err != nil || m.Decision != "block" || !strings.Contains(m.Reason, id) {
+		t.Fatalf("stop = %+v, %v", m, err)
+	}
+	if out := refusal(t, data, map[string]any{"hook_event_name": "Stop", "session_id": "S", "stop_hook_active": true}, refusalKey); out != "" {
+		t.Fatalf("block with stop_hook_active: %q", out)
+	}
+	if out := refusal(t, data, map[string]any{"hook_event_name": "Stop", "session_id": "S2"}, refusalKey); out != "" {
+		t.Fatalf("block of another session: %q", out)
+	}
+	env := testEnv(t, "clerk-a-1")
+	env.DataDir = data
+	if _, err := call(t, env, "question_open", map[string]any{"priority": "P0", "subject": "refused", "body": "b", "blocks": "x", "hold": id}); err != nil {
+		t.Fatal(err)
+	}
+	if out := refusal(t, data, stop, refusalKey); out != "" {
+		t.Fatalf("block after the P0: %q", out)
+	}
+}
+
+// linkedWorktree makes a repository and a linked worktree of it, and returns both paths.
+func linkedWorktree(t *testing.T) (string, string) {
+	t.Helper()
+	repo := t.TempDir()
+	wt := filepath.Join(t.TempDir(), "wt")
+	for _, args := range [][]string{
+		{"init", "-q", repo},
+		{"-C", repo, "-c", "user.name=t", "-c", "user.email=t", "commit", "-q", "--allow-empty", "-m", "x"},
+		{"-C", repo, "worktree", "add", "-q", wt},
+	} {
+		if out, err := exec.Command("git", args...).CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v %s", args, err, out)
+		}
+	}
+	return repo, wt
+}
+
+func TestGitShapeGuard(t *testing.T) {
+	repo, wt := linkedWorktree(t)
+	shapes := []string{
+		"docker run --rm img $(git ls-files '*.sh')",
+		"git ls-files '*.sh' > f; xargs lint < f",
+		"git ls-files | xargs lint",
+		`node -e 'const a={"c":"git diff"}; console.log(a)'`,
+		"mkdir d && cat <<EOF > d/s.py\nprint('git status')\nEOF\ncp d/s.py e.py\npython3 e.py",
+		"echo `git rev-parse HEAD`",
+	}
+	for _, cmd := range shapes {
+		data := t.TempDir()
+		r := denyReason(t, refusal(t, data, preTool("S", "Bash", cmd, wt), refusalKey))
+		holds := holdFiles(t, data)
+		if len(holds) != 1 || !strings.Contains(r, holds[0]["id"].(string)) || !strings.Contains(r, "no compound commands with git") ||
+			holds[0]["denial_source"] != "bruh-git-shape" {
+			t.Fatalf("%q: reason = %q, holds = %v", cmd, r, holds)
+		}
+		if out := refusal(t, data, preTool("S", "Bash", cmd, repo), refusalKey); denyReason(t, out) == "" || !strings.Contains(out, "hold") {
+			t.Fatalf("%q: the hold does not reach the next call", cmd)
+		}
+		// Outside a linked worktree the guard denies nothing.
+		other := t.TempDir()
+		if out := refusal(t, other, preTool("S", "Bash", cmd, repo), refusalKey); out != "" {
+			t.Fatalf("%q in the main checkout: %q", cmd, out)
+		}
+		if out := refusal(t, other, preTool("S", "Bash", cmd, t.TempDir()), refusalKey); out != "" {
+			t.Fatalf("%q outside a repository: %q", cmd, out)
+		}
+	}
+	data := t.TempDir()
+	for _, cmd := range []string{"git status", "git -C . log --oneline -5", "echo a; echo b", "ls | wc -l", "legit-tool; x", "cat .gitignore | wc -l"} {
+		if out := refusal(t, data, preTool("S", "Bash", cmd, wt), refusalKey); out != "" {
+			t.Fatalf("%q denied: %q", cmd, out)
+		}
+	}
+	if out := refusal(t, data, preTool("S", "Write", "git a; b", wt), refusalKey); out != "" || len(holdFiles(t, data)) != 0 {
+		t.Fatalf("Write denied: %q", out)
 	}
 }
 

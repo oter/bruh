@@ -139,3 +139,21 @@ func TestAnswerRefusesMultilineSubject(t *testing.T) {
 		}
 	}
 }
+
+func TestAnswerWriteClearsLinkedHold(t *testing.T) {
+	env := testEnv(t, "bigm")
+	writeHold(t, env.DataDir, "H-1", "clerk-a-1", "Q-a-testhost-1", map[string]string{"command": "x"})
+	writeHold(t, env.DataDir, "H-2", "clerk-a-1", "Q-a-testhost-2", map[string]string{"command": "y"})
+	writeHold(t, env.DataDir, "H-3", "clerk-a-1", "", map[string]string{"command": "z"})
+	if _, err := call(t, env, "answer_write", map[string]any{"question_id": "Q-a-testhost-1", "text": "run it. Owner, 2026-10-04."}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(env.DataDir, "holds", "H-1.json")); !errors.Is(err, fs.ErrNotExist) {
+		t.Fatalf("linked hold: %v", err)
+	}
+	for _, id := range []string{"H-2", "H-3"} {
+		if _, err := os.Stat(filepath.Join(env.DataDir, "holds", id+".json")); err != nil {
+			t.Fatalf("other hold %s: %v", id, err)
+		}
+	}
+}

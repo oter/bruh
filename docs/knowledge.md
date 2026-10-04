@@ -179,6 +179,11 @@ Every background session above (`probe-p2`, `probe-p4`, `probe-p5`, `probe-p6`, 
 
 Facts for spec section 15.1. Each fact is from a read of the vendor docs on 2026-10-04. No session, background session, or workflow was started to probe them. A fact that the docs do not state is tagged "Verify".
 
+Probe results (spec 15.1.8 item 4), recorded 2026-10-04T20:29:51Z (`date -u`):
+
+- Probe 1 did not run. In the worktree-isolated session of the implementing agent, the worktree guard refused the probe command `claude -p --worktree probe-refusal --plugin-dir probes/probe-plugin --permission-mode auto --settings '{"permissions":{"deny":["Bash(touch probe-denied*)"]}}' "... echo \$(git ls-files '*.sh')"` with "this command runs claude with the text ... in a plain command, so what it runs cannot be shown not to be git. Refusing to run it". Probe 2 (the workflow `hello`) did not run either. bigm decision 2026-10-04 under R-4: skip the probes. So no event, field name, `session_id`, or `agent_id` was recorded, and each Verify below stays open.
+- Observed in the same session: the bruh plugin of that session had no hook for the guard refusal, so the refusal left no hook record. Whether a `PostToolUseFailure` hook would have fired stays open.
+
 Hook events and their control:
 
 - The hook events include `PreToolUse`, `PermissionRequest`, `PermissionDenied`, `PostToolUse`, `PostToolUseFailure`, `PostToolBatch`, `SubagentStart`, `SubagentStop`, `Stop`, and `StopFailure`. Source: <https://code.claude.com/docs/en/hooks.md>, the event table. Read 2026-10-04.

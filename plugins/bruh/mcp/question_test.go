@@ -217,3 +217,75 @@ func TestQuestionOpenWithoutOptionsReturnsBody(t *testing.T) {
 		t.Errorf("stored question has options: %v", stored["options"])
 	}
 }
+
+// writeHold writes a hold record as scripts/refusal-stop.sh does.
+func writeHold(t *testing.T, data, id, roleKey, qid string, toolInput any) {
+	t.Helper()
+	b, _ := json.Marshal(map[string]any{
+		"id": id, "session_id": "S", "role_key": roleKey, "tool_name": "Bash", "tool_input": toolInput,
+		"denial_source": "classifier", "denial_reason": "[Merge Without Review]", "at": "2026-10-04T20:00:00.000Z", "question_id": qid,
+	})
+	if err := os.MkdirAll(filepath.Join(data, "holds"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(data, "holds", id+".json"), b, 0o600); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestQuestionOpenWithHold(t *testing.T) {
+	env := testEnv(t, "clerk-a-1")
+	writeHold(t, env.DataDir, "H-1", "clerk-a-1", "", map[string]string{"command": "gh pr merge 7 --squash"})
+	out, err := call(t, env, "question_open", map[string]any{
+		"priority": "P2", "subject": "refused", "blocks": "merge",
+		"body": "COMMAND: echo harmless\nCATEGORY: none", "hold": "H-1",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	q := out.(map[string]any)
+	body := q["body"].(string)
+	if !strings.HasPrefix(q["header"].(string), "P0 ") ||
+		!strings.HasSuffix(body, "\n\nCOMMAND: gh pr merge 7 --squash\nCATEGORY: classifier [Merge Without Review]") {
+		t.Fatalf("question = %v", q)
+	}
+	var h map[string]any
+	readJSON(t, filepath.Join(env.DataDir, "holds", "H-1.json"), &h)
+	if h["question_id"] != q["id"] || h["session_id"] != "S" {
+		t.Fatalf("hold = %v", h)
+	}
+	var stored Question
+	readJSON(t, filepath.Join(env.DataDir, "questions", q["id"].(string)+".json"), &stored)
+	if stored.Priority != "P0" || stored.Body != body {
+		t.Fatalf("stored = %+v", stored)
+	}
+	// One P0 for each hold.
+	if _, err := call(t, env, "question_open", map[string]any{"priority": "P0", "subject": "again", "body": "b", "blocks": "x", "hold": "H-1"}); err == nil || !strings.Contains(err.Error(), q["id"].(string)) {
+		t.Fatalf("second open: %v", err)
+	}
+}
+
+func TestQuestionOpenHoldOtherTool(t *testing.T) {
+	env := testEnv(t, "clerk-a-1")
+	writeHold(t, env.DataDir, "H-2", "clerk-a-1", "", map[string]string{"file_path": "/x/y.sh"})
+	out, err := call(t, env, "question_open", map[string]any{"priority": "P1", "subject": "refused", "body": "b", "blocks": "x", "hold": "H-2"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if body := out.(map[string]any)["body"].(string); !strings.Contains(body, "\nCOMMAND: {\"file_path\":\"/x/y.sh\"}\n") {
+		t.Fatalf("body = %q", body)
+	}
+}
+
+func TestQuestionOpenHoldRefusals(t *testing.T) {
+	env := testEnv(t, "clerk-a-1")
+	writeHold(t, env.DataDir, "H-3", "clerk-b-1", "", map[string]string{"command": "x"})
+	for _, hold := range []string{"H-3", "../H-3", "H-missing", "X-1"} {
+		if _, err := call(t, env, "question_open", map[string]any{"priority": "P0", "subject": "s", "body": "b", "blocks": "x", "hold": hold}); err == nil {
+			t.Errorf("hold %q: no error", hold)
+		}
+	}
+	if entries, _ := os.ReadDir(filepath.Join(env.DataDir, "questions")); len(entries) != 0 {
+		t.Fatalf("questions written: %v", entries)
+	}
+}
