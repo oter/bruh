@@ -619,7 +619,7 @@ Terms:
 #### c. How events reach the role
 
 - Durable first, as section 5 says for messages. Agent-derived, needs owner decision. Options, ranked:
-  1. The poller writes each event to the mailbox of each local subscriber, with the existing header `DONE: event <project>: <subject>` and the event line as the body. It also writes the event to the report file of the project, `reports/clanker-<project>.jsonl` (owner decision 2026-10-03, section 9.2), so that bigm sees it at the sweep. (recommendation)
+  1. The poller writes each event to the mailbox of each local subscriber, with the existing header `DONE: event <project>: <subject>` and the event line as the body. It also writes the event to the report file of the project, `reports/clanker-<project>.jsonl`, so that bigm sees it at the sweep. The owner decided that each event goes to the report file of its project (owner decision 2026-10-03, section 9.2). The file name is agent-derived, needs owner decision (section 9.2). (recommendation)
   2. The poller writes only to the report file of the project, and bigm relays each event, as today (section 9.2).
   3. A new event file for each role, with a new read tool.
 - The recommendation keeps one inbox for each role and one read tool (`mail_read`). The rule of bigm for idle roles (resume a role that has unread mail at each sweep) then covers events too. The poller writes the mail with the sender `bigm`, because it polls for bigm (open choice M2), and the mailbox allows a post from `bigm` to each role (`mail.go`). Agent-derived, needs owner decision.
@@ -630,7 +630,7 @@ Terms:
 
 #### d. Lifetime, expiry, and stop
 
-- `until` is required. It is a UTC time. When the caller gives none, the default is `monitor_default_hours` of `mode.md`, and `monitor_start` refuses a time past `monitor_max_hours`. Both are runtime settings (section 11). Their default values are open choice M9. Agent-derived, needs owner decision.
+- `until` is required for each monitor that a role starts with `monitor_start`. The one exception is a standing monitor (next item), which `monitor_start` does not make. `until` is a UTC time. When the caller gives none, the default is `monitor_default_hours` of `mode.md`, and `monitor_start` refuses a time past `monitor_max_hours`. Both are runtime settings (section 11). Their default values are open choice M9. Agent-derived, needs owner decision.
 - A standing monitor has no `until`: the codehost monitors of a clanker (part i) end when bigm retires the clanker. Agent-derived, needs owner decision.
 - At `until`, the poller stops the polls of that monitor and sends one `expired` event to the subscriber, so that the role can start it again when its work still needs it. This follows the notice of the `Monitor` tool at its deadline. Agent-derived, needs owner decision.
 - The subscriber stops its monitor with the new MCP tool `monitor_stop` when its work no longer waits on the source. The parent of the subscriber and bigm can also stop it. Agent-derived, needs owner decision.
@@ -669,7 +669,7 @@ Open choice M7 (part k). Not decided. The recommendation reads the monitors on d
 #### i. How the watcher of section 9.2 fits
 
 - The watcher of today runs in a `Monitor` tool watch of bigm (section 9.2). A watch of the `Monitor` tool has a deadline of at most 30 minutes, and 5 minutes when Claude passes no `timeout_ms` (knowledge.md). The watcher then stops, and a live event waits until bigm starts it again. bigm finds the missed lines with `report_read` at the next sweep (section 9.1), up to 15 minutes later. This is a likely defect of bruh (design.md, L50, F1). The choice of M2 fixes it. Agent-derived finding. Verify: a probe of bigm shows when the watch of the watcher ends.
-- The fate of the watcher is open choice M8 (part k). Not decided. The recommendation folds it in: the watcher becomes the poller, with the source kind `codehost`, and each repository of `repos_set` becomes a standing monitor of the clanker of its project. So the rule of L15 holds: a project with no clanker gets no events. The merge train keeps `repos.json` for its configuration.
+- The fate of the watcher is open choice M8 (part k). Not decided. The recommendation folds it in: the watcher becomes the poller, with the source kind `codehost`, and each repository of `repos_set` becomes a standing monitor of the clanker of its project. So the rule of section 8.5 and L24 holds: bigm calls `repos_set` only when it starts a clanker, so a project with no clanker gets no polls and no events. The merge train keeps `repos.json` for its configuration.
 
 #### j. Test plan
 
@@ -739,7 +739,7 @@ M8. The watcher of section 9.2. Options, ranked:
 
 1. Fold it in. The watcher becomes the poller with the kind `codehost`, and `repos_set` makes the standing monitors of the clanker of each project. (recommendation: one poller, one cursor file, and one set of rules.)
 2. Keep both. The watcher stays as today, and the monitors have a second poller. Two cursor files and two code paths, and a repository can get two polls.
-3. Replace it. No standing monitor: each role starts a monitor for each pull request or branch that it needs. A push of a person to a project with a clanker then gives no event, which changes L15.
+3. Replace it. No standing monitor: each role starts a monitor for each pull request or branch that it needs. A push of a person to a project with a clanker then gives no event, which changes section 9.2.
 
 M9. The defaults of the runtime settings `monitor_default_hours`, `monitor_max_hours`, and `monitor_max_active`. Options, ranked:
 
