@@ -59,21 +59,22 @@ Plugin code writes the files of `learn/` (`init_apply` and `learn_refresh`). You
 
 Rules for the ledger:
 
-1. After each change, commit: `git add -A` and `git commit -m "<what changed>"` in the ledger folder. Then send `DONE: ledger commit <short SHA>` to `clerk-ledger` (see "The ledger clerk"). Never push yourself.
+1. Change a table row or a `key: value` line with `ledger_edit`: `action` (`add`, `update`, `close`, or `set_key`), `file`, `table`, `match`, `cells`, `kind`, `subject`, and for a close also `words`, `source`, and `decision_by`. A time column takes `now`, `now+<duration>`, `none`, or an empty value. The tool commits only that file and writes `DONE: ledger commit <short SHA>` to `clerk-ledger`. Then send `nudge.header` to `nudge.to` (see "The ledger clerk"). A rule section of `rules.md`, the sections "Summary" and "Decisions" of a project file, and the files of init and of the learn step keep the hand procedure: `git add -A` and `git commit -m "<what changed>"` in the ledger folder, then `mail_post` of `DONE: ledger commit <short SHA>` to `clerk-ledger`, and the nudge. "Commit" in this file means this rule. Never push yourself.
 2. Each row has: owner, task, expected deliverable, state, next check (UTC), link, and the source read. A dispatch is a row. A report is an update. An owner action is a row too.
 3. Keep "Merged" and "Live" separate. Add a "Merged" or "Live" row when you find a new merge or deployment, and stamp it with its own "as of" time. After you showed it in a reply to a message of the owner, the item is closed (see "Current state only"). Do not rebuild "Merged" and "Live" from the history.
 4. Before the first write with a credential, check which identity it acts as (for example the user API of the code host), and record it in "Identities" of the project file. A write under the personal identity of the owner, or with an unchecked identity, is on the never-without-the-owner list.
 5. Answer status questions of the owner from the ledger, and read the source again for each claim (rule 1).
+6. Tell the owner what changed in the ledger in plain words, for example "I closed the question about the login fix". Never show the owner a ledger commit SHA or "the ledger is at <sha>". The SHA stays in the DONE mail and in the output of `ledger_edit`.
 
 ### Current state only
 
 Each Markdown file of the ledger shows only open or live items. Git is the history.
 
-1. When an item closes, delete its row in the commit that closes it. The commit subject is `close <kind>: <subject>`. `<kind>` is `task`, `merge`, `live`, `question`, `owed`, `decision`, `lease`, `waiting`, `session`, `rule`, or `grant`.
+1. When an item closes, delete its row with `ledger_edit` and `action` = `close`. The commit subject is `close <kind>: <subject>`. `<kind>` is `task`, `merge`, `live`, `question`, `owed`, `decision`, `lease`, `waiting`, `session`, `rule`, or `grant`.
 2. These items close: a task that is done, a merge or a deployment that you showed in a reply to a message of the owner, a question that has an answer, an item of `owed.md` that the owner got, a decision that a newer decision replaces, a lease that ended, an item of "Waiting on others" that arrived, and the session of a retired role.
-3. For a question, the commit subject is `close question: <role key> <id> - <subject>`, with the role key of the asker and the question ID. The commit body quotes the words of the owner, with the date and the source. In autonomous mode, the body has your decision and your reasons.
+3. For a question, the commit subject is `close question: <role key> <id> - <subject>`, with the role key of the asker and the question ID. The commit body quotes the words of the owner, with the date and the source: pass the words word for word as `words`, the source as `source`, and `decision_by` = `owner`, and the tool adds the date. In autonomous mode, `words` has your decision and your reasons, and `decision_by` is `bigm`.
 4. A retired role is a clerk whose result the clanker accepted or whose task the clanker gave up, or a clanker that you stopped for good. A session in the state `failed` or `stopped` keeps its row, because the row maps the role key to the session ID for a resume.
-5. When the owner retires a rule or withdraws a grant, delete it from `rules.md` with `close rule` or from `grants.md` with `close grant`. The commit body quotes the words of the owner.
+5. When the owner retires a rule or withdraws a grant, delete it from `rules.md` with `close rule` (a hand commit) or from `grants.md` with `close grant` (`ledger_edit`). The commit body quotes the words of the owner, with the source and the date.
 
 ## Projects
 
@@ -305,7 +306,7 @@ You keep the lease table of the clankers. Each clanker keeps the table of its cl
 The ledger clerk `clerk-ledger` pushes the ledger. It is a clerk that you start in the ledger folder.
 
 1. If `session_list` shows a `clerk-ledger` session with no `pid` and a `state` that is not `failed` or `stopped`, resume it with `session_resume` (see "Idle clankers"). Start a new one only when `session_list` shows no session with the key `clerk-ledger`, or after "Failure handling" says so: call `role_settings_write` with `role_key` = `clerk-ledger`, write a start message with `mail_post` (header `START: ledger pushes`, body: the ledger branch from `git rev-parse --abbrev-ref HEAD`, the text of `priorities.md` and `rules.md`, and "Push the ledger branch after each commit message of bigm."), and call `session_launch` with `agent` = `clerk`, `role_key` = `clerk-ledger`, and `cwd` = the ledger folder.
-2. After each commit, send `DONE: ledger commit <short SHA>` to `clerk-ledger`.
+2. After each commit, send the header `DONE: ledger commit <short SHA>` to `clerk-ledger` with `SendMessage`: `nudge.header` of `ledger_edit`, or after a hand commit, the header that you posted with `mail_post`. When `session_list` shows `clerk-ledger` with no `pid`, call `session_resume` (step 1).
 3. Read its result with `report_read`. A push that it could not do is a question to you.
 
 ## Handoff

@@ -321,6 +321,7 @@ Sections: Summary; In progress; Merged; Live; Decisions; Sessions (role key, ses
 ### 8.2 Commits and pushes
 
 - bigm commits after each change to the ledger. Agent-derived, accepted 2026-09-30.
+- bigm changes a table row or a `key: value` line with `ledger_edit`, which commits only that file and writes the DONE mail to `clerk-ledger` (section 8.7). A rule section of `rules.md`, the sections "Summary" and "Decisions" of a project file, and the files of init and of the learn step keep the hand commit. Agent-derived, needs owner decision.
 - Clerks do all pushes. Owner decision 2026-09-30. The ledger clerk pushes the ledger after each commit of bigm. Agent-derived, accepted 2026-09-30.
 
 ### 8.3 Merges
@@ -541,7 +542,7 @@ Owner decision 2026-10-02 (delegated to the agent): the owner said "i want to av
 
 ### 8.7 Ledger tools
 
-Status: Design for owner review, not built.
+Status: built (design.md, L55).
 
 bigm edited the tables of the ledger with a hand-written `python3` heredoc, then ran `git add` and `git commit`, and then sent a DONE message to `clerk-ledger`. After the owner saw this, the owner said in the terminal (2026-10-04T10:15:21Z): "maybe for this have a mcp functionality, so no need to craft commands every time ?". bigm wrote the task in its START message (2026-10-04T10:15:29Z):
 
@@ -549,87 +550,54 @@ bigm edited the tables of the ledger with a hand-written `python3` heredoc, then
 Today bigm changes the Markdown tables of the ledger (projects/<project>.md, owed.md, questions.md, leases.md, grants.md, rules.md) by crafting a new edit command each time, then commits by hand and sends "DONE: ledger commit <sha>" to clerk-ledger. Design bruh MCP tools that do this in one call: add a row, update cells of a row, and close a row (delete it with the commit subject "close <kind>: <subject>" and a body with the owner's words). The commit and the push message to clerk-ledger should be part of the tool. Times come from the server clock. Keep bigm the only writer of the ledger (only role key bigm may call the tools). Keep the ledger plain Markdown that a human can read and edit by hand. ... the design goes to the owner for review before you apply it, open choices go to me as P1 with OPTION lines, docs and code ship in one PR, and the change must be general for any developer who installs bruh.
 ```
 
-The owner asked for a design. This section is the design. No code, agent file, template, or other document changes until the owner approves it. The decision log is in design.md, L50. The item that stays open is in section 22, item 5.
+The owner asked for a design first. The decision log is in design.md, L55. The item that stays open is in section 22, item 6.
 
-The owner answered the five open choices of the first design (owner answer, terminal, 2026-10-04T11:29:35Z, relayed by the clanker `clanker-bruh`): OC1 "One edit tool", OC2 "Nudge in output", OC3 "Refuse dirty target", OC4 "Rows and key lines", and OC5 "Tokens only". For OC1, the owner did not select the recommendation of the first design. Then the owner approved the fix plan of the review findings of the first design (owner approval of the fix plan, terminal, 2026-10-04T11:34:42Z, answer "Apply the plan"). That approval also settles the shape of the action `set_key`.
+The owner answered the five open choices of the first design (owner answer, terminal, 2026-10-04T11:29:35Z, relayed by the clanker `clanker-bruh`): OC1 "One edit tool", OC2 "Nudge in output", OC3 "Refuse dirty target", OC4 "Rows and key lines", and OC5 "Tokens only". For OC1, the owner did not select the recommendation of the first design. Then the owner approved the fix plan of the review findings of the first design (owner approval of the fix plan, terminal, 2026-10-04T11:34:42Z, answer "Apply the plan"). That approval also settles the shape of the action `set_key`. At the build, the clanker `clanker-bruh` cut details of the design under the rule R-3 of the ledger of the owner ("do not overcomplicate bruh"). The cuts are not owner decisions (design.md, L55).
 
-How to read this section. Each decision bullet ends with one tag from the list at the top of this file. A bullet that restates an existing decision keeps the tag of that decision and names its section. A bullet that starts with "Fact:" is a fact of the code at the base of this design. It is not a decision and has no tag. The answers OC1 to OC5, the shape of the tool, and the rules of the approved fix plan have the tag "Owner decision 2026-10-04". Each such bullet keeps the options that the owner did not select, in "Rejected:" sentences, in their old rank order: the documented and existing mechanisms first, a custom design last. A detail that goes past the words of the owner answers and of the fix plan has its own bullet with the tag "Agent-derived, needs owner decision".
+Each decision bullet ends with one tag from the list at the top of this file. A bullet that starts with "Fact:" is not a decision and has no tag.
 
-#### Facts of the code
+#### Owner decisions
 
-- Fact: the MCP server runs no `git` command today. A commit inside a tool is a new call of `git` through `os/exec`, which is in the Go standard library. The design needs no new module in `go.mod`.
-- Fact: `ledgerPath` (`mcp/learn.go`) reads the ledger folder from the key `ledger_path` of `<plugin data folder>/init/config.json`.
-- Fact: `isTableHeader` and `tableRows` (`mcp/init.go`) find a Markdown table and its data rows. A table starts at a line that starts with `|` and has a separator line under it. It ends at the first line that does not start with `|`. `tableCells` (`mcp/mergetrain.go`) splits a row into cells. It removes the spaces and the backticks at the two ends of each cell, and it reads `\|` as a `|` inside a cell.
-- Fact: `mailAllowed` (`mcp/mail.go`) lets bigm post `DONE: ledger commit <short SHA>` to `clerk-ledger`.
-- Fact: the MCP server cannot call `SendMessage`. `SendMessage` is a tool of the session, and only the auth line of the socket protocol is documented (knowledge.md). So a mail that a tool writes does not wake its receiver.
-- Fact: `Env.Stamp` (`mcp/env.go`) gives the server time in the layout `2006-01-02T15:04:05.000Z`. No ledger template has a time token.
-- Fact: `mcpAllowRules` (`mcp/init.go`) makes the allow rules from the tool list. An existing install runs `/bruh:init` again to allow a new tool.
-- Fact: `rules.md` holds one section for each rule, not a table. `mode.md` and the line `last_batch` of `questions.md` are `key: value` lines, and `keyLineRE` (`mcp/init.go`) matches the start of such a line. The sections "Summary" and "Decisions" of a project file have no table.
-- Fact: the first column of a table is not always unique. The table "In progress" starts with the column "Owner", and the table "Post grants" starts with "Poster role key".
-- Fact: the role checks of the MCP tools are speed bumps (SECURITY.md). A Bash command can set `BRUH_ROLE_KEY`.
-- Fact: the ledger template has no `monitors.md` at the base of this design. The design of the on-demand monitors adds it.
+- OC1: the ledger has one tool, `ledger_edit`. Its input `action` is `add`, `update`, `close`, or `set_key`. `add` adds one row at the end of a table. `update` changes the named cells of one row, and each other cell keeps its bytes. `close` deletes one row. `set_key` sets the value of one `key: value` line. Rejected: "Edit and commit tool", "Three row tools" (the recommendation of the first design), and "One tool for each file" (custom). Owner decision 2026-10-04.
+- OC2: `ledger_edit` writes the DONE mail to `clerk-ledger` and returns `nudge`. bigm sends the header of `nudge` with `SendMessage`, and calls `session_resume` when `clerk-ledger` has no `pid`. The MCP server cannot call `SendMessage`. Rejected: "Tool resumes the clerk", "Clerk watches its mailbox", and "Git hook" (custom). Owner decision 2026-10-04.
+- Clerks do all pushes (section 8.2), so `ledger_edit` never pushes. Owner decision 2026-09-30.
+- OC3: `ledger_edit` refuses a target file that has a change that is not committed, and commits only the target file. Each other changed file stays as it is. Rejected: "Refuse any dirty file" and "Add all". Owner decision 2026-10-04.
+- OC4: rows and key lines. A rule section of `rules.md`, and the sections "Summary" and "Decisions" of a project file, keep the hand procedure (an edit, a commit, and the DONE mail). Rejected: "Rows only" and "Rows, key lines, and rules". Owner decision 2026-10-04.
+- OC5: a time column accepts only `now`, `now+<duration>` (a Go duration, for example `now+30m`), `none`, or an empty cell. Each time comes from the server clock. Rejected: "Tokens or a stamp" and "Free text". Owner decision 2026-10-04.
+- The rows of `monitors.md` use the same generic table path as each other ledger table, with no special case. Owner decision 2026-10-04.
+- Only the role key `bigm` calls `ledger_edit`. Owner decision 2026-10-04. Fact: like the other role checks, it is a speed bump (SECURITY.md): a Bash command can set `BRUH_ROLE_KEY`. A hand edit of the owner stays allowed.
+- One cell-text rule applies to each action: split a row at the pipes that are not escaped, read `\|` as `|`, and remove only the spaces and the tabs at the two ends of each cell. No backtick is removed: the cell text of `` `a` and `b` `` is `` `a` and `b` ``, as in the file. So `ledger_edit` does not use `tableCells`. Owner decision 2026-10-04.
+- The output has the commit SHA, the cell texts of the row that the tool matched or wrote, and the nudge. With 0 matching rows, or with 2 or more, the tool writes nothing and returns the cell texts of the match columns of up to 10 candidate rows. Owner decision 2026-10-04.
+- Each close needs `words`. The body of a close has the line `Words:`, and then the words as a Markdown quote block: each line of the words gets the prefix `>` and one space. The message goes on the standard input, and `git commit` runs with `--cleanup=verbatim`. The tool refuses empty `words`, and `words` with a control character other than a newline and a tab. Owner decision 2026-10-04.
+- The tests have table-driven cell-text cases (`` `a` and `b` ``, `` `x` ``, `a | b` written as `a \| b`, a value with a space at an end, which is refused, and a non-ASCII text), each written with `add` and found again with `update` and `close`. A test reads a close back with `git log -1 --format=%B` and compares it byte for byte, for words with a newline, a double quote, a backtick, a line that starts with `#`, and spaces at the end of a line. Owner decision 2026-10-04.
 
-#### The shape of the tool
+#### What the code does
 
-- OC1: the ledger has one tool, `ledger_edit`. Its input `action` is `add`, `update`, `close`, or `set_key`. `add` adds one row at the end of a table. `update` changes the named cells of one row, and each other cell keeps its bytes. `close` deletes one row. `set_key` sets the value of one `key: value` line. Rejected: "Edit and commit tool" (bigm edits with the built-in Edit tool, and one tool `ledger_commit` commits and posts the DONE mail). Rejected: "Three row tools" (`ledger_row_add`, `ledger_row_update`, and `ledger_row_close`), which was the recommendation of the first design. Rejected: "One tool for each file" (custom: one tool for each ledger file and each action, with fixed columns). Owner decision 2026-10-04.
-- OC4: `set_key` sets the value of one existing `key: value` line (`keyLineRE`), for example `last_batch` of `questions.md` and the keys of `mode.md`. A rule section of `rules.md`, and the sections "Summary" and "Decisions" of a project file, keep the procedure of today (the Edit tool, a commit, and the DONE mail). Rejected: "Rows only" (the row actions, and no `key: value` lines). Rejected: "Rows, key lines, and rules" (also an add and a close of a rule section of `rules.md`). Owner decision 2026-10-04.
-- The rows of `monitors.md` (the design of the on-demand monitors, and the owner answer on its ledger file) use the same generic table path as each other ledger table, with no special case. Owner decision 2026-10-04.
-- `ledger_edit` finds a table by its heading and a column by the text of its header cell. No table name, column name, file of one owner, or project is in the code. So the tool works for the ledger of each developer who installs bruh, and for a table that a human adds by hand. Agent-derived, needs owner decision.
-- `ledger_edit` checks in code the inputs that each action needs, because one JSON schema of a tool has no rule for each value of `action`. Agent-derived, needs owner decision.
-- An input that the action does not use is an error, and the tool writes nothing. So a wrong input does not pass in silence. Agent-derived, needs owner decision.
-
-#### The inputs and the output
+The code is `mcp/ledger.go`, and its tests are in `mcp/ledger_test.go`.
 
 | Input | Actions | Meaning |
 |---|---|---|
 | `action` | all | `add`, `update`, `close`, or `set_key`. |
-| `file` | all | The path of the ledger file, relative to the ledger folder (see "File and table"). |
+| `file` | all | The path of the ledger file, relative to the ledger folder. |
 | `table` | add, update, close | The text of the heading above the table. Optional when the file has one table. |
-| `match` | update, close | An object of header text to the exact cell text of the row (see "How a row is found"). |
-| `cells` | add, update, set_key | For an add and an update: an object of header text to the new cell value. For an add, it has each header of the table. An empty string is an empty cell. For `set_key`: exactly one pair, the key and its new value. |
-| `kind` | add, update, close | The kind of the item, from the closed list of "The commit inside the tool". |
-| `subject` | all | The subject of the item, one line. |
-| `words` | close (required) | The words of the owner, word for word. In autonomous mode, the decision of bigm and its reasons (section 11). |
-| `source` | close (required) | Where the words come from: `terminal`, the channel and its thread, or the question ID. |
-| `decision_by` | close (required) | `owner` or `bigm`. |
+| `match` | update, close | An object of header text to the exact cell text of the row. |
+| `cells` | add, update, set_key | For an add, each header of the table to its value. For an update, the changed cells. An empty string is an empty cell. For `set_key`, exactly one pair: the key and its new value. |
+| `kind` | add, update, close | One word, for example `task` or `question`. |
+| `subject` | all | The subject of the commit, one line. |
+| `words` | close | The words of the owner, word for word. In autonomous mode, the decision of bigm and its reasons (section 11). |
+| `source` | close | Where the words come from, one line: `terminal`, the channel and its thread, or the question ID. |
+| `decision_by` | close | `owner` or `bigm`. |
 
-- The inputs of each action are those of the table above. The approved plan lists the inputs `file`, `table`, `match`, `cells`, `words`, and `subject`. `set_key` uses `cells` with one pair, so that list needs no input `key` and no input `value`. `kind`, `source`, and `decision_by` stay from the first design. `kind` is not an input of `set_key`, because the subject of `set_key` names the key. Agent-derived, needs owner decision.
-- Premise changed: the first design required `words`, `source`, and `decision_by` only for a close of a question, a rule, or a grant. The approved plan makes `words` required for each close. So `source` and `decision_by` become required for each close too, and the body of each close has its four lines. For a close that no words of the owner cover, for example a task that is done, `words` holds the reason of bigm, and `decision_by` is `bigm`. Agent-derived, needs owner decision.
-- For an add, `cells` must have each header of the table, so a forgotten column is an error and not a silent empty cell. Agent-derived, needs owner decision.
-- An add refuses a row when the value of each header in `cells` is equal to the cell text (see "File and table") of the same column of a row of the same table. A missing cell of that row is an empty string. A value of `cells` reads back as the same cell text (see "Plain Markdown that a human can edit by hand"), so a second call after a lost reply does not add the row twice. Agent-derived, needs owner decision.
-- The output of `ledger_edit` has the commit SHA, the cell texts of the row that the tool matched or wrote, and the nudge (`to`, `header`) to `clerk-ledger`. Owner decision 2026-10-04.
-- With 0 matching rows, or with 2 or more, `ledger_edit` writes nothing. It returns the cell texts of the match columns of up to 10 candidate rows. Owner decision 2026-10-04.
-- The output fields are `sha`, `short_sha`, `subject`, `file`, `mail_id`, `nudge`, and `row`. `nudge` has `to` (`clerk-ledger`) and `header` (`DONE: ledger commit <short SHA>`). `row` is an object of header text to cell text, read back from the file after the write. For a close, `row` is the deleted row, as it was before the write. For `set_key`, `row` has one pair, the key and its value as read back. Agent-derived, needs owner decision.
-- The match error has `count` and `candidates`. `candidates` is a list of objects of match header to cell text, in file order. With 0 matching rows, the candidates are the first 10 data rows of the table. With 2 or more, they are the first 10 matching rows. The error text carries `count` and `candidates` as JSON. Agent-derived, needs owner decision.
-
-#### File and table
-
-- `file` is a path relative to the ledger folder: `owed.md`, `questions.md`, `leases.md`, `grants.md`, `monitors.md`, or `projects/<key>.md`. `<key>` matches the project grammar of a role key (`projectRE`, section 3.2). `mode.md` is on the list for `set_key` only. `rules.md` is not on the list (see "The shape of the tool"). Agent-derived, needs owner decision.
-- `ledger_edit` does not make a file that does not exist. A `file` that the ledger does not have is an error, for example a `monitors.md` before init adds it from the template. Agent-derived, needs owner decision.
-- `ledger_edit` refuses each other path: a path under `learn/` or `.claude/`, `README.md`, `priorities.md`, `projects/_template.md`, an absolute path, a path with `..`, and a symbolic link that resolves outside the ledger folder. Agent-derived, needs owner decision.
-- `table` is the text of the nearest heading above the table, at any level, without the `#` signs and the spaces at its two ends. A table with no heading above it can be used only when it is the one table of the file. Two tables under headings with the same text are an error. Agent-derived, needs owner decision.
-- One cell-text rule applies to each action. The tool splits a row at the pipes that are not escaped, reads `\|` as `|`, and removes only the spaces and the tabs at the two ends of each cell. It removes no backtick: the cell text of `` `a` and `b` `` is `` `a` and `b` ``, as in the file. So `ledger_edit` does not use the backtick trim of `tableCells`. Owner decision 2026-10-04.
-- The cell-text rule applies to the match, to the check of a duplicate add, to the read-back after a write, and to the output (`row` and `candidates`). Agent-derived, needs owner decision.
-- A column is named by the cell text of its header cell. Agent-derived, needs owner decision.
-- For `set_key`, the key matches the grammar of `keyLineRE`. Exactly one line of the file starts with `<key>:` and one space, outside a table and outside a fenced code block. With 0 such lines, or with 2 or more, the tool writes nothing and returns the count. `set_key` does not add a missing key, because init adds the keys from the template. The tool replaces only the text after `<key>:` and one space, and keeps each other byte of the line and of the file. The value has the value rules of a cell (see "Plain Markdown that a human can edit by hand"). Agent-derived, needs owner decision.
-
-#### How a row is found
-
-- `match` is an object of header text to an exact cell value. The tool compares each value byte for byte with the cell text (see "File and table"), with case and with the backticks. So bigm copies the value from the file as it is, or from `row` or `candidates` of an earlier output. A row matches when each pair of `match` matches. Exactly one data row of the table must match. With 0 matching rows, or with more than 1, the tool returns the match error and writes nothing. Rejected: a match on the first column only, because the first column is not unique (see "Facts of the code"). Rejected: a row number, because a hand edit between two calls moves the rows. Agent-derived, needs owner decision.
-
-#### The commit inside the tool
-
-- `ledger_edit` holds the new lock `ledger` (`Env.WithLock`) from the read of the file to the end of the commit. It reads the ledger folder with `ledgerPath`, and it writes the file with `atomicWrite`. Agent-derived, needs owner decision.
-- `ledger_edit` runs `git` only in the ledger folder (`git -C <ledger>`), never in a project repository. It stages the file with `git add -- <file>`, and commits with `git commit --only --cleanup=verbatim -F - -- <file>`. The commit holds only the target file. Each other change of the working tree and of the index stays as it is. Agent-derived, needs owner decision.
-- The subject of the commit is `add <kind>: <subject>`, `update <kind>: <subject>`, or `close <kind>: <subject>`. Agent-derived, needs owner decision.
-- The subject of a close is `close <kind>: <subject>`, and the subject of a question is `<role key> <id> - <subject>`, with the question ID of section 5 (section 8.6). Agent-derived, accepted 2026-10-03.
-- The subject of `set_key` is `set <key>: <subject>`, for example `set last_batch: P1 batch sent`. Agent-derived, needs owner decision.
-- `kind` is one of the kinds of section 8.6: `task`, `merge`, `live`, `question`, `owed`, `decision`, `lease`, `waiting`, `session`, `rule`, or `grant`. An add and an update also accept `identity`, for a row of "Identities". Agent-derived, needs owner decision.
-- `subject` is one line of 1 to 200 characters, with no control character. For the kind `question`, the tool checks the subject by structure: a role key that `ParseRoleKey` accepts, one space, a question ID that `qidRE` accepts, ` - `, and a text. Agent-derived, needs owner decision.
-- The body of the commit that closes a question quotes the words of the owner, with the date and the source. In autonomous mode, the body has the decision of bigm and its reasons (section 8.6). Agent-derived, accepted 2026-10-03.
-- The body of a close has the line `Words:`, and then the words as a Markdown quote block: each line of the words gets the prefix `>` and one space. The commit message goes on the standard input, and `git commit` runs with `--cleanup=verbatim`. Owner decision 2026-10-04.
-- `ledger_edit` refuses a close with empty `words`. It refuses `words` with a control character other than a newline and a tab. Owner decision 2026-10-04.
-- The body of a close has these lines. The tag line is `Tag: bigm decision <date>` when `decision_by` is `bigm`. `<date>` is the UTC date of the server clock. The body of an add, of an update, and of a `set_key` has only the line `Recorded (UTC)`. Agent-derived, needs owner decision.
+- Order of the checks: the caller check first, before any file read or lock. Then the inputs: `subject` is one line with no control character; `kind` is one word; each value of `cells` and `match` is one line with no control character and no space or tab at either end; an add and an update need `cells`, an update and a close need `match`; the key of `set_key` matches `[a-z0-9_]+`; a close needs `words`, `source`, and `decision_by`. An input that the action does not use is ignored. Agent-derived, needs owner decision.
+- The file rule: `file` is an existing regular `*.md` file of the ledger folder (`ledger_path` of `<plugin data folder>/init/config.json`), not under `learn/`, `.git/`, or `.claude/`. An absolute path, a path with `..`, and a symbolic link are refused. The tool makes no new file. Agent-derived, needs owner decision.
+- `table` is the text of the nearest line above the header line that starts with `#`, without the `#` signs and the spaces at its two ends. A table is found with `isTableHeader` and `tableRows`, as init finds it. Two tables under the same heading, an empty header cell, or two header cells with the same text are an error. A column is named by the cell text of its header cell. Agent-derived, needs owner decision.
+- A row is written as `| <cell> | <cell> |`, with each `|` of a value written as `\|`. An add puts the new row after the last row of the table, with the line ending of the header line. An update replaces only the changed cells, so each other cell keeps its bytes. A missing cell of a short row reads as empty, and an update adds the cells up to the changed column. A close deletes the row line. Each other byte of the file stays the same: the line endings (LF or CRLF), and a missing last newline too. Agent-derived, needs owner decision.
+- `match`: each value is compared byte for byte with the cell text. Exactly one data row must match each pair. With any other count, the error has `count` and `candidates` as JSON: the match-column cell texts of the first 10 data rows when no row matches, or of the first 10 matching rows. An unknown column is an error. Agent-derived, needs owner decision.
+- `set_key`: exactly one line outside the fenced code blocks starts with `<key>:` and one space. The tool replaces only the text after it. With 0 lines, or with 2 or more, it writes nothing and returns the count. `now` and `now+<duration>` give the server time, and each other value is written as given. Agent-derived, needs owner decision.
+- A column whose header text ends with `(UTC)` is a time column. The tool writes a time of the server clock (`Env.Now`) in the layout `2006-01-02T15:04:05Z`, the layout of `date -u +%Y-%m-%dT%H:%M:%SZ`. A time inside a free-text cell is not checked. Agent-derived, needs owner decision.
+- The output is `sha` (the full SHA), `row`, and `nudge`. `row` maps each header to the cell text of the row as read back after the write. For a close, it is the deleted row. For `set_key`, it is the key and its value. `nudge` is `{to: "clerk-ledger", header: "DONE: ledger commit <short SHA>"}`. Agent-derived, needs owner decision.
+- The tool holds the lock `ledger` (`Env.WithLock`) from the dirty check to the end of the mail. It runs `git` only in the ledger folder, with `--literal-pathspecs`: `status --porcelain -- <file>` (any output, also an untracked file, is a dirty target), then `commit --only --cleanup=verbatim -F - -- <file>` with the message on the standard input, then `rev-parse`. It writes the file with `atomicWrite` and keeps its file mode. Agent-derived, needs owner decision.
+- The subjects are those of section 8.6: `add <kind>: <subject>`, `update <kind>: <subject>`, `close <kind>: <subject>`, and `set <key>: <subject>`. The body of an add, an update, and a `set_key` is the line `Recorded (UTC): <server time>`. The body of a close is below. An empty line of the words is the line `>`. `<date>` is the UTC date of the server clock, and the tag is `bigm decision <date>` when `decision_by` is `bigm`. Agent-derived, needs owner decision.
 
   ```text
   Words:
@@ -640,122 +608,11 @@ How to read this section. Each decision bullet ends with one tag from the list a
   Tag: owner decision <date>
   ```
 
-- The tool does not change a CR in `words` to a LF. A CR is a control character other than a newline and a tab, so the tool refuses `words` with a CR or a CR LF (the rule above). An empty line of `words` is the line `>`. Each other character, a double quote, a backtick, a `#` at the start of a line, and a space at the end of a line too, is written as it is, with no escape. The tool sets no length limit and does not wrap a line. So a long answer and an answer with more than one line keep each word and each line break. `source` is one line, with the rules of `subject`. Agent-derived, needs owner decision.
-- The date of the tag is the date of the record, not the date when the owner said the words. When bigm records an answer on a later day, `source` (the question ID or the channel thread) leads to the exact time. Agent-derived, needs owner decision.
-- `ledger_edit` commits on the branch of the ledger checkout. It refuses a detached `HEAD`, and a merge, a rebase, or a cherry-pick that is in progress. Agent-derived, needs owner decision.
-- `ledger_edit` uses the git identity of the ledger repository. It refuses to commit when `user.name` or `user.email` has no value, so that git does not make an identity from the host name. Agent-derived, needs owner decision.
-
-#### The push message inside the tool
-
-- Clerks do all pushes (section 8.2), so `ledger_edit` does not push. Owner decision 2026-09-30.
-- After the commit, `ledger_edit` writes the message with the code of `mail_post`: from `bigm` to `clerk-ledger`, with the header `DONE: ledger commit <short SHA>`, and a body with the full SHA, the subject, and the file. Agent-derived, needs owner decision.
-- OC2: `ledger_edit` writes the mail and returns `nudge`. bigm sends the header of `nudge` with `SendMessage`, as "Messages" of agents/bigm.md says, and calls `session_resume` when `clerk-ledger` has no `pid`. The MCP server cannot call `SendMessage` (see "Facts of the code"). Rejected: "Tool resumes the clerk" (the tool also resumes a stopped `clerk-ledger`, with the code of `session_resume` and `launchBackground`). Rejected: "Clerk watches its mailbox" (`clerk-ledger` watches its mailbox folder with a `Monitor`). Rejected: "Git hook" (custom: a `post-commit` hook in `.git/hooks` of the ledger clone wakes the clerk). Owner decision 2026-10-04.
-- The ledger clerk keeps its procedure (agents/clerk.md, "The ledger clerk"): it checks the branch and the commit, pushes, and reads `git ls-remote`. Agent-derived, needs owner decision.
-
-#### Server-clock times
-
-- Each time in the ledger comes from code, never from the model (principle 4). Agent-derived, accepted 2026-09-30.
-- Each time that `ledger_edit` writes comes from the server clock (`Env.Now`). No input is a time from the model. Agent-derived, needs owner decision.
-- `ledger_edit` writes a time in the layout `2006-01-02T15:04:05Z`, the layout of `date -u +%Y-%m-%dT%H:%M:%SZ` in agents/bigm.md. So a time that the tool writes and a time that a human writes look the same. Agent-derived, needs owner decision.
-- A column whose header text ends with `(UTC)` is a time column. A time column that is not in `cells` of an update keeps its value. Agent-derived, needs owner decision.
-- OC5: a time column accepts only `now`, `now+<duration>` (a Go duration, for example `now+30m`), `none`, or an empty cell. Each time comes from the server clock. The tool refuses each other value. So "Until (UTC)" and "Next check (UTC)" take `now+<duration>`. Rejected: "Tokens or a stamp" (also a time in the layout of the server, for example a value copied from a tool output). Rejected: "Free text" (no check, as today). Owner decision 2026-10-04.
-- For `set_key`, the value `now` or `now+<duration>` gives the time of the server clock. A value in the layout of a UTC time (`YYYY-MM-DDTHH:MM:SSZ`, with or without milliseconds) is refused. So a time from the model cannot pass, and no key name is in the code. Each other value, for example `none` or `human`, is written as it is. Agent-derived, needs owner decision.
-- A time inside a free-text cell, for example the time of a source read (principle 1), is not checked. bigm takes it from `date -u` at the read, as today. Agent-derived, needs owner decision.
-
-#### The caller check
-
-- bigm is the only writer of the ledger (section 3.4). Agent-derived, accepted 2026-09-30.
-- Only the role key `bigm` calls `ledger_edit`. The tool checks `Env.Caller` first, before it reads a file, and refuses each other role key and a missing role key. Agent-derived, needs owner decision.
-- The check is a speed bump, like the other role checks (SECURITY.md): a Bash command can set `BRUH_ROLE_KEY`. A hand edit of the owner is allowed by design, so `ledger_edit` does not lock the ledger against a human. Agent-derived, needs owner decision.
-
-#### Plain Markdown that a human can edit by hand
-
-- The ledger is Markdown in a separate private repository (section 8). Owner decision 2026-09-27.
-- Tolerant parsing: `ledger_edit` finds a table with `isTableHeader` and `tableRows`, with the same rules as init. It reads each cell with the cell-text rule (see "File and table"). Agent-derived, needs owner decision.
-- The tool changes only the line of the target row or of the target key, or adds one line. Each other byte of the file stays the same: the line endings (LF or CRLF) and the end of the file (with or without a last newline) too. Agent-derived, needs owner decision.
-- A row with fewer cells than the header reads its missing cells as empty. An update writes the missing cells that it changes. A row with more cells than the header keeps its extra cells. Agent-derived, needs owner decision.
-- The tool writes a row as `| <cell> | <cell> |`. It writes a `|` in a value as `\|`. It refuses a value with a newline or another control character, because a table row is one line. It refuses a value of `cells` or `match` that starts or ends with a space or a tab, because the cell text has no space at its two ends. So each value that the tool writes reads back as the same cell text. Agent-derived, needs owner decision.
-- A new row goes at the end of its table, as the ledger templates say. Agent-derived, needs owner decision.
-- A hand edit between two calls: each call reads the file again, and `ledger_edit` keeps no copy of a table between calls. The lock `ledger` serializes the calls of `ledger_edit`. It does not stop a human editor or a `git` command of bigm. Agent-derived, needs owner decision.
-- OC3, a dirty working tree: `ledger_edit` refuses when the target file has a change that is not committed, and commits only the target file. Each other changed file stays as it is, for example the files of `learn/` that `learn_refresh` wrote. Rejected: "Refuse any dirty file" (refuse when any tracked file of the ledger has a change that is not committed). Rejected: "Add all" (stage all changes with `git add -A`, as today). Owner decision 2026-10-04.
-- The tool finds a dirty target with `git status --porcelain -- <file>`, so a change in the working tree and a change in the index both count. Agent-derived, needs owner decision.
-- A table that does not parse: a header line with an empty header cell, or with two header cells of the same text, does not parse. A heading with no table under it is "no such table". In both cases the tool returns an error that names the file and the heading, and writes nothing. Agent-derived, needs owner decision.
-- A known limit: an editor that has the file open during a call can write its old copy back after the commit. The next call reads the file as it is, and `git status` shows the change. Agent-derived, needs owner decision.
-
-#### The errors
-
-| Error | Outcome |
-|---|---|
-| The caller is not `bigm`, or has no role key | Nothing written |
-| An unknown `action`, a missing input for the action, or an input that the action does not use | Nothing written |
-| `ledger_path` has no value | Nothing written |
-| `file` is not on the list, is outside the ledger folder, or does not exist, or `mode.md` with an action other than `set_key` | Nothing written |
-| No such table, two tables under the same heading, or a table that does not parse | Nothing written |
-| An unknown column, or a column missing from `cells` of an add | Nothing written |
-| A match count other than 1 (the error has `count` and `candidates`) | Nothing written |
-| A `set_key` key that does not match `keyLineRE`, `cells` of `set_key` with other than one pair, or a key with 0 or 2 or more lines (the error has the count) | Nothing written |
-| A `set_key` value in the layout of a UTC time | Nothing written |
-| An add of a row that is equal to a row of the table | Nothing written |
-| A bad value in a time column | Nothing written |
-| A dirty target | Nothing written |
-| A bad `subject`, `kind`, or `source`, a value with a newline or a control character, or a value with a space or a tab at its start or end | Nothing written |
-| A close with empty `words`, or with `words` that have a control character other than a newline and a tab | Nothing written |
-| A close with no `source` or no `decision_by` | Nothing written |
-| `git` missing, no git identity, a detached `HEAD`, or a merge, rebase, or cherry-pick in progress | Nothing written |
-| The lock `ledger` is busy for 10 seconds | Nothing written |
-| The commit fails, for example a hook refuses it or another `git` command holds the index lock | The tool restores the old bytes of the file and its index entry, and returns the output of `git`. Nothing written |
-| The mail fails after the commit | Commit kept. The tool returns the SHA and the error. bigm sends the DONE mail with `mail_post` |
-
-- The errors and their outcomes are those of the table above. `ledger_edit` retries no step automatically. Agent-derived, needs owner decision.
-
-#### The test plan
-
-| Test | What it proves |
-|---|---|
-| A round trip of each action (`add`, `update`, `close`, and `set_key`) in a temporary git repository with a fixed git identity and a fake clock | Four commits with the exact subjects and bodies |
-| A `monitors.md` fixture with a table, edited with `add`, `update`, and `close` | The generic table path works with no special case |
-| Table-driven cell-text cases, each written with `add` and then found with `update` and `close`: `` `a` and `b` ``, `` `x` ``, the value `a \| b` (a pipe in the value, written as a backslash and a pipe in the file), a value with a space at an end, and a non-ASCII text | Each accepted value matches after the write and a read-back, and `row` of the output equals the value. The value with a space at an end is refused, and nothing is written |
-| 0, 2, and 12 matching rows | An error with `count`, and `candidates` with the cell texts of the match columns of at most 10 rows. No write |
-| A close with `words` that have a newline, a double quote, a backtick, a line that starts with `#`, and spaces at the end of a line, also with an empty line | `git log -1 --format=%B` gives the expected body, compared byte for byte |
-| A close with empty `words`, and with `words` that have a control character other than a newline and a tab: a CR, a CR LF, and an ESC | The close is refused, and nothing is written |
-| A close with no `source` or no `decision_by` | The close is refused, and nothing is written |
-| An unknown `action`, an input that the action does not use, and a missing input | An error, and no write |
-| `set_key` with a key of 0 lines, of 2 lines, and of 1 line inside a fenced code block, with `now`, and with a value in the layout of a UTC time | The count errors, the line in the code block is not a match, `now` gives the server time, and the UTC value is refused |
-| The bytes outside the changed line, also in a CRLF file and in a file with no last newline | Each other byte stays the same |
-| A hand edit between two calls | The second call reads the edit and keeps it |
-| A dirty target, and another dirty file | The target is refused. The other file is not in the commit and stays dirty |
-| A table that does not parse, no such table, and two tables under the same heading | An error, and no write |
-| A wrong caller, and no role key | An error, no write, and no commit |
-| The subject forms, also of `set_key`, and the structure check of a question subject | The exact subject, and a refused bad subject |
-| The mail file in the mailbox of `clerk-ledger`, and the output | `from` is `bigm`, the header is `DONE: ledger commit <short SHA>`, and `nudge` is correct |
-| The time tokens with a fake `Env.Now` | Each token gives the expected time, and a refused value writes nothing |
-| A value with a newline | The value is refused |
-| A `pre-commit` hook that fails in the temporary repository | The file and its index entry are restored |
-| A mailbox that cannot be written after the commit | The commit stays, and the output has the SHA and the error |
-| A second identical add, also with a value that starts and ends with a backtick, for example `` `x` `` | The add is refused |
-| `../x.md`, `learn/tree.json`, a file that does not exist, and a symbolic link to a file outside the ledger | Each path is refused |
-| A fuzz target for the table code, in `fuzz_test.go` | No panic, and no change outside the target line |
-| The tool list and `mcpAllowRules` | `ledger_edit` is listed and gets an allow rule |
-| A smoke step with a bare remote: bigm adds a row, and `clerk-ledger` pushes it | `git ls-remote` shows the commit |
-
-- The test plan has table-driven cases for `` `a` and `b` ``, `` `x` ``, the value `a | b` (written as `a \| b` in the file), a value with a space at an end (refused), and a non-ASCII text, and each accepted value must match after a write and a read-back. It reads the commit of a close back with `git log -1 --format=%B` and compares it byte for byte, for words with a newline, a double quote, a backtick, a line that starts with `#`, and spaces at the end of a line. Owner decision 2026-10-04.
-- The other rows of the test plan are those of the table above. The Go tests run with `gofmt`, `go vet`, and `go test -race ./...`. A test that needs `git` fails when `git` is missing. It does not skip. The report of the gates gives the number of tests that ran, passed, failed, and were skipped. Agent-derived, needs owner decision.
-
-#### Dependents at the build
-
-| Dependent | Change at the build |
-|---|---|
-| agents/bigm.md, "The ledger", rule 1, and "Current state only" | bigm uses `ledger_edit`. A rule section of `rules.md`, and the sections "Summary" and "Decisions" of a project file, keep the hand procedure. |
-| agents/bigm.md, "The ledger clerk", step 2 | `ledger_edit` posts the DONE mail. bigm sends the header of `nudge` with `SendMessage`, and calls `session_resume` when `clerk-ledger` has no `pid`. |
-| Section 8.2 | bigm commits through `ledger_edit`, except for the parts that keep the hand procedure. |
-| Section 10.1 | The tool list has `ledger_edit`. |
-| SECURITY.md | The list of role checks has `ledger_edit`. The MCP server runs `git` in the ledger folder. |
-| README.md, the ledger template `README.md`, and docs/flow.md | The commit and push flow of the ledger. |
-| The ledger template text of `last_batch` (`questions.md`) and of `changed` (`mode.md`) | The value comes from `ledger_edit` with `now`, not from `date -u`. |
-| The design of the on-demand monitors | It names `ledger_edit` for the rows of `monitors.md`. |
-| The allow rules in user settings | The owner runs `/bruh:init` again (`mcpAllowRules`). |
-
-- The dependents of the table above change in the same pull request as the code. This design phase changes none of them. Agent-derived, needs owner decision.
+- When the commit fails, for example when a hook refuses it, the tool writes the old bytes back, runs `git reset -q -- <file>` (the target was clean, so its index entry was `HEAD`), and returns the output of `git`. Agent-derived, needs owner decision.
+- After the commit, the tool writes the mail with the code of `mail_post`: from `bigm` to `clerk-ledger`, with the header `DONE: ledger commit <short SHA>`, and a body with the full SHA, the subject, and the file. When the mail fails, the commit stays, and the error has the SHA and tells bigm to post the DONE mail with `mail_post`. Agent-derived, needs owner decision.
+- Each refusal writes nothing and makes no commit. The tool retries no step. Each call reads the file again, so a hand edit between two calls stays. Agent-derived, needs owner decision.
+- The tests use a temporary git ledger with the global and system git config off, and fail when `git` is missing: one round trip of each action (with the exact subject, the mail, the nudge, a CRLF file with no last newline, and another staged file that stays out of the commit), the cell-text cases and the close body of the owner decisions above, the refused words, a match error with 0, 2, and 12 matching rows, a dirty target, the caller check, the time tokens, a failing `pre-commit` hook, and the file rule. Agent-derived, needs owner decision.
+- The dependents change in the same pull request: agents/bigm.md, sections 8.2 and 10.1, SECURITY.md, README.md, the ledger template `README.md`, docs/flow.md, and CHANGELOG.md. An existing install runs `/bruh:init` again to allow the tool. Agent-derived, needs owner decision.
 
 ## 9. Loops
 
@@ -806,6 +663,8 @@ Owner decision 2026-09-29: bruh keeps all its files in the plugin data folder `$
 The plugin ships a stdio MCP server written in Go with the standard library only. Claude Code starts it with `go run -C ${CLAUDE_PLUGIN_ROOT}/mcp .` and `GOTOOLCHAIN=local`, so the repository holds no binaries. Owner decision 2026-09-30. Its tools: `mail_post`, `mail_read`, `handoff_write`, `handoff_read`, `answer_write`, `answer_wait`, `report_write`, `role_settings_write`, `lease_request`, `lease_grant`, `lease_release`. It reads the role key of its caller from `BRUH_ROLE_KEY`. Agent-derived, accepted 2026-09-30. Verify: an MCP server started by a session gets the `env` values of its `--settings` file. Version 0.6 adds the tools `learn_scan` and `learn_refresh` (section 8.5; agent-derived, accepted 2026-10-03), the field `options` of `question_open` (section 14.2; owner decision 2026-10-02), and the input `allow` of `role_settings_write` (section 8.5; agent-derived, accepted 2026-10-03).
 
 The input and the output of `learn_scan` and `learn_refresh` are in section 8.5, "Schema". Agent-derived, needs owner decision.
+
+The tool `ledger_edit` (section 8.7) changes one row or one key line of a ledger file and commits it. The MCP server runs `git` only in the ledger folder, and never pushes. Agent-derived, needs owner decision.
 
 ### 10.2 Local and container
 
@@ -1070,8 +929,7 @@ All numbered questions of version 0.3 are decided. Their answers are in design.m
 3. Each item in this file tagged "Agent-derived, needs owner decision". All of them are new on 2026-10-03 (design.md, L37, L38, L39, L42, L43, L44, L47, L48, and L49). The items of L49 are in sections 2 and 6.1. The build of 2026-10-03 adds more items with the same tag: the user information of a remote URL, the gaps of this specification that the build found, and five details of the build. They are in sections 3, 3.4, 3.5, 5, 6.4, 7, 8.3, 8.5, 8.6, 9.1, 9.2, 10.1, 12, 14.2, 16, 17, 18, and 20, and in the change list of section 25. The release version of section 19 is settled: owner decision 2026-10-03, the first release is `v0.9.0` (design.md, L46). Owner decision 2026-10-03: the other items are built as written, and the owner reviews them during the onboarding run (design.md, L45).
 4. Inbound messages (design.md, open question 6). Without a `crossSessionInbound` value, a session that bypasses permission prompts holds a message from a session that does not. Options, as design.md lists them: run all roles in one permission mode, or the init skill sets `crossSessionInbound: accept` in user settings. `accept` delivers every message from any session of the same operating-system user.
 5. The routing rule of 2026-10-04 (design.md, L50). The rule is an owner decision. Its details are tagged "Agent-derived, needs owner decision": the commitment form and the task number (section 3.4), the routing of a defect fix (section 3.4), the commitment of a clanker (section 3.5), the ranked stops (section 14.2), and the routing eval (section 20).
-6. Ledger tools (section 8.7, design for owner review, not built). The owner asked on 2026-10-04 for bruh MCP tools that change the tables of the ledger in one call (design.md, L50). The owner answered the open choices OC1 to OC5 of the first design on 2026-10-04, and approved the fix plan of its review findings on the same day (section 8.7, design.md L50). The item that stays open:
-   - The items of section 8.7 tagged "Agent-derived, needs owner decision" are new on 2026-10-04: the input check of each action, the inputs `kind`, `source`, and `decision_by`, `cells` of `set_key`, the required `source` and `decision_by` of each close, the output fields and the `candidates` of a match error, the file list and the table name, the use of the cell-text rule, the row lookup with `match`, the `set_key` lookup and its value rule, the commit with `git commit --only`, the subject forms with the subject of `set_key`, the details of the close body, the DONE mail inside the tool, the time layout and the time columns, the caller check, the dirty check with `git status`, the rules for a hand edit and for a table that does not parse, the errors, the test plan, and the dependents at the build. Item 3 and design.md L45 do not cover them: nothing of section 8.7 is built until the owner approves the design.
+6. Ledger tools (section 8.7, built; design.md L55). The owner asked on 2026-10-04 for bruh MCP tools that change the tables of the ledger in one call, answered the open choices OC1 to OC5, and approved the fix plan of the review findings on the same day. The items of section 8.7 and of design.md L55 tagged "Agent-derived, needs owner decision" stay open for the owner, with the cuts of the clanker under rule R-3.
 
 ## 23. Changes from version 0.3
 

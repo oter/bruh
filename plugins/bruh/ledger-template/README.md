@@ -4,11 +4,11 @@ This repository is the ledger of bruh. It describes all other repositories. Keep
 
 ## Who writes it
 
-- bigm writes the Markdown files. It commits after each change.
+- bigm writes the Markdown files. It commits after each change. A table row or a `key: value` line changes through `ledger_edit`, which commits only that file.
 - Plugin code writes the files of `learn/`: `init_apply` at init, and `learn_refresh` at each sweep of bigm.
 - The init skill writes `.claude/settings.json`.
 - bigm is the only role that commits. It also commits the files of `learn/` and `.claude/settings.json`.
-- The ledger clerk `clerk-ledger` pushes after each commit of bigm.
+- The ledger clerk `clerk-ledger` pushes after each commit of bigm. `ledger_edit` writes the DONE mail to it, and never pushes.
 - No other role edits a file of this repository. A clanker and a clerk send reports through the bruh MCP server, and bigm moves the facts into these files.
 
 ## Layout

@@ -10,10 +10,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 - When a session finds a defect of bruh itself, the owner gets the offer of a bug report with the final text of the issue. The session files the issue only after the owner says yes. A vulnerability gets a private report. A clanker or a clerk sends a notice to its parent, and bigm makes the offer.
 - The routing eval (`tests/eval/run.sh routing`): a run of bigm on fixed work requests that checks the commitment line and that bigm asks no question. Run it before each release.
+- The MCP tool `ledger_edit`: bigm adds, updates, or closes a table row, or sets a `key: value` line, of a ledger file in one call. The tool commits only that file, writes the DONE mail to `clerk-ledger`, and returns the nudge. It never pushes. Run `/bruh:init` again to allow the tool.
 
 ### Changed
 
 - bigm and each clanker route work to a lane themselves and state the commitment, for example `I send <work> to clanker-<project> as task <n>.` They do not ask the owner which agent, clanker, or clerk does the work. The owner observes and can say no. Owner decisions, such as a merge or a scope change, still go to the owner.
+- bigm tells the owner a change of the ledger in plain words, with no commit SHA.
 
 ### Fixed
 

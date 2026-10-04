@@ -449,7 +449,7 @@ func applyEdit(raw []string, e lineEdit) []string {
 	return raw
 }
 
-// ledgerEdit runs one ledger_edit call after the caller check (spec 8.7, design.md L51).
+// ledgerEdit runs one ledger_edit call after the caller check (spec 8.7, design.md L55).
 func ledgerEdit(env Env, a ledgerEditArgs) (any, error) {
 	if err := checkLedgerArgs(a); err != nil {
 		return nil, err
