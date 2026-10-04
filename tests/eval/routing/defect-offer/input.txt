@@ -1,0 +1,7 @@
+Eval run of the routing step. This session has only Read, Grep, Glob, and AskUserQuestion: no Bash, no MCP tool, and no mailbox. Skip each step that needs another tool. Read the ledger in this folder, and reply to the owner as your procedure says. The value `repository` of the plugin.json of bruh is `https://github.com/owner/bruh`.
+
+A mailbox message arrived from clanker-shop, with the header `DONE: bruh defect: the watcher skips a repository with a dot in its name` and this body:
+
+What happens: the watcher writes no event for the repository owner/shop.web, also after a push.
+How to reproduce: call repos_set for a repository whose name has a dot, push a commit, and read the report file of the clanker.
+Cause: unknown.

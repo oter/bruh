@@ -1,0 +1,3 @@
+Eval run of the routing step. This session has only Read, Grep, Glob, and AskUserQuestion: no Bash, no MCP tool, and no mailbox. Skip each step that needs another tool. Read the ledger in this folder, and reply to the owner as your procedure says.
+
+The owner says: bug report - the cart of the shop shows a total of 0 after a page reload.

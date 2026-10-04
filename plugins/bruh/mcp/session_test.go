@@ -238,3 +238,67 @@ func TestSessionLaunchScoutByClanker(t *testing.T) {
 		mustErr(t, err, "only its parent")
 	}
 }
+
+// colorClaude is fakeClaude with the output of Claude Code 2.1.284: the short ID in SGR color codes
+// and dim hint lines after it.
+func colorClaude(t *testing.T, env *Env, id string, agents []map[string]any) {
+	t.Helper()
+	fakeClaude(t, env, "\x1b[36m"+id+"\x1b[39m", agents)
+	f, err := os.OpenFile(env.ClaudeBin, os.O_APPEND|os.O_WRONLY, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer f.Close()
+	if _, err := f.WriteString("echo \"\x1b[2m  claude agents to see the session\x1b[22m\"\necho \"\x1b[2m  claude stop " + id + "\x1b[22m\"\n"); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func noEscape(t *testing.T, err error) {
+	t.Helper()
+	if strings.Contains(err.Error(), "\x1b") {
+		t.Fatalf("error has escape codes: %q", err)
+	}
+}
+
+func TestSessionLaunchANSIOutput(t *testing.T) {
+	env := testEnv(t, "clanker-bruh")
+	writeRoleSettings(t, env, "clerk-bruh-scoutrole")
+	cwd, _ := filepath.EvalSymlinks(t.TempDir())
+	colorClaude(t, &env, "b087c156", []map[string]any{
+		{"id": "b087c156", "kind": "background", "name": "clerk-bruh-scoutrole", "sessionId": "b087c156-full", "state": "working", "startedAt": 1},
+	})
+	out, err := call(t, env, "session_launch", map[string]any{"agent": "clerk", "role_key": "clerk-bruh-scoutrole", "cwd": cwd})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if out.(map[string]any)["session_id"] != "b087c156-full" {
+		t.Fatalf("result = %v", out)
+	}
+}
+
+func TestSessionResumeANSIOutput(t *testing.T) {
+	env := testEnv(t, "clanker-a")
+	cwd, _ := filepath.EvalSymlinks(t.TempDir())
+	agents := []map[string]any{
+		{"id": "5e55a000", "kind": "background", "name": "clerk-a-1", "sessionId": "5e55a000-full", "state": "stopped", "cwd": cwd, "startedAt": 5},
+	}
+	colorClaude(t, &env, "5e55a000", agents)
+	out, err := call(t, env, "session_resume", map[string]any{"role_key": "clerk-a-1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if out.(map[string]any)["session_id"] != "5e55a000-full" {
+		t.Fatalf("result = %v", out)
+	}
+
+	colorClaude(t, &env, "c0b1e000", agents)
+	_, err = call(t, env, "session_resume", map[string]any{"role_key": "clerk-a-1"})
+	mustErr(t, err, "started a copy c0b1e000 instead of resuming 5e55a000")
+	noEscape(t, err)
+
+	colorClaude(t, &env, "", agents)
+	_, err = call(t, env, "session_resume", map[string]any{"role_key": "clerk-a-1"})
+	mustErr(t, err, "printed no session ID: Starting background service…\nbackgrounded ·  · x\n")
+	noEscape(t, err)
+}
