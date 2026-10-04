@@ -244,10 +244,13 @@ func printJSON(s string) string { return "printf '%s\\n' " + shq(s) }
 
 // fakeOrca makes orcaLookPath find a fake orca for each name. status is sh code for the status
 // command; terminal list prints list; terminal create prints the handle term_new, or fails
-// when failCreate is set. The log has one line for each call.
+// when failCreate is set, or prints $ORCA_CREATE when it is set; terminal close fails for the
+// handle $ORCA_CLOSE_FAIL. The log has one line for each call.
 func fakeOrca(t *testing.T, status, list string, failCreate bool) (bin, logFile string) {
 	t.Helper()
 	t.Setenv("ORCA_CLI_COMMAND", "")
+	t.Setenv("ORCA_CREATE", "")
+	t.Setenv("ORCA_CLOSE_FAIL", "")
 	create := printJSON(`{"ok":true,"result":{"terminal":{"handle":"term_new","title":"x"}}}`)
 	if failCreate {
 		create = printJSON(`{"ok":false,"error":{"code":"selector_not_found"}}`) + "; exit 1"
@@ -255,8 +258,8 @@ func fakeOrca(t *testing.T, status, list string, failCreate bool) (bin, logFile 
 	logFile = fakeCLI(t, &bin, `case "$1 $2" in
 status*) `+status+` ;;
 "terminal list") `+printJSON(list)+` ;;
-"terminal create") `+create+` ;;
-"terminal close") `+printJSON(`{"ok":true,"result":{"closed":true}}`)+` ;;
+"terminal create") [ -n "$ORCA_CREATE" ] && { printf '%s\n' "$ORCA_CREATE"; exit 0; }; `+create+` ;;
+"terminal close") [ "$4" = "$ORCA_CLOSE_FAIL" ] && exit 1; `+printJSON(`{"ok":true,"result":{"closed":true}}`)+` ;;
 *) exit 9 ;;
 esac`)
 	old := orcaLookPath
@@ -392,6 +395,18 @@ func TestOrcaCreateFails(t *testing.T) {
 	}
 }
 
+// A create that answers ok without a handle is an orca_error, not a tab.
+func TestOrcaCreateNoHandle(t *testing.T) {
+	for _, out := range []string{`{"ok":true,"result":{}}`, `{"ok":true,"result":"term_new"}`, `{"ok":true}`} {
+		fakeOrca(t, printJSON(orcaReadyStatus), orcaList(), false)
+		t.Setenv("ORCA_CREATE", out)
+		res, _ := launchClanker(t, testEnv(t, "bigm"))
+		if e, _ := res["orca_error"].(string); !strings.Contains(e, "orca terminal create") || res["orca"] != nil {
+			t.Errorf("create %s: result = %v, want orca_error of the create", out, res)
+		}
+	}
+}
+
 // session_resume keeps an open tab with the exact title, and else opens one in the start folder
 // of the clerk, not in the worktree that it moved into.
 func TestOrcaViewerAtResume(t *testing.T) {
@@ -486,5 +501,21 @@ func TestSessionTabClose(t *testing.T) {
 	want := []string{"terminal list --json", "terminal close --terminal term_0 --tab --json", "terminal close --terminal term_2 --tab --json"}
 	if got := orcaLog(t, log); !slices.Equal(got, want) {
 		t.Fatalf("orca calls =\n%q\nwant\n%q", got, want)
+	}
+}
+
+// A close that fails partway reports the tabs that it closed before the error.
+func TestSessionTabClosePartial(t *testing.T) {
+	_, log := fakeOrca(t, printJSON(orcaReadyStatus), orcaList("clerk-a-1", "clerk-a-10", "clerk-a-1"), false)
+	t.Setenv("ORCA_CLOSE_FAIL", "term_2")
+	out, err := call(t, testEnv(t, "clanker-a"), "session_tab_close", map[string]any{"role_key": "clerk-a-1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res := out.(map[string]any); res["closed"] != 1.0 || res["orca_error"] == nil {
+		t.Fatalf("result = %v, want closed 1 and orca_error", res)
+	}
+	if got := orcaLog(t, log); len(got) != 3 {
+		t.Fatalf("orca calls = %q, want list and two closes", got)
 	}
 }

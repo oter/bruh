@@ -227,14 +227,14 @@ func orcaTabs(bin, title string) ([]string, error) {
 	return out, nil
 }
 
-// orcaClose closes the whole tab of each handle.
-func orcaClose(bin string, handles []string) error {
-	for _, h := range handles {
+// orcaClose closes the whole tab of each handle, and returns how many it closed before an error.
+func orcaClose(bin string, handles []string) (int, error) {
+	for i, h := range handles {
 		if _, err := orcaRun(bin, "terminal", "close", "--terminal", h, "--tab"); err != nil {
-			return err
+			return i, err
 		}
 	}
-	return nil
+	return len(handles), nil
 }
 
 // orcaView shows the background session id in an Orca tab titled key, which runs claude attach
@@ -256,7 +256,7 @@ func orcaView(env Env, res map[string]string, key, cwd, id string, replace bool)
 		if !replace && len(handles) > 0 {
 			return handles[0], nil
 		}
-		if err := orcaClose(bin, handles); err != nil {
+		if _, err := orcaClose(bin, handles); err != nil {
 			return "", err
 		}
 		// The tab goes to the start folder, not to the worktree that a clerk moved into.
@@ -272,8 +272,13 @@ func orcaView(env Env, res map[string]string, key, cwd, id string, replace bool)
 				Handle string `json:"handle"`
 			} `json:"terminal"`
 		}
-		_ = json.Unmarshal(out, &c)
-		return cmp.Or(c.Terminal.Handle, c.Handle), nil
+		if err := json.Unmarshal(out, &c); err != nil {
+			return "", fmt.Errorf("orca terminal create: %w", err)
+		}
+		if h := cmp.Or(c.Terminal.Handle, c.Handle); h != "" {
+			return h, nil
+		}
+		return "", fmt.Errorf("orca terminal create: no handle in result: %.300s", out)
 	}()
 	if err != nil {
 		res["orca_error"] = err.Error()
@@ -468,13 +473,11 @@ func sessionTools() []Tool {
 				}
 				handles, err := orcaTabs(bin, key)
 				if err == nil {
-					err = orcaClose(bin, handles)
+					res["closed"], err = orcaClose(bin, handles)
 				}
 				if err != nil {
 					res["orca_error"] = err.Error()
-					return res, nil
 				}
-				res["closed"] = len(handles)
 				return res, nil
 			},
 		},
