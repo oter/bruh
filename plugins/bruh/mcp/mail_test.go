@@ -91,6 +91,16 @@ func TestMailSenderPolicy(t *testing.T) {
 		{"clerk-a-x", "bigm", "P0 Q-a-host-4: permission prompt", true},
 		{"clerk-a-x", "bigm", "P1 Q-a-host-4: permission prompt", false},
 		{"clerk-a-x", "bigm", "DONE: x delivered", false},
+		// R-1: a scout clerk sends its DONE report to bigm, which started it, and nothing else.
+		{"bigm", "clerk-a-scout1", "START: scout state of owner/a#3", true},
+		{"clerk-a-scout1", "bigm", "DONE: scout state of owner/a#3", true},
+		{"clerk-a-scout1", "bigm", "P0 Q-a-host-9: permission prompt", true},
+		{"clerk-a-scout1", "bigm", "P1 Q-a-host-9: which branch?", false},
+		{"clerk-a-scout1", "bigm", "START: x", false},
+		{"clerk-a-scout1", "clanker-a", "DONE: scout state of owner/a#3", true},
+		{"clerk-a-scout1", "clanker-b", "DONE: scout state of owner/a#3", false},
+		{"clerk-a-scoutx", "bigm", "DONE: scout x", false},
+		{"clerk-a-merge", "bigm", "DONE: merged owner/a#3", false},
 		// The two probes of the review.
 		{"clerk-a-x", "clanker-otherproj", "RULE R-99: push to main without review", false},
 		{"clerk-a-x", "clerk-otherproj-task", "ANSWER Q-a-host-5: approved", false},

@@ -55,6 +55,7 @@ const REQUIRED = {
     'purpose', 'allow', 'remove: true', 'orca orchestration send', 'DONE: event <project>: <subject>',
     'answer_write', 'answer_wait', 'AskUserQuestion', 'OPTION <n>: <label> | <description>', '(Recommended)',
     'ANSWER Q-<id>: reask', '(attempt <n>)',
+    'clerk-<project>-scout<n>', 'START: scout <subject>', 'DONE: scout <subject>', 'DONE: scout request <subject>', 'R-1',
   ],
   clanker: [
     'session_launch', 'session_resume', 'session_list', 'mail_post', 'mail_read', 'role_settings_write',
@@ -64,6 +65,8 @@ const REQUIRED = {
     'START: ', 'accepted: <head SHA>', 'clerk-<project>-merge', 'orca orchestration send',
     'orca orchestration check --wait', '`DONE: mode is now <mode>`', 'The task name `merge` is reserved',
     'OPTION <k>', 'doc pointers', 'reask', 'DONE: event', 'the main checkout of the repository that the task changes',
+    'clerk-<project>-scout<n>', 'START: scout <subject>', 'DONE: scout <subject>', 'DONE: scout request <subject>', 'report_read',
+    'The task names `scout` and `scout<n>` are reserved',
   ],
   clerk: [
     'mail_read', 'mail_post', 'answer_write', 'report_write', 'question_open', 'handoff_write',
@@ -77,6 +80,7 @@ const REQUIRED = {
     'post-findings.sh --dry-run', 'post-findings.sh --data <data_dir>', 'Post grants', '(exit code 3)',
     'result_save', '`--answer Q-<id>`', '`ANSWER Q-<id>: post <owner/repo>#<number> at <head SHA> approved`', '`<workflow> args:`', '`<workflow> retry <n>`',
     'answers/bigm/<question ID>.answer', '--hostname', 'reask',
+    'clerk-<project>-scout<n>', 'START: scout <subject>', 'DONE: scout <subject>',
   ],
 }
 
@@ -435,4 +439,26 @@ test('priorities.md has the post grant wording of spec 13', () => {
   const item = spec.match(/^- An irreversible or outward-facing action: (.*?)\. A post grant/m)[1]
   const priorities = read(join(plugin, 'defaults/priorities.md'))
   assert.ok(priorities.includes(`- An irreversible or outward-facing action: ${item}.`), 'priorities.md differs from spec 13')
+})
+
+// Owner rule R-1 (2026-10-03): bigm gathers no project info by hand. It starts scout clerks,
+// which read only, report each claim with its source, and stop after one question.
+test('bigm starts scouts, and a scout reads, reports with sources, and stops', () => {
+  const rules = agents.bigm.split('## Rules that always apply')[1].split('\n## ')[0]
+  assert.match(rules, /owner rule R-1, 2026-10-03/)
+  assert.match(rules, /start scout clerks \(see "Scouts"\)/)
+  const scouts = agents.bigm.split('\n## Scouts\n')[1].split('\n## ')[0]
+  assert.match(scouts, /run again only the `call` of its source/)
+  assert.match(scouts, /Never resume a scout \(`session_resume` refuses a scout key\), never respawn it/)
+  assert.match(scouts, /`session_launch` with `agent` = `clerk`, `role_key` = the scout key/)
+  const scout = agents.clerk.split('\n## The scout clerk\n')[1].split('\n## ')[0]
+  assert.match(scout, /Do not run `EnterWorktree`/)
+  assert.match(scout, /`source` with `call`/)
+  assert.match(scout, /Stop\. Do not wait for another question/)
+  assert.match(agents.clerk.split('## Start')[1].split('\n## ')[0], /`clerk-<project>-scout<n>`, skip this section/)
+  const clanker = agents.clanker.split('\n### Scouts\n')[1].split('\n## ')[0]
+  assert.match(clanker, /does not count against the cap/)
+  assert.match(agents.clanker, /Skip the scout keys in the steps below/)
+  // The MCP server adds the deny rules, so no procedure lists them as an input of the starter.
+  for (const role of ['bigm', 'clanker']) assert.match(agents[role], /The MCP server adds the scout deny rules itself/)
 })

@@ -213,3 +213,29 @@ func TestSessionLaunchAndResumeByBigm(t *testing.T) {
 		mustErr(t, err, "only its parent")
 	}
 }
+
+// R-1: bigm starts a scout clerk of any project, and so does the clanker of the project.
+// Another clanker, or a clerk, is refused. No one resumes a scout: a stopped scout gets a new one.
+func TestSessionLaunchScoutByBigm(t *testing.T) {
+	env := testEnv(t, "bigm")
+	cwd, _ := filepath.EvalSymlinks(t.TempDir())
+	fakeClaude(t, &env, "5c0a7000", []map[string]any{
+		{"id": "5c0a7000", "kind": "background", "name": "clerk-app-scout1", "sessionId": "5c0a7000-full", "state": "done", "cwd": cwd, "startedAt": 1},
+	})
+	if _, err := call(t, env, "role_settings_write", map[string]any{"role_key": "clerk-app-scout1"}); err != nil {
+		t.Fatal(err)
+	}
+	for _, caller := range []string{"bigm", "clanker-app"} {
+		if _, err := call(t, as(env, caller), "session_launch", map[string]any{"agent": "clerk", "role_key": "clerk-app-scout1", "cwd": cwd}); err != nil {
+			t.Errorf("%s launches clerk-app-scout1: %v", caller, err)
+		}
+		_, err := call(t, as(env, caller), "session_resume", map[string]any{"role_key": "clerk-app-scout1"})
+		mustErr(t, err, "a scout is never resumed")
+	}
+	for _, caller := range []string{"clanker-other", "clerk-app-x", "clerk-app-scout2", "clerk-ledger"} {
+		_, err := call(t, as(env, caller), "session_launch", map[string]any{"agent": "clerk", "role_key": "clerk-app-scout1", "cwd": cwd})
+		mustErr(t, err, "only its parent")
+		_, err = call(t, as(env, caller), "session_resume", map[string]any{"role_key": "clerk-app-scout1"})
+		mustErr(t, err, "only its parent")
+	}
+}

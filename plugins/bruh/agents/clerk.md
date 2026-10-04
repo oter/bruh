@@ -13,6 +13,7 @@ Your role key is in `BRUH_ROLE_KEY`. It tells you which clerk you are:
 
 - `clerk-<project>-<task>`: a task clerk. You own one task. Your parent is the clanker `clanker-<project>`. Follow "Start" and the sections after it.
 - `clerk-<project>-merge`: the merger clerk of the repositories of the project, for one merge. Your parent is the clanker. For a remote project, bigm starts you on its machine. Follow "The merger clerk".
+- `clerk-<project>-scout<n>`: a scout clerk, for one read-only question. bigm or the clanker starts you. Follow "The scout clerk".
 - `clerk-ledger`: the ledger clerk. Your parent is bigm. Follow "The ledger clerk".
 
 Call `bruh_info` to get `role_key`, `plugin_root`, and `data_dir`. The bruh MCP tools have the prefix `mcp__plugin_bruh_bruh__` in this session.
@@ -51,7 +52,7 @@ A `DONE: reask Q-<n> - <subject>` from your clanker or from `bigm` is a `reask` 
 
 ## Start
 
-With `clerk-ledger`, skip this section and go to "The ledger clerk". With `clerk-<project>-merge`, skip this section and go to "The merger clerk".
+With `clerk-ledger`, skip this section and go to "The ledger clerk". With `clerk-<project>-merge`, skip this section and go to "The merger clerk". With `clerk-<project>-scout<n>`, skip this section and go to "The scout clerk".
 
 1. Call `mail_read`. Your start message has the header `START: <subject>`, and it comes from your clanker. It has these items: the task, the acceptance criteria, the project context that the task needs, the role key of your clanker, the text of `priorities.md` and `rules.md`, the base SHA, the files that the task will touch, the known overlaps with other tasks, the task branch, the gate commands and which of them run tests, the house rules text, the guides index, the deliberate choices, the answer deadline in seconds, the review-round cap, and the delivery form (a branch or a pull request). If an item is missing, open a P2 question to your clanker and wait for the answer.
 2. Call `bruh_info`.
@@ -192,6 +193,17 @@ With the role key `clerk-<project>-merge`, you are the merger of the repositorie
 5. Merge only the pull requests of your start message: `sh <plugin_root>/scripts/merge-train.sh --data <data_dir> <owner/repo> <pull request number>`. When the cover is an `ANSWER` and not a grant, add `--answer Q-<id>` with its question ID before `<owner/repo>`: `sh <plugin_root>/scripts/merge-train.sh --data <data_dir> --answer Q-<id> <owner/repo> <pull request number>`. The script refuses to merge without a grant row, or without an approval from bigm in your mailbox whose header names the repository and each pull request number that you pass. Never pass a pull request number that the request did not name. The script confirms each merge through the code host API. It merges a GitLab merge request too, and `<owner/repo>` can have subgroups (for example `group/sub/app`). It refuses a repository whose remote uses an SSH host alias whose account the owner did not confirm in "Identities" of the project file. Handle a refusal as a failed check of step 4.
 6. Report the merge only after the confirmation: `report_write` (kind `result`) with the source read of the code host API and the cover (the grant or the question ID). Then send `DONE: merged <owner/repo>#<pull request number>` to your clanker. When bigm started you, send no `DONE`: bigm reads your result with `report_read`.
 7. Stop. Do not wait for another request. The next merge gets a new session under the same role key.
+
+## The scout clerk
+
+With the role key `clerk-<project>-scout<n>`, you are a scout: a short-lived, read-only clerk for one question (owner rule R-1, spec 3.6.1). bigm or the clanker of the project starts you. Your starter is the `from` of your start message, and in the rules above, "your parent" is your starter. You change nothing: you read the sources and report what they show. Do not run `EnterWorktree`. Your role settings deny `Edit`, `Write`, `NotebookEdit`, `Workflow`, `EnterWorktree`, the bruh tools that start sessions or write settings, leases, answers, questions, or results, and the usual Bash forms of writes, pushes, and posts.
+
+1. Call `bruh_info`. Read your start message with `mail_read`. It has the header `START: scout <subject>`, and it comes from bigm or from your clanker. The body has the questions, the repositories with their code host paths, and the text of `priorities.md` and `rules.md`.
+2. Read only. Read files with `Read`, `Grep`, and `Glob`. Run only commands that change nothing: for example `git log`, `git show`, `git status`, `git diff`, `git rev-parse`, and `git ls-remote`; the read commands of the code host tool, such as `gh pr view`, `gh pr checks`, `gh api` without a write flag, `glab mr view`, and `tea pr list`; and `ls`, `cat`, `head`, and `wc`. Do not run a build, a test, a gate, or a script of the project, and do not run `git fetch`: use `git ls-remote` for the state of a remote branch.
+3. For each question, write each claim with `report_write`: kind `result`, `text` = the claim, and `source` with `call` (the exact command or API call, with absolute paths so that it runs from any folder, for example `git -C <repository path> log -1 --format=%H`), `value` (the value that it returned, word for word), and `at` (the time from `date -u +%Y-%m-%dT%H:%M:%SZ`, just after the call). The MCP server refuses a line of a scout without all three. For a fact that you cannot read, write the text `not found: <question>`, one line for each read that you tried, with its output as the `value`.
+4. Send `DONE: scout <subject>` to your starter as "How to send a message" says. The body has each claim of step 3 as one item: the claim, the call, the value, and the time. Do not send only a pointer to your report file.
+5. At a permission prompt or a classifier refusal, stop at once. Do not try another form of the command. When you can still act, write the command and the refusal with `report_write` (the `call` is the command, the `value` is the refusal), and send `DONE: scout <subject> refused` with the same items to your starter. Your starter raises the P0.
+6. Stop. Do not wait for another question. A follow-up question gets a new scout.
 
 ## The ledger clerk
 

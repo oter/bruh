@@ -39,13 +39,16 @@ func FuzzParseRoleKey(f *testing.F) {
 }
 
 // FuzzMailAllowed checks the sender policy of mail_post: only bigm sends a RULE, and
-// every other accepted message is on an edge of the role tree or a P0 of a clerk to bigm.
+// every other accepted message is on an edge of the role tree, a P0 of a clerk to bigm, or
+// the DONE of a scout clerk to bigm.
 func FuzzMailAllowed(f *testing.F) {
 	for _, c := range [][3]string{
 		{"bigm", "clanker-a", "RULE R-1: x"},
 		{"clanker-a", "clerk-a-1", "ANSWER Q-a-host-1: x"},
 		{"clerk-a-1", "clanker-a", "P1 Q-a-host-2: x"},
 		{"clerk-a-1", "bigm", "P0 Q-a-host-3: x"},
+		{"clerk-a-scout1", "bigm", "DONE: scout x"},
+		{"clerk-a-scout1", "bigm", "P1 Q-a-host-4: x"},
 		{"clerk-a-1", "clanker-b", "RULE R-99: x"},
 		{"clerk-a-1", "clerk-b-1", "ANSWER Q-a-host-5: x"},
 	} {
@@ -64,7 +67,8 @@ func FuzzMailAllowed(f *testing.F) {
 			t.Fatalf("%s may post a RULE to %s", from, to)
 		}
 		edge := from == "bigm" || tk.Parent() == from || fk.Parent() == to ||
-			(fk.Role == "clerk" && to == "bigm" && strings.HasPrefix(header, "P0 "))
+			(fk.Role == "clerk" && to == "bigm" && strings.HasPrefix(header, "P0 ")) ||
+			(isScout(fk) && to == "bigm" && strings.HasPrefix(header, "DONE: "))
 		if !edge {
 			t.Fatalf("%s may post %q to %s off the role tree", from, header, to)
 		}

@@ -9,7 +9,13 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"time"
 )
+
+func isRFC3339(s string) bool {
+	_, err := time.Parse(time.RFC3339, s)
+	return err == nil
+}
 
 var reportKinds = []string{"status", "answer", "event", "result"}
 
@@ -32,7 +38,7 @@ func reportTools() []Tool {
 	return []Tool{
 		{
 			Name:        "report_write",
-			Description: "Append one line to the report file of the calling role. A status claim (merged, deployed, live, down, out of quota) carries source: {call, value, at}.",
+			Description: "Append one line to the report file of the calling role. A status claim (merged, deployed, live, down, out of quota) carries source: {call, value, at}. Each line of a scout clerk needs the full source, with at in RFC 3339.",
 			InputSchema: map[string]any{
 				"type": "object",
 				"properties": map[string]any{
@@ -59,6 +65,13 @@ func reportTools() []Tool {
 				}
 				if !slices.Contains(reportKinds, a.Kind) {
 					return nil, fmt.Errorf("invalid kind: %q", a.Kind)
+				}
+				// A scout reports only facts that it read (principle 1), so each of its lines has a
+				// full source read with a UTC time (R-1, spec 3.6.1).
+				if k, _ := ParseRoleKey(me); isScout(k) {
+					if src := a.Source; src == nil || src.Call == "" || src.Value == "" || !isRFC3339(src.At) {
+						return nil, errors.New("a scout report line needs source {call, value, at}, with at in RFC 3339 from date -u")
+					}
 				}
 				dir, err := c.Env.Dir("reports")
 				if err != nil {

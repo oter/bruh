@@ -32,6 +32,7 @@ flowchart TB
         mcp[("bruh MCP server<br/>plugin data folder:<br/>mailbox, handoffs, answers,<br/>leases, reports")]
         c1["clanker-projectA"]
         k1["clerk-projectA-task1"]
+        s1["clerk-projectA-scout1<br/>read-only, one question"]
         w1[["deliver workflow"]]
     end
     subgraph remote["Remote machine"]
@@ -53,6 +54,10 @@ flowchart TB
     bigm -.->|MCP tools| mcp
     c1 & k1 -.->|MCP tools| mcp
     k1 -->|Workflow tool| w1
+    bigm -->|"claude --bg, START: scout"| s1
+    c1 -.->|"claude --bg, START: scout"| s1
+    s1 -->|"reads"| host
+    s1 -->|"report_write with sources, DONE: scout"| mcp
     bigm <-->|"Orca send, ask, reply"| c2
     c2 <-->|"claude --bg, own mailbox"| k2
     k2 -->|Workflow tool| w2
@@ -60,7 +65,7 @@ flowchart TB
 
 ## 2. Task lifecycle
 
-Each start writes a start message to the mailbox and a role settings file, then runs `claude --bg`. Routine status goes to report files, not to messages. A merge is a P1 `P1 Q-project-host-n: merge?` to the owner, unless a merge grant covers it. A merger clerk `clerk-<project>-merge` does each merge in a new session and stops. For a remote project, bigm starts the merger on its own machine. `mail_post` accepts messages only between a parent and its child, from bigm, and a P0 from a clerk to bigm.
+Each start writes a start message to the mailbox and a role settings file, then runs `claude --bg`. Routine status goes to report files, not to messages. A merge is a P1 `P1 Q-project-host-n: merge?` to the owner, unless a merge grant covers it. A merger clerk `clerk-<project>-merge` does each merge in a new session and stops. For a remote project, bigm starts the merger on its own machine. `mail_post` accepts messages only between a parent and its child, from bigm, a P0 from a clerk to bigm, and the `DONE` report of a scout clerk to bigm.
 
 ```mermaid
 sequenceDiagram

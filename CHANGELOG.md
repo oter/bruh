@@ -9,6 +9,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 ### Added
 
 - When a session finds a defect of bruh itself, the owner gets the offer of a bug report with the final text of the issue. The session files the issue only after the owner says yes. A vulnerability gets a private report. A clanker or a clerk sends a notice to its parent, and bigm makes the offer.
+- Scout clerks. bigm does not read the sources of a project itself: for a status question, it starts a short-lived, read-only scout clerk `clerk-<project>-scout<n>`, and answers from its report. A clanker can start one too. The MCP server adds the read-only deny rules to each scout settings file, refuses a scout report line without its source read, uses each scout key once, and never resumes a scout.
 
 ## [0.10.0] - 2026-10-03
 

@@ -92,7 +92,8 @@ func sessionResult(key string, e map[string]any) map[string]string {
 }
 
 // childKey checks that the caller is the parent of key or bigm, and returns the plugin agent of
-// the key. bigm starts the merger clerk of a remote project on its own machine.
+// the key. bigm starts the merger clerk of a remote project on its own machine, and a scout
+// clerk of any project (R-1).
 func childKey(env Env, key string) (RoleKey, string, error) {
 	me, err := env.Caller()
 	if err != nil {
@@ -102,8 +103,8 @@ func childKey(env Env, key string) (RoleKey, string, error) {
 	if err != nil {
 		return RoleKey{}, "", err
 	}
-	if k.Parent() != me && (me != "bigm" || !bigmActsFor(k)) {
-		return RoleKey{}, "", fmt.Errorf("%s cannot start %s; only its parent %q can (bigm too for a merger clerk)", me, key, k.Parent())
+	if k.Parent() != me && (me != "bigm" || !bigmMayStart(k)) {
+		return RoleKey{}, "", fmt.Errorf("%s cannot start %s; only its parent %q can (bigm too for a merger clerk and a scout clerk)", me, key, k.Parent())
 	}
 	agent := map[string]string{"clanker": "clanker", "clerk": "clerk", "ledger": "clerk"}[k.Role]
 	return k, agent, nil
@@ -199,7 +200,7 @@ func sessionTools() []Tool {
 		},
 		{
 			Name:        "session_resume",
-			Description: "Wake a stopped background session of a role with a prompt. Only the parent of role_key, or bigm. A live session gets a SendMessage nudge instead.",
+			Description: "Wake a stopped background session of a role with a prompt. Only the parent of role_key, or bigm. A live session gets a SendMessage nudge instead. A scout clerk is never resumed.",
 			InputSchema: objectSchema(map[string]any{
 				"role_key": stringSchema(),
 				"prompt":   map[string]any{"type": "string", "description": "Default: Read your mailbox with mail_read."},
@@ -217,6 +218,10 @@ func sessionTools() []Tool {
 					return nil, err
 				}
 				key := k.String()
+				// One question, one scout: a stopped scout gets a new scout, never a resume (R-1).
+				if isScout(k) {
+					return nil, fmt.Errorf("%s is a scout clerk: a scout is never resumed; start a new scout", key)
+				}
 				prompt := cmp.Or(a.Prompt, "Read your mailbox with mail_read.")
 				if err := checkPrompt(prompt); err != nil {
 					return nil, err
