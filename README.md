@@ -279,7 +279,7 @@ Background sessions use the Claude account of the Claude Code supervisor. bruh n
 - [Flow](docs/flow.md): the process as diagrams.
 - [Design](docs/design.md): what the owner said, and the decision log.
 - [Knowledge](docs/knowledge.md): the verified facts about Claude Code and Orca, and the probe results.
-- [Smoke test](tests/smoke/README.md), [load test](tests/load/README.md), and the learner eval and the routing eval (`tests/eval/README.md`).
+- [Smoke test](tests/smoke/README.md), [load test](tests/load/README.md), and the learner eval (`tests/eval/README.md`).
 - [Changelog](CHANGELOG.md), [contributing](CONTRIBUTING.md), and [security policy](SECURITY.md).
 
 ## License
