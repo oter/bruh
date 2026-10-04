@@ -503,7 +503,7 @@ func TestRefusalHoldStopsTheSession(t *testing.T) {
 	if out := refusal(t, data, preTool("S2", "Bash", "gh pr merge 7", ""), refusalKey); out != "" {
 		t.Fatalf("other session denied: %q", out)
 	}
-	// answer_write: bigm records each answer of the owner; another role only the linked P0.
+	// answer_write: while a hold exists, only bigm may call it, also for the linked P0.
 	answerWrite := func(qid any) map[string]any {
 		in := preTool("S", "mcp__plugin_bruh_bruh__answer_write", "", "")
 		in["tool_input"] = map[string]any{"question_id": qid, "text": "t"}
@@ -521,19 +521,8 @@ func TestRefusalHoldStopsTheSession(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	qid := q.(map[string]any)["id"]
-	if denyReason(t, refusal(t, data, answerWrite("Q-x-1"), refusalKey)) == "" {
-		t.Fatal("answer_write of another question allowed")
-	}
-	if out := refusal(t, data, answerWrite(qid), refusalKey); out != "" {
-		t.Fatalf("answer_write of the linked P0 denied: %q", out)
-	}
-	// The clear of answer_write by the held role itself (a remote clanker): the call is allowed again.
-	if _, err := call(t, env, "answer_write", map[string]any{"question_id": qid, "text": "run it. Owner, 2026-10-04."}); err != nil {
-		t.Fatal(err)
-	}
-	if out := refusal(t, data, preTool("S", "Bash", "gh api -X PUT repos/o/r/pulls/7/merge", ""), refusalKey); out != "" {
-		t.Fatalf("denied after the clear: %q", out)
+	if denyReason(t, refusal(t, data, answerWrite(q.(map[string]any)["id"]), refusalKey)) == "" {
+		t.Fatal("answer_write of the linked P0 by the held clerk allowed")
 	}
 }
 

@@ -4,7 +4,8 @@
 # with a hold, except the escalation tools, and denies a compound Bash command with the word
 # git in a linked worktree (the git-shape guard), which writes a hold too. Stop blocks the end
 # of the turn while a hold of the session has no P0. It reads only the event name and fields of
-# the hook input, never the meaning of a text. answer_write of the linked P0 removes the hold.
+# the hook input, never the meaning of a text. While a hold exists, only bigm may call
+# answer_write; bigm's answer_write of the linked P0 removes the hold.
 [ -n "${BRUH_ROLE_KEY:-}" ] && [ -n "${CLAUDE_PLUGIN_DATA:-}" ] || exit 0
 holds="$CLAUDE_PLUGIN_DATA/holds"
 input=$(cat)
@@ -25,7 +26,7 @@ write_hold() {
 # first_hold <jq filter>: the ID of the first hold of this session that matches the filter.
 first_hold() {
 	for f in "$holds"/H-*.json; do
-		[ -f "$f" ] && jq -r --arg s "$sid" --arg q "${q:-}" "select(.session_id == \$s and ($1)) | .id" "$f" 2> /dev/null
+		[ -f "$f" ] && jq -r --arg s "$sid" "select(.session_id == \$s and ($1)) | .id" "$f" 2> /dev/null
 	done | head -n 1
 }
 
@@ -44,13 +45,9 @@ PreToolUse)
 		case $tool in
 		mcp__plugin_bruh_bruh__question_open | mcp__plugin_bruh_bruh__answer_wait | mcp__plugin_bruh_bruh__mail_post | \
 			mcp__plugin_bruh_bruh__mail_read | SendMessage | ToolSearch | StructuredOutput) exit 0 ;;
-		# answer_write of the linked P0 clears the hold (a held clanker on a remote machine
-		# records the relayed answer itself); bigm records each answer of the owner.
-		mcp__plugin_bruh_bruh__answer_write)
-			[ "$BRUH_ROLE_KEY" = bigm ] && exit 0
-			q=$(field .tool_input.question_id)
-			[ -n "$q" ] && [ -n "$(first_hold '.question_id == $q')" ] && exit 0
-			;;
+		# While a hold exists, only bigm may call answer_write; bigm's answer_write of the
+		# linked P0 clears the hold, also the hold of a clerk or a local clanker.
+		mcp__plugin_bruh_bruh__answer_write) [ "$BRUH_ROLE_KEY" = bigm ] && exit 0 ;;
 		esac
 		deny "bruh refusal stop: hold $hold holds this session after a refusal. Open a P0 with question_open and the field hold = $hold, then wait for the answer with answer_wait. Do not run another form of the refused command."
 		exit 0
