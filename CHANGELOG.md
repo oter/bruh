@@ -10,6 +10,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 - When a session finds a defect of bruh itself, the owner gets the offer of a bug report with the final text of the issue. The session files the issue only after the owner says yes. A vulnerability gets a private report. A clanker or a clerk sends a notice to its parent, and bigm makes the offer.
 - A refusal stops the session. After a classifier refusal, or a deny of the new git-shape guard, a hold denies every other tool call of the session until the owner answers the P0. Only the escalation tools stay open. `question_open` with `hold` opens that P0 with the exact command and the refusal category, and `answer_write` of the P0 clears the hold, also when the held session itself records the relayed answer. In a linked worktree, the git-shape guard denies a compound Bash command that names git; one plain git command with separators only inside quotes or in `2>&1` passes. New house rules: no compound commands with git in a worktree, and run settings go straight into the tool call.
+- The routing eval (`tests/eval/run.sh routing`): a run of bigm on fixed work requests that checks the commitment line and that bigm asks no question. Run it before each release.
+
+### Changed
+
+- bigm and each clanker route work to a lane themselves and state the commitment, for example `I send <work> to clanker-<project> as task <n>.` They do not ask the owner which agent, clanker, or clerk does the work. The owner observes and can say no. Owner decisions, such as a merge or a scope change, still go to the owner.
+
+### Fixed
+
+- `session_launch` and `session_resume` find the session ID when `claude --bg` prints it with ANSI color codes. The error texts show the output without escape codes.
 
 ## [0.10.0] - 2026-10-03
 

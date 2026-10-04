@@ -1,0 +1,12 @@
+{
+  "root": "/home/me/workspace",
+  "depth": 4,
+  "exclude": ["archive"],
+  "host_aliases": {},
+  "host_kinds": {"example.com": "gitea", "github.com": "github"},
+  "projects": [
+    {"key": "auth", "group": ""},
+    {"key": "bruh", "group": ""},
+    {"key": "shop", "group": ""}
+  ]
+}

@@ -56,6 +56,7 @@ To bigm when you run on a remote machine (your start message has the line `remot
 3. Find the known overlaps: the files that more than one task touches. Put them in the start message of each of those tasks, or run those tasks one after the other.
 4. Pin the base SHA for each task when you start it: `git fetch`, then `git rev-parse origin/<default branch>`. Use the full 40-character value.
 5. Record each task as a dispatch with `report_write` (kind `status`): role key, task, expected deliverable, state `queued` or `started`, next check.
+6. Divide the work and start the clerks yourself (spec 3.5, owner decision 2026-10-04). Never send bigm a question about which clerk does a task, how to divide the work, or whether to start a task. The dispatch record of item 5 is your commitment. A task that first needs an owner decision still goes to bigm as a question: a P1 outside the delegated classes (see "Questions"), or an item of "Never without the owner".
 
 ### Caps
 
