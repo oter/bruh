@@ -37,7 +37,7 @@ function frontmatter(text) {
 }
 
 const ROLES = ['bigm', 'clanker', 'clerk']
-const TOOL_FAMILY = /^(mail|handoff|answer|report|role_settings|lease|question|session|init|bruh|learn|repos|result)_[a-z_]+$/
+const TOOL_FAMILY = /^(mail|handoff|answer|report|role_settings|lease|question|session|init|bruh|learn|repos|result|monitor)_[a-z_]+$/
 const NOT_TOOLS = new Set(['session_id', 'question_id'])
 
 // The tools and other terms that each procedure must name.

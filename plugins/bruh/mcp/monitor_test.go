@@ -43,7 +43,13 @@ func newMonFixture(t *testing.T, mode string) *monFixture {
 	writeFile(t, filepath.Join(f.ledger, "mode.md"), "# Mode\n\nmode: human\n"+mode)
 	f.grants(t, fmt.Sprintf(`| ["%s","list"] | read only | "watch the tracker" | 2026-10-04T11:00:00Z | Q-x-h-1 |`, f.cli))
 	f.items(t, `{"data": {"list": []}}`)
+	f.pollerAt(t, now) // a running poller; TestMonitorStartPollerDown removes it
 	return f
+}
+
+// pollerAt writes watch/poller_at, the time of the last poll loop.
+func (f *monFixture) pollerAt(t *testing.T, at time.Time) {
+	writeFile(t, filepath.Join(f.env.DataDir, "watch", "poller_at"), at.UTC().Format(stampLayout)+"\n")
 }
 
 func writeFile(t *testing.T, path, text string) {
@@ -375,6 +381,35 @@ func TestMonitorReport(t *testing.T) {
 	*f.now = f.now.Add(25 * time.Hour)
 	_, err = report("clerk-shop-t1", []any{})
 	mustErr(t, err, "past its until")
+}
+
+// Spec 9.5: monitor_start refuses a codehost or command source when the poller is down, and
+// accepts an mcp source, which its role polls with monitor_report.
+func TestMonitorStartPollerDown(t *testing.T) {
+	f := newMonFixture(t, "")
+	f.local(t, "clanker-shop")
+	if err := os.Remove(filepath.Join(f.env.DataDir, "watch", "poller_at")); err != nil {
+		t.Fatal(err)
+	}
+	start := func(src map[string]any) error {
+		_, err := call(t, as(f.env, "clanker-shop"), "monitor_start", map[string]any{"source": src, "reason": "r"})
+		return err
+	}
+	const down = "the poller runs only in the session of bigm on this machine"
+	mustErr(t, start(f.source("list")), down)
+	mustErr(t, start(map[string]any{"kind": "codehost", "repo": "owner/repo"}), down)
+	if n := f.cliCalls(t); n != 0 {
+		t.Fatalf("%d CLI calls; a refused source must not run", n)
+	}
+	if err := start(map[string]any{"kind": "mcp", "server": "tracker", "tool": "list_items", "items": "", "id": "/id", "version": "/state"}); err != nil {
+		t.Fatalf("an mcp source with the poller down: %v", err)
+	}
+	f.pollerAt(t, f.now.Add(-181*time.Second)) // older than 3 intervals of 60 seconds
+	mustErr(t, start(f.source("list")), down)
+	f.pollerAt(t, *f.now)
+	if err := start(f.source("list")); err != nil {
+		t.Fatalf("a command source with a running poller: %v", err)
+	}
 }
 
 func TestMonitorStandingAndCodehostFilter(t *testing.T) {

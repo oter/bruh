@@ -556,10 +556,8 @@ func monitorTools() []Tool {
 					list = append(list, map[string]any{"id": m.ID, "subscriber": m.Subscriber, "project": m.Project, "kind": m.Source.Kind,
 						"key": m.key(), "reason": m.Reason, "until": cmp.Or(m.Until, "standing")})
 				}
-				at, _ := os.ReadFile(filepath.Join(c.Env.DataDir, "watch", "poller_at"))
-				t, err := time.Parse(stampLayout, strings.TrimSpace(string(at)))
-				down := err != nil || now.Sub(t) > 3*time.Duration(cfg.IntervalSeconds)*time.Second
-				return map[string]any{"poller_at": strings.TrimSpace(string(at)), "poller_down": down, "monitors": list}, nil
+				at, down := pollerState(c.Env, cfg, now)
+				return map[string]any{"poller_at": at, "poller_down": down, "monitors": list}, nil
 			},
 		},
 		{
@@ -569,6 +567,15 @@ func monitorTools() []Tool {
 			Handler:     monitorReport,
 		},
 	}
+}
+
+// pollerState reads watch/poller_at, the time of the last poll loop. The poller is down when
+// the file is missing or older than 3 poll intervals. monitor_list and monitor_start share it.
+func pollerState(env Env, cfg reposConfig, now time.Time) (at string, down bool) {
+	raw, _ := os.ReadFile(filepath.Join(env.DataDir, "watch", "poller_at"))
+	at = strings.TrimSpace(string(raw))
+	t, err := time.Parse(stampLayout, at)
+	return at, err != nil || now.Sub(t) > 3*time.Duration(cfg.IntervalSeconds)*time.Second
 }
 
 func monitorStart(c *Call, raw json.RawMessage) (any, error) {
@@ -601,6 +608,10 @@ func monitorStart(c *Call, raw json.RawMessage) (any, error) {
 	cfg, err := loadReposOrEmpty(env.DataDir)
 	if err != nil {
 		return nil, err
+	}
+	// The poller polls codehost and command sources; the role itself polls an mcp source.
+	if at, down := pollerState(env, cfg, env.Now()); down && src.Kind != "mcp" {
+		return nil, fmt.Errorf("the poller is down (poller_at %q); the poller runs only in the session of bigm on this machine", at)
 	}
 	var repo repoConfig
 	if src.Kind == "codehost" {

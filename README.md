@@ -218,7 +218,7 @@ Tell bigm the environment name. bigm writes it on the line `remote_environments:
 
 For autonomous work, the container image is `ghcr.io/oter/autonomous-agents/agent`. The image is outside this repository. It has no `latest` tag: pick a published tag of the image, and check that the image has the requirements of step 8.
 
-Put the whole `~/.claude` folder of the container user on a volume. It holds the plugin install (step 1), the user settings that the init skill writes (the allow rules, `autoCompactWindow`, and the status line), the Claude login, and the plugin data folder with the handoffs, the mailboxes, and the leases. With a volume for only a part of it, a new container loses the rest, and bigm starts without the plugin or without its allow rules.
+Put the whole `~/.claude` folder of the container user on a volume. It holds the plugin install (step 1), the user settings that the init skill writes (the allow rules, `autoCompactWindow`, and the status line), the Claude login, and the plugin data folder with the handoffs, the mailboxes, the leases, the monitors (`monitors.json`), and the waiter files (`wake/`). With a volume for only a part of it, a new container loses the rest, and bigm starts without the plugin or without its allow rules.
 
 ```bash
 docker volume create bruh-claude
@@ -248,7 +248,7 @@ Run one bigm at a time. Each other `claude` in the ledger folder is a second big
 
 The ledger settings file holds the role key, the env values, and the deny rules of bigm. If you installed bruh before this file existed, run `/bruh:init` again (step 3) to write it. bigm stays an interactive session. Do not start it with `--bg`.
 
-bigm starts a clanker for each project that has work. Tell bigm what to do. For a project that init learned, bigm takes the repositories from `learn/projects/<key>.json`, and records them with the `repos_set` tool of bruh, so that the watcher and the merge train know them. Tell bigm the code host repositories (`owner/name` and the host: GitHub, GitLab, or Gitea) only for a project on a remote machine.
+bigm starts a clanker for each project that has work. Tell bigm what to do. For a project that init learned, bigm takes the repositories from `learn/projects/<key>.json`, and records them with the `repos_set` tool of bruh, so that the watcher (the poller in the plugin monitor of bigm) and the merge train know them. Tell bigm the code host repositories (`owner/name` and the host: GitHub, GitLab, or Gitea) only for a project on a remote machine.
 
 ### 8. Check the requirements
 
