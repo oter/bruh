@@ -503,14 +503,43 @@ func TestRefusalHoldStopsTheSession(t *testing.T) {
 	if out := refusal(t, data, preTool("S2", "Bash", "gh pr merge 7", ""), refusalKey); out != "" {
 		t.Fatalf("other session denied: %q", out)
 	}
-	// answer_write only for bigm, which records the answer of the owner.
-	if denyReason(t, refusal(t, data, preTool("S", "mcp__plugin_bruh_bruh__answer_write", "", ""), refusalKey)) == "" {
-		t.Fatal("answer_write of a held clerk allowed")
+	// answer_write: bigm records each answer of the owner; another role only the linked P0.
+	answerWrite := func(qid any) map[string]any {
+		in := preTool("S", "mcp__plugin_bruh_bruh__answer_write", "", "")
+		in["tool_input"] = map[string]any{"question_id": qid, "text": "t"}
+		return in
 	}
-	if out := refusal(t, data, preTool("S", "mcp__plugin_bruh_bruh__answer_write", "", ""), "BRUH_ROLE_KEY=bigm"); out != "" {
+	if denyReason(t, refusal(t, data, answerWrite("Q-x-1"), refusalKey)) == "" {
+		t.Fatal("answer_write of a held clerk allowed before the P0")
+	}
+	if out := refusal(t, data, answerWrite("Q-x-1"), "BRUH_ROLE_KEY=bigm"); out != "" {
 		t.Fatalf("answer_write of bigm denied: %q", out)
 	}
-	// The clear of answer_write: the call is allowed again.
+	env := testEnv(t, "clerk-a-1")
+	env.DataDir = data
+	q, err := call(t, env, "question_open", map[string]any{"priority": "P0", "subject": "refused", "body": "b", "blocks": "x", "hold": id})
+	if err != nil {
+		t.Fatal(err)
+	}
+	qid := q.(map[string]any)["id"]
+	if denyReason(t, refusal(t, data, answerWrite("Q-x-1"), refusalKey)) == "" {
+		t.Fatal("answer_write of another question allowed")
+	}
+	if out := refusal(t, data, answerWrite(qid), refusalKey); out != "" {
+		t.Fatalf("answer_write of the linked P0 denied: %q", out)
+	}
+	// The clear of answer_write by the held role itself (a remote clanker): the call is allowed again.
+	if _, err := call(t, env, "answer_write", map[string]any{"question_id": qid, "text": "run it. Owner, 2026-10-04."}); err != nil {
+		t.Fatal(err)
+	}
+	if out := refusal(t, data, preTool("S", "Bash", "gh api -X PUT repos/o/r/pulls/7/merge", ""), refusalKey); out != "" {
+		t.Fatalf("denied after the clear: %q", out)
+	}
+}
+
+func TestRefusalClearByBigm(t *testing.T) {
+	data := t.TempDir()
+	id := denyClassifier(t, data)
 	env := testEnv(t, "clerk-a-1")
 	env.DataDir = data
 	q, err := call(t, env, "question_open", map[string]any{"priority": "P0", "subject": "refused", "body": "b", "blocks": "x", "hold": id})
@@ -520,7 +549,7 @@ func TestRefusalHoldStopsTheSession(t *testing.T) {
 	if _, err := call(t, as(env, "bigm"), "answer_write", map[string]any{"question_id": q.(map[string]any)["id"], "text": "run it. Owner, 2026-10-04."}); err != nil {
 		t.Fatal(err)
 	}
-	if out := refusal(t, data, preTool("S", "Bash", "gh api -X PUT repos/o/r/pulls/7/merge", ""), refusalKey); out != "" {
+	if out := refusal(t, data, preTool("S", "Bash", "ls", ""), refusalKey); out != "" {
 		t.Fatalf("denied after the clear: %q", out)
 	}
 }
@@ -593,6 +622,12 @@ func TestGitShapeGuard(t *testing.T) {
 		`node -e 'const a={"c":"git diff"}; console.log(a)'`,
 		"mkdir d && cat <<EOF > d/s.py\nprint('git status')\nEOF\ncp d/s.py e.py\npython3 e.py",
 		"echo `git rev-parse HEAD`",
+		"git log | head",
+		"git status; ls",
+		`git commit -m "$(cat msg)"`,
+		"git diff 2>&1 | head",
+		"git status\ngit log",
+		`git commit -m "a" && ls`,
 	}
 	for _, cmd := range shapes {
 		data := t.TempDir()
@@ -615,7 +650,12 @@ func TestGitShapeGuard(t *testing.T) {
 		}
 	}
 	data := t.TempDir()
-	for _, cmd := range []string{"git status", "git -C . log --oneline -5", "echo a; echo b", "ls | wc -l", "legit-tool; x", "cat .gitignore | wc -l"} {
+	for _, cmd := range []string{
+		"git status", "git -C . log --oneline -5", "echo a; echo b", "ls | wc -l", "legit-tool; x", "cat .gitignore | wc -l",
+		// One plain git command: separators only inside quotes or in an fd redirect.
+		"git diff A B 2>&1", "git log --format='%h|%s'", `git commit -m "a; b"`, `git commit -m "say \"x; y\""`,
+		"git log --format='$(x)'", "git status\n",
+	} {
 		if out := refusal(t, data, preTool("S", "Bash", cmd, wt), refusalKey); out != "" {
 			t.Fatalf("%q denied: %q", cmd, out)
 		}

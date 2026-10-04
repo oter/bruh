@@ -25,7 +25,7 @@ write_hold() {
 # first_hold <jq filter>: the ID of the first hold of this session that matches the filter.
 first_hold() {
 	for f in "$holds"/H-*.json; do
-		[ -f "$f" ] && jq -r --arg s "$sid" "select(.session_id == \$s and ($1)) | .id" "$f" 2> /dev/null
+		[ -f "$f" ] && jq -r --arg s "$sid" --arg q "${q:-}" "select(.session_id == \$s and ($1)) | .id" "$f" 2> /dev/null
 	done | head -n 1
 }
 
@@ -44,16 +44,28 @@ PreToolUse)
 		case $tool in
 		mcp__plugin_bruh_bruh__question_open | mcp__plugin_bruh_bruh__answer_wait | mcp__plugin_bruh_bruh__mail_post | \
 			mcp__plugin_bruh_bruh__mail_read | SendMessage | ToolSearch | StructuredOutput) exit 0 ;;
-		mcp__plugin_bruh_bruh__answer_write) [ "$BRUH_ROLE_KEY" = bigm ] && exit 0 ;;
+		# answer_write of the linked P0 clears the hold (a held clanker on a remote machine
+		# records the relayed answer itself); bigm records each answer of the owner.
+		mcp__plugin_bruh_bruh__answer_write)
+			[ "$BRUH_ROLE_KEY" = bigm ] && exit 0
+			q=$(field .tool_input.question_id)
+			[ -n "$q" ] && [ -n "$(first_hold '.question_id == $q')" ] && exit 0
+			;;
 		esac
 		deny "bruh refusal stop: hold $hold holds this session after a refusal. Open a P0 with question_open and the field hold = $hold, then wait for the answer with answer_wait. Do not run another form of the refused command."
 		exit 0
 	fi
 	[ "$tool" = Bash ] || exit 0
-	# Closed token check: the word git (also inside quotes) plus a separator, a substitution,
-	# or a heredoc.
-	printf '%s' "$input" | jq -e '(.tool_input.command // "")
-		| test("(^|[^A-Za-z0-9_-])git($|[^A-Za-z0-9_-])") and test("[;&|\n`]|\\$\\(|<<")' > /dev/null 2>&1 || exit 0
+	# Closed token check: the word git (also inside quotes) plus a separator, a substitution, or
+	# a heredoc. One plain git command passes: it starts with git and, with its quoted strings
+	# and its fd redirects (2>&1) removed, has no separator. A $( or a backtick inside double
+	# quotes still counts, because the shell runs it.
+	printf '%s' "$input" | jq -e '([39] | implode) as $sq | "[;&|\n`]|\\$\\(|<<" as $sep
+		| (.tool_input.command // "") as $c
+		| ($c | gsub("(?<d>\"([^\"\\\\]|\\\\.)*\")|" + $sq + "[^" + $sq + "]*" + $sq; "Q" + ((.d // "") | [scan("\\$\\(|`")] | join("")))
+			| gsub("[0-9]*[<>]&[0-9-]+"; "") | sub("\\s+$"; "")) as $bare
+		| ($c | test("(^|[^A-Za-z0-9_-])git($|[^A-Za-z0-9_-])")) and ($c | test($sep))
+			and ((($bare | test("^\\s*git(\\s|$)")) and ($bare | test($sep) | not)) | not)' > /dev/null 2>&1 || exit 0
 	cwd=$(field .cwd)
 	dirs=$(git -C "${cwd:-.}" rev-parse --path-format=absolute --git-dir --git-common-dir 2> /dev/null) || exit 0
 	[ "$(printf '%s\n' "$dirs" | sed -n 1p)" != "$(printf '%s\n' "$dirs" | sed -n 2p)" ] || exit 0
