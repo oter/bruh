@@ -270,7 +270,10 @@ func TestRoleSettingsWriteScout(t *testing.T) {
 	// runs no git fetch (spec 3.6.1), in either form.
 	for _, d := range []string{"Edit", "Write", "NotebookEdit", "Workflow", "mcp__plugin_bruh_bruh__session_launch",
 		"Bash(git push:*)", "Bash(git -C * push)", "Bash(git -C * push *)", "Bash(git -C * commit *)", "Bash(git -C * reset *)",
-		"Bash(git fetch:*)", "Bash(git -C * fetch)", "Bash(git -C * fetch *)"} {
+		"Bash(git fetch:*)", "Bash(git -C * fetch)", "Bash(git -C * fetch *)",
+		// Writes that also have read forms, and the fetch of git remote update (spec 3.6.1).
+		"Bash(git -C * branch *)", "Bash(git -C * remote *)", "Bash(git -C * config *)",
+		"Bash(git -C * update-ref *)", "Bash(git gc:*)", "Bash(git -C * reflog expire *)"} {
 		if !slices.Contains(scoutDeny, d) {
 			t.Errorf("scoutDeny has no %q", d)
 		}

@@ -22,11 +22,18 @@ func isScout(k RoleKey) bool { return k.Role == "clerk" && scoutTaskRE.MatchStri
 
 const bruhTool = "mcp__plugin_bruh_bruh__"
 
-// scoutGitWrites are the git subcommands that change a repository or a remote. fetch writes the
-// remote-tracking refs of the checkout, so a scout uses git ls-remote instead (spec 3.6.1).
+// scoutGitWrites are the git subcommands that write a repository (its objects, refs, index,
+// config, or work tree), a remote, or new files. fetch and remote update write the
+// remote-tracking refs of the checkout, so a scout uses git ls-remote instead. branch, remote,
+// config, and symbolic-ref also have read forms; a scout uses git rev-parse, git for-each-ref,
+// git ls-remote --get-url, and Read of .git/config instead (spec 3.6.1).
 var scoutGitWrites = []string{
 	"push", "commit", "add", "rm", "mv", "merge", "rebase", "reset", "checkout", "switch",
 	"restore", "stash", "tag", "worktree", "clean", "pull", "fetch", "apply", "cherry-pick", "revert",
+	"branch", "remote", "config", "update-ref", "symbolic-ref", "update-index", "read-tree",
+	"submodule", "sparse-checkout", "bisect", "notes", "replace", "am", "init", "clone",
+	"gc", "prune", "repack", "pack-refs", "maintenance", "filter-branch", "format-patch",
+	"reflog expire", "reflog delete",
 }
 
 // scoutGitDeny returns three deny rules for each subcommand of scoutGitWrites: git <sub>, and
