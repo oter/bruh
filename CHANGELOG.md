@@ -10,6 +10,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 - When a session finds a defect of bruh itself, the owner gets the offer of a bug report with the final text of the issue. The session files the issue only after the owner says yes. A vulnerability gets a private report. A clanker or a clerk sends a notice to its parent, and bigm makes the offer.
 
+### Fixed
+
+- `session_launch` and `session_resume` find the session ID when `claude --bg` prints it with ANSI color codes. The error texts show the output without escape codes.
+
 ## [0.10.0] - 2026-10-03
 
 ### Changed
