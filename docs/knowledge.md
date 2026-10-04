@@ -194,6 +194,7 @@ Plugin monitors:
 - A monitor command gets the path variables and `${ENV_VAR}` from the environment, but never `${user_config.*}`, and the process does not get `CLAUDE_PLUGIN_OPTION_<KEY>`. In a monitor command, `${CLAUDE_PLUGIN_ROOT}` and `${CLAUDE_PLUGIN_DATA}` resolve inline, but Claude Code does not export them to the process. Source: components.md, "Monitors", and manifest-reference.md, "Where each variable resolves". Verify: the monitor process gets the `env` values of the `--settings` file and of the project settings, for example `BRUH_ROLE_KEY`.
 - When the owner disables a plugin during a session, its running monitors continue until the session ends. Source: components.md, "Monitors".
 - The docs do not say if the permission rules or the auto mode classifier apply to the command of a plugin monitor. Verify.
+- Read again on 2026-10-04 (date from `date -u`) for the decided M2 of spec 9.5: the docs say only that a monitor with `when` equal to `"always"` starts "at session start and on plugin reload". They do not say if `--resume` or `--continue` of an interactive session starts it again. scheduled-tasks.md says that "Background Bash and monitor tasks are never restored on resume", and does not say if that sentence covers plugin monitors. Source: manifest-reference.md, "monitors", and components.md, "Monitors". Verify: a plugin monitor starts again on `--resume` and `--continue`.
 
 Background commands and background sessions:
 
@@ -210,6 +211,7 @@ Scheduled tasks:
 - `CronCreate` tasks belong to one session. A session holds at most 50 tasks. The minimum interval is 1 minute. A task fires only while Claude Code runs and is idle, between turns, with no catch-up for missed fires. A recurring task fires up to half of its interval late (at most 30 minutes) because of jitter. A recurring task expires 7 days after creation. Source: <https://code.claude.com/docs/en/scheduled-tasks.md>.
 - On `--resume` or `--continue`, Claude Code restores the `CronCreate` tasks that did not expire. A self-paced `/loop`, background Bash tasks, and monitor tasks are not restored. Moving a session to the background carries its `/loop` tasks over. Source: scheduled-tasks.md, "Limitations".
 - The input of a `Stop` hook has the field `session_crons`, a list of the scheduled tasks of the session. Source: <https://code.claude.com/docs/en/hooks.md>, "Stop input".
+- Read again on 2026-10-04 (date from `date -u`) for the decided M5 of spec 9.5: a `/loop` or `CronCreate` task inherits the MCP servers and the permission mode of its session, so a scheduled prompt can call an MCP tool of the session. `CronDelete` cancels a task by its 8-character ID. Source: scheduled-tasks.md, "Compare scheduling options" and "Manage scheduled tasks".
 
 Hooks:
 
@@ -217,6 +219,8 @@ Hooks:
 - Claude Code does not enforce `timeout` on an `async` hook, but it does enforce `timeout` on an `asyncRewake` hook. The default `timeout` of a command hook is 600 seconds. Each firing of an async hook starts a separate process, with no deduplication. With `-p`, Claude Code kills a running async hook at teardown. Source: hooks.md. Verify: the largest `timeout` that Claude Code accepts for an `asyncRewake` hook, and whether a running `asyncRewake` hook counts as working for the idle stop of a background session.
 - The output of a `FileChanged` hook cannot add context, wake an idle session, or start a turn. Source: hooks.md, "FileChanged".
 - Plugin hooks run in all session types, also in background sessions. Source: hooks.md.
+- Read again on 2026-10-04 (date from `date -u`) for the decided M1 of spec 9.5: hooks.md says "Claude Code still enforces `timeout` on a hook you run with `asyncRewake`", and "an `asyncRewake` hook that exits with code 2 wakes Claude immediately even when the session is idle". The page gives no largest `timeout` for a hook. Source: hooks.md, "Run hooks in the background" and "Limitations".
+- The `SessionStart` matchers are `startup` (a new session), `resume` (`--resume`, `--continue`, or `/resume`), `clear` (`/clear`), `compact` (an auto or a manual compaction), and `fork` (a forked session, also a conversation that moves to the background). Source: hooks.md, "SessionStart".
 
 Channels and MCP notifications:
 
