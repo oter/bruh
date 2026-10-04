@@ -53,6 +53,11 @@ func events(t *testing.T, out *bytes.Buffer) []watchEvent {
 		if err := json.Unmarshal(l.Event, &ev); err != nil {
 			t.Fatal(err)
 		}
+		// Each line names its monitor and source key; the tests of the codehost events compare the rest.
+		if ev.Monitor == "" || ev.Key == "" {
+			t.Fatalf("line without monitor or key: %s", line)
+		}
+		ev.Monitor, ev.Key = "", ""
 		evs = append(evs, ev)
 	}
 	out.Reset()
@@ -455,7 +460,8 @@ func TestWatchFractionalTimeEmitsOnce(t *testing.T) {
 	// GitLab notes have milliseconds; a saved position without them repeated the note each poll.
 	var out bytes.Buffer
 	w := &watcher{env: testEnv(t, ""), out: &out}
-	r := repoConfig{Repo: "group/shop", Project: "shop"}
+	r := repoConfig{Repo: "group/shop", Host: "gitlab", Project: "shop"}
+	w.subs, w.key = standingMonitors(reposConfig{Repos: []repoConfig{r}}), "gitlab:group/shop"
 	fs := &feedState{Since: "2026-10-03T10:11:00Z"}
 	c := hostComment{ID: 41, Body: "Done.", UpdatedAt: "2026-10-03T10:11:12.345Z", PR: 4}
 	c.User.Login = "owner-account"

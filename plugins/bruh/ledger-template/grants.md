@@ -15,3 +15,10 @@ Every merge is a P1 to the owner, except under a grant in this table. A grant na
 
 | Repository | Merger role key | Conditions | Owner words | Date (UTC) | Question ID |
 |---|---|---|---|---|---|
+
+## Command grants
+
+A monitor with a `command` source (spec 9.5) runs a program outside the permission rules of a session, because the poller starts it. `monitor_start` accepts such a source, and the poller polls it, only under a row of this table. The first column is a JSON array of strings, the `argv` prefix, for example `["tracker-cli", "list"]`. A source matches when its first `argv` elements are equal, one by one and byte for byte, to the prefix: `["tracker-cli", "list"]` covers `["tracker-cli", "list", "--json"]` and not `["tracker-cli", "listx"]`. A row whose first cell is not such an array never matches. When bigm deletes a row, the poller stops each monitor that it covered.
+
+| Argv prefix (JSON array) | Conditions | Owner words | Date (UTC) | Question ID |
+|---|---|---|---|---|

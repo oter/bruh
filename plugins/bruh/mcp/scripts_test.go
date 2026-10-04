@@ -377,33 +377,69 @@ func TestHooksJSON(t *testing.T) {
 		Hooks map[string][]struct {
 			Matcher string `json:"matcher"`
 			Hooks   []struct {
-				Type    string   `json:"type"`
-				Command string   `json:"command"`
-				Args    []string `json:"args"`
+				Type        string   `json:"type"`
+				Command     string   `json:"command"`
+				Args        []string `json:"args"`
+				AsyncRewake bool     `json:"asyncRewake"`
+				Timeout     int      `json:"timeout"`
 			} `json:"hooks"`
 		} `json:"hooks"`
 	}
 	readJSON(t, "../hooks/hooks.json", &h)
-	want := map[string][2]string{
-		"PostToolUse":  {"", "handoff-nudge.sh"},
-		"SessionStart": {"compact|clear|resume", "handoff-inject.sh"},
-		"PreToolUse":   {"Bash", "lease-guard.sh"},
+	// Each group: the matcher, the script, and whether it is the waiter of spec 9.5 (M1), which
+	// runs with asyncRewake and a timeout above its own limit of 3300 seconds.
+	type group struct {
+		matcher, script string
+		waiter          bool
+	}
+	want := map[string][]group{
+		"PostToolUse":  {{"", "handoff-nudge.sh", false}},
+		"SessionStart": {{"compact|clear|resume", "handoff-inject.sh", false}, {"startup|resume|compact", "wake.sh", true}},
+		"Stop":         {{"", "wake.sh", true}},
+		"PreToolUse":   {{"Bash", "lease-guard.sh", false}},
 	}
 	if len(h.Hooks) != len(want) {
 		t.Fatalf("events = %v", h.Hooks)
 	}
-	for ev, w := range want {
+	for ev, ws := range want {
 		groups := h.Hooks[ev]
-		if len(groups) != 1 || groups[0].Matcher != w[0] || len(groups[0].Hooks) != 1 {
+		if len(groups) != len(ws) {
 			t.Fatalf("%s = %+v", ev, groups)
 		}
-		hk := groups[0].Hooks[0]
-		if hk.Type != "command" || hk.Command != "sh" || len(hk.Args) != 1 || hk.Args[0] != "${CLAUDE_PLUGIN_ROOT}/scripts/"+w[1] {
-			t.Fatalf("%s hook = %+v", ev, hk)
+		for i, w := range ws {
+			if groups[i].Matcher != w.matcher || len(groups[i].Hooks) != 1 {
+				t.Fatalf("%s group %d = %+v", ev, i, groups[i])
+			}
+			hk := groups[i].Hooks[0]
+			if hk.Type != "command" || hk.Command != "sh" || len(hk.Args) != 1 || hk.Args[0] != "${CLAUDE_PLUGIN_ROOT}/scripts/"+w.script ||
+				hk.AsyncRewake != w.waiter || (w.waiter && hk.Timeout != 3600) {
+				t.Fatalf("%s hook = %+v", ev, hk)
+			}
+			if _, err := os.Stat("../scripts/" + w.script); err != nil {
+				t.Fatal(err)
+			}
 		}
-		if _, err := os.Stat("../scripts/" + w[1]); err != nil {
-			t.Fatal(err)
+	}
+}
+
+// TestMonitorsJSON checks the plugin monitor of M2 against the strict entry keys of the docs
+// (manifest-reference.md, "monitors"), because claude plugin validate does not read the default
+// file monitors/monitors.json.
+func TestMonitorsJSON(t *testing.T) {
+	var entries []map[string]string
+	readJSON(t, "../monitors/monitors.json", &entries)
+	if len(entries) != 1 {
+		t.Fatalf("entries = %v", entries)
+	}
+	e := entries[0]
+	for k := range e {
+		if k != "name" && k != "command" && k != "description" && k != "when" {
+			t.Errorf("unknown key %q: the plugin would not load", k)
 		}
+	}
+	if e["name"] != "bruh-poller" || e["description"] == "" || e["when"] != "always" ||
+		e["command"] != `sh "${CLAUDE_PLUGIN_ROOT}/scripts/watcher.sh" --data "${CLAUDE_PLUGIN_DATA}"` {
+		t.Errorf("entry = %v", e)
 	}
 }
 

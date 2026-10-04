@@ -1,0 +1,8 @@
+[
+  {
+    "name": "bruh-poller",
+    "command": "sh \"${CLAUDE_PLUGIN_ROOT}/scripts/watcher.sh\" --data \"${CLAUDE_PLUGIN_DATA}\"",
+    "description": "bruh poller: code host and monitor events (polls only in bigm)",
+    "when": "always"
+  }
+]
