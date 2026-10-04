@@ -99,7 +99,7 @@ This step checks that a change wakes an idle clerk, also after a resume (spec 9.
 1. In the smoke home, grant a fake CLI in `grants.md`.
 2. A clerk starts a `command` monitor on the fake CLI and goes idle.
 3. Change the file that the fake CLI prints. PASS when the clerk wakes within one poll interval and calls `mail_read`.
-4. Run `claude stop` on the clerk, then `session_resume`. PASS when the next change wakes it again.
+4. Set `SMOKE_IDLE_MINUTES=65` and let the clerk reach the real idle stop. Then resume it with `session_resume`. PASS when the next change wakes it again.
 5. Resume bigm. PASS when `monitor_list` shows `poller_down` false.
 
 Cleanup (also after a failure or Ctrl+C):
