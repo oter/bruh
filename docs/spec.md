@@ -173,7 +173,7 @@ Owner decision 2026-09-27: remote sessions talk through the Orca remote runtime.
 
 ### 4.3 Local sessions in Orca
 
-Status: built (CHANGELOG, Unreleased). The probes P1 and P6 have not run yet (see "Probes").
+Status: built (CHANGELOG, Unreleased). The probes P1 and P6 did not run (see "Probes").
 
 The owner said in the terminal on 2026-10-04 (2026-10-04T11:39:24Z): "yo, bruh yes, for local case - see if orca installed and make sure running sessions are visible in orca. but you also should support claude --bg". The owner looked for the running local roles in Orca and found no trace of them.
 
@@ -233,10 +233,10 @@ The owner answered the questions Q-bruh-maksyms-macbook-pro-41, -42, -46, -48, -
 
 #### Probes
 
-The owner gave a go for P1 and P6 in the terminal on 2026-10-04 (2026-10-04T20:05:11Z): "ok". Each runs in a scratch linked worktree of a trusted repository, and the cleanup stops each session and closes each tab that the probe made.
+The owner gave a go for P1 and P6 in the terminal on 2026-10-04 (2026-10-04T20:05:11Z): "ok". The worktree guard of the build session refused the command that makes the scratch worktree, and bigm decided on 2026-10-04 (question Q-bruh-maksyms-macbook-pro-58, under R-4) to skip both probes. Each probe runs in a scratch linked worktree of a trusted repository, and the cleanup stops each session and closes each tab that the probe made.
 
-- Verify, probe P1 (the viewer): `claude --bg --name probe-o1 "Reply ok, then wait."`, then `orca terminal create --worktree path:<scratch> --title probe-o1 --command "claude attach <short ID>" --json`. Pass when `orca terminal list --json` has the tab with the exact title `probe-o1` after the attach starts, and after `orca terminal close --terminal <handle> --tab --json` the session still has a `pid` in `claude agents --json`. Not run yet.
-- Verify, probe P6 (the folder selector): `orca terminal create --worktree path:<folder> --title probe-o6 --command "true" --json` for a folder of a repository that Orca does not know. Record the result. Not run yet.
+- Verify, probe P1 (the viewer): `claude --bg --name probe-o1 "Reply ok, then wait."`, then `orca terminal create --worktree path:<folder that Orca knows> --title probe-o1 --command "claude attach <short ID>" --json`. Pass when `orca terminal list --json` has the tab with the exact title `probe-o1` after the attach starts, and after `orca terminal close --terminal <handle> --tab --json` the session still has a `pid` in `claude agents --json`. Risk until it runs: Orca shows the tabs of Claude Code sessions with titles such as `✳ bruh:bigm`. If `claude attach` replaces the title that `--title` set, the exact-title match breaks: `session_launch` does not close the old tab, `session_resume` opens a second tab, and `session_tab_close` closes nothing. Not run.
+- Verify, probe P6 (the folder selector): `orca terminal create --worktree path:<folder> --title probe-o6 --command "true" --json` for a folder of a repository that Orca does not know. Record the result. Not run.
 
 #### Tests
 

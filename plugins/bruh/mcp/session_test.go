@@ -351,7 +351,6 @@ func TestOrcaViewerAtLaunch(t *testing.T) {
 // Each readiness condition of the detection fails alone, with the ready values in the other fields.
 func TestOrcaNotReady(t *testing.T) {
 	old := orcaTimeout
-	orcaTimeout = 200 * time.Millisecond
 	t.Cleanup(func() { orcaTimeout = old })
 	for _, c := range []struct{ name, status, want string }{
 		{"ok false", printJSON(orcaStatus(false, true, true, "ready", orcaMinVersion)), "ok is not true"},
@@ -365,6 +364,11 @@ func TestOrcaNotReady(t *testing.T) {
 		{"timeout", "exec sleep 5", "orca status: signal: killed"},
 	} {
 		t.Run(c.name, func(t *testing.T) {
+			// Only the timeout row gets a short timeout: a loaded machine can take longer to run sh.
+			orcaTimeout = old
+			if c.name == "timeout" {
+				orcaTimeout = 300 * time.Millisecond
+			}
 			_, log := fakeOrca(t, c.status, orcaList(), false)
 			res, _ := launchClanker(t, testEnv(t, "bigm"))
 			if e, _ := res["orca_error"].(string); !strings.Contains(e, c.want) || res["orca"] != nil {
