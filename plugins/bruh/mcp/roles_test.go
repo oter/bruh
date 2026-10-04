@@ -183,25 +183,6 @@ func TestRoleSettingsWriteAllow(t *testing.T) {
 		}
 	})
 
-	t.Run("bigm writes a rule of a repository of the project for a scout", func(t *testing.T) {
-		env := setup(t, false, false)
-		scout := "clerk-" + project + "-scout1"
-		rule := readRule(alpha)
-		out, err := call(t, env, "role_settings_write", map[string]any{"role_key": scout, "allow": []string{rule}})
-		if err != nil {
-			t.Fatalf("role_settings_write(%s, allow %q) error: %v", scout, rule, err)
-		}
-		var s struct {
-			Permissions struct {
-				Allow []string `json:"allow"`
-			} `json:"permissions"`
-		}
-		readJSON(t, out.(map[string]any)["path"].(string), &s)
-		if !slices.Contains(s.Permissions.Allow, rule) {
-			t.Errorf("role_settings_write(%s): permissions.allow = %q, want it to contain %q", scout, s.Permissions.Allow, rule)
-		}
-	})
-
 	t.Run("no allow writes no allow key", func(t *testing.T) {
 		env := setup(t, false, false)
 		out, err := call(t, env, "role_settings_write", map[string]any{"role_key": clanker})
@@ -220,7 +201,7 @@ func TestRoleSettingsWriteAllow(t *testing.T) {
 	ruleErr := func(rule string) string {
 		return fmt.Sprintf("allow rule %q is not Read(//<path>/**) for a repository of project %s in learn/projects/%s.json", rule, project, project)
 	}
-	const roleErr = "allow is only for a clanker key or a scout key, written by bigm"
+	const roleErr = "allow is only for a clanker key, written by bigm"
 	outside := readRule(filepath.Join(repos, "gamma"))
 	write := "Write(/" + alpha + "/**)"
 	oneLevel := "Read(/" + alpha + "/*)"
@@ -239,7 +220,6 @@ func TestRoleSettingsWriteAllow(t *testing.T) {
 		{name: "clanker writes for its clerk", caller: clanker, target: "clerk-" + project + "-1", rule: readRule(alpha), wantErr: roleErr},
 		{name: "bigm writes for a clerk", target: "clerk-" + project + "-merge", rule: readRule(alpha), wantErr: roleErr},
 		{name: "clanker writes for its scout", caller: clanker, target: "clerk-" + project + "-scout1", rule: readRule(alpha), wantErr: roleErr},
-		{name: "bigm writes a rule outside the project for a scout", target: "clerk-" + project + "-scout1", rule: outside, wantErr: ruleErr(outside)},
 		{name: "no index file", rule: readRule(alpha), noIndex: true},
 		{name: "no init config", rule: readRule(alpha), noConfig: true, wantErr: "no ledger path in <data>/init/config.json; run /bruh:init"},
 	} {
@@ -259,8 +239,9 @@ func TestRoleSettingsWriteAllow(t *testing.T) {
 	}
 }
 
-// R-1 (owner rule 2026-10-03): bigm, or the clanker of the project, starts a read-only scout
-// clerk. Its settings always hold the scout deny rules, and each scout key is used once.
+// R-1 (owner rule 2026-10-03): the clanker of the project starts a read-only scout clerk. Its
+// settings always hold the scout deny rules, and each scout key is used once.
+// bigm is not the parent of a scout, so it cannot write the settings of one.
 func TestRoleSettingsWriteScout(t *testing.T) {
 	env := testEnv(t, "bigm")
 	w := func(caller, target string, deny ...string) (string, error) {
@@ -270,9 +251,9 @@ func TestRoleSettingsWriteScout(t *testing.T) {
 		}
 		return out.(map[string]any)["path"].(string), nil
 	}
-	path, err := w("bigm", "clerk-a-scout1", "Bash(docker volume rm:*)")
+	path, err := w("clanker-a", "clerk-a-scout1", "Bash(docker volume rm:*)")
 	if err != nil {
-		t.Fatalf("bigm writes clerk-a-scout1: %v", err)
+		t.Fatalf("clanker-a writes clerk-a-scout1: %v", err)
 	}
 	var s struct {
 		Permissions struct {
@@ -285,9 +266,11 @@ func TestRoleSettingsWriteScout(t *testing.T) {
 			t.Errorf("clerk-a-scout1: deny = %q, want it to contain %q", s.Permissions.Deny, d)
 		}
 	}
-	// The git rules cover the git -C <path> form that the scout procedure prescribes.
+	// The git rules cover the git -C <path> form that the scout procedure prescribes. A scout
+	// runs no git fetch (spec 3.6.1), in either form.
 	for _, d := range []string{"Edit", "Write", "NotebookEdit", "Workflow", "mcp__plugin_bruh_bruh__session_launch",
-		"Bash(git push:*)", "Bash(git -C * push)", "Bash(git -C * push *)", "Bash(git -C * commit *)", "Bash(git -C * reset *)"} {
+		"Bash(git push:*)", "Bash(git -C * push)", "Bash(git -C * push *)", "Bash(git -C * commit *)", "Bash(git -C * reset *)",
+		"Bash(git fetch:*)", "Bash(git -C * fetch)", "Bash(git -C * fetch *)"} {
 		if !slices.Contains(scoutDeny, d) {
 			t.Errorf("scoutDeny has no %q", d)
 		}
@@ -299,10 +282,10 @@ func TestRoleSettingsWriteScout(t *testing.T) {
 	if _, err := w("clanker-a", "clerk-a-scout2"); err != nil {
 		t.Errorf("clanker-a writes clerk-a-scout2: %v", err)
 	}
-	if _, err := w("bigm", "clerk-a-scout7"); err != nil {
+	if _, err := w("clanker-a", "clerk-a-scout7"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := w("bigm", "clerk-a-scout7"); err == nil || !strings.Contains(err.Error(), "use clerk-a-scout8") {
+	if _, err := w("clanker-a", "clerk-a-scout7"); err == nil || !strings.Contains(err.Error(), "use clerk-a-scout8") {
 		t.Errorf("second write of clerk-a-scout7: err = %v, want it to name clerk-a-scout8", err)
 	}
 	// A task clerk key is written again, and it gets no scout deny rules.
@@ -320,13 +303,15 @@ func TestRoleSettingsWriteScout(t *testing.T) {
 		caller, target string
 		ok             bool
 	}{
-		{"bigm", "clerk-b-scout1", true},
-		{"bigm", "clerk-b-scout", true},
+		{"bigm", "clerk-b-scout1", false},
+		{"bigm", "clerk-b-scout", false},
 		{"clanker-b", "clerk-b-scout3", true},
+		{"clanker-b", "clerk-b-scout", true},
 		{"clanker-a", "clerk-b-scout4", false},
 		{"clerk-b-1", "clerk-b-scout5", false},
 		{"clerk-b-scout1", "clerk-b-scout6", false},
 		{"bigm", "clerk-b-scoutx1", false},
+		{"clanker-b", "clerk-b-Scout7", false},
 	} {
 		_, err := w(c.caller, c.target)
 		if (err == nil) != c.ok {

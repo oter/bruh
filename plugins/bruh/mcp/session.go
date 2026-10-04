@@ -92,8 +92,7 @@ func sessionResult(key string, e map[string]any) map[string]string {
 }
 
 // childKey checks that the caller is the parent of key or bigm, and returns the plugin agent of
-// the key. bigm starts the merger clerk of a remote project on its own machine, and a scout
-// clerk of any project (R-1).
+// the key. bigm starts the merger clerk of a remote project on its own machine.
 func childKey(env Env, key string) (RoleKey, string, error) {
 	me, err := env.Caller()
 	if err != nil {
@@ -103,8 +102,8 @@ func childKey(env Env, key string) (RoleKey, string, error) {
 	if err != nil {
 		return RoleKey{}, "", err
 	}
-	if k.Parent() != me && (me != "bigm" || !bigmMayStart(k)) {
-		return RoleKey{}, "", fmt.Errorf("%s cannot start %s; only its parent %q can (bigm too for a merger clerk and a scout clerk)", me, key, k.Parent())
+	if k.Parent() != me && (me != "bigm" || !bigmActsFor(k)) {
+		return RoleKey{}, "", fmt.Errorf("%s cannot start %s; only its parent %q can (bigm too for a merger clerk)", me, key, k.Parent())
 	}
 	agent := map[string]string{"clanker": "clanker", "clerk": "clerk", "ledger": "clerk"}[k.Role]
 	return k, agent, nil

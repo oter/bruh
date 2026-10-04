@@ -16,21 +16,17 @@ import (
 // "scout" is a scout too, so that no task clerk gets a scout name without the scout stops.
 var scoutTaskRE = regexp.MustCompile(`^scout[0-9]*$`)
 
-// isScout reports whether k is a scout clerk: a short-lived, read-only clerk that bigm or the
-// clanker of the project starts to gather facts (owner rule R-1, spec 3.6.1).
+// isScout reports whether k is a scout clerk: a short-lived, read-only clerk that the clanker
+// of the project starts to gather facts (owner rule R-1, spec 3.6.1).
 func isScout(k RoleKey) bool { return k.Role == "clerk" && scoutTaskRE.MatchString(k.Task) }
-
-// bigmMayStart reports whether bigm may act for k without being its parent (role settings,
-// launch, and resume): the keys of bigmActsFor, and a scout clerk of any project (R-1).
-// session_resume still refuses every scout key.
-func bigmMayStart(k RoleKey) bool { return bigmActsFor(k) || isScout(k) }
 
 const bruhTool = "mcp__plugin_bruh_bruh__"
 
-// scoutGitWrites are the git subcommands that change a repository or a remote.
+// scoutGitWrites are the git subcommands that change a repository or a remote. fetch writes the
+// remote-tracking refs of the checkout, so a scout uses git ls-remote instead (spec 3.6.1).
 var scoutGitWrites = []string{
 	"push", "commit", "add", "rm", "mv", "merge", "rebase", "reset", "checkout", "switch",
-	"restore", "stash", "tag", "worktree", "clean", "pull", "apply", "cherry-pick", "revert",
+	"restore", "stash", "tag", "worktree", "clean", "pull", "fetch", "apply", "cherry-pick", "revert",
 }
 
 // scoutGitDeny returns three deny rules for each subcommand of scoutGitWrites: git <sub>, and
@@ -92,7 +88,7 @@ func rolesTools() []Tool {
 	return []Tool{
 		{
 			Name:        "role_settings_write",
-			Description: "Write the --settings file of a role: BRUH_ROLE_KEY, extra env values (tool accounts), deny rules, and allow rules. Only bigm passes allow, and only for a clanker key or a scout key: each rule is Read(//<path>/**) for a repository of the project in learn/projects/<project>.json. A scout key clerk-<project>-scout<n> always gets the scout deny rules and is written once. Returns the absolute path.",
+			Description: "Write the --settings file of a role: BRUH_ROLE_KEY, extra env values (tool accounts), deny rules, and allow rules. Only bigm passes allow, and only for a clanker key: each rule is Read(//<path>/**) for a repository of the project in learn/projects/<project>.json. A scout key clerk-<project>-scout<n> always gets the scout deny rules and is written once. Returns the absolute path.",
 			InputSchema: map[string]any{
 				"type": "object",
 				"properties": map[string]any{
@@ -122,8 +118,8 @@ func rolesTools() []Tool {
 					return nil, err
 				}
 				key := target.String()
-				if target.Parent() != me && (me != "bigm" || !bigmMayStart(target)) {
-					return nil, fmt.Errorf("%s cannot write the role settings of %s; only its parent %q can (bigm too for its own key, a merger clerk, and a scout clerk)", me, key, target.Parent())
+				if target.Parent() != me && (me != "bigm" || !bigmActsFor(target)) {
+					return nil, fmt.Errorf("%s cannot write the role settings of %s; only its parent %q can (bigm too for its own key and a merger clerk)", me, key, target.Parent())
 				}
 				if _, ok := a.Env["BRUH_ROLE_KEY"]; ok {
 					return nil, errors.New("env must not set BRUH_ROLE_KEY; role_key sets it")
@@ -134,8 +130,8 @@ func rolesTools() []Tool {
 					return nil, errors.New("env must not set CLAUDE_CONFIG_DIR; bruh never sets it (spec 4.1)")
 				}
 				if len(a.Allow) > 0 {
-					if me != "bigm" || (target.Role != "clanker" && !isScout(target)) {
-						return nil, errors.New("allow is only for a clanker key or a scout key, written by bigm")
+					if me != "bigm" || target.Role != "clanker" {
+						return nil, errors.New("allow is only for a clanker key, written by bigm")
 					}
 					if err := checkAllowRules(c.Env, target.Project, a.Allow); err != nil {
 						return nil, err
@@ -155,8 +151,8 @@ func rolesTools() []Tool {
 				}
 				file := filepath.Join(dir, key+".json")
 				if isScout(target) {
-					// One question, one scout: a used key keeps its old mailbox and report lines, and
-					// the exclusive create stops bigm and the clanker from sharing one key.
+					// One question, one scout: a used key keeps its old mailbox and report lines, so a
+					// new scout gets a new key and reads no old mail.
 					if err := writeNew(file, out); errors.Is(err, os.ErrExist) {
 						return nil, fmt.Errorf("the role settings of %s exist: a scout key is used once; use %s", key, nextScoutKey(dir, target.Project))
 					} else if err != nil {

@@ -28,15 +28,13 @@ type Message struct {
 
 // mailAllowed is the sender policy of mail_post, by structure only (principle 2). A message
 // follows an edge of the role tree: to the parent of the sender, to a child of the sender, or
-// from bigm to anyone. A clerk may also raise a P0 straight to bigm, and a scout clerk sends
-// its DONE report to bigm, which may have started it (R-1). RULE comes only from
+// from bigm to anyone. A clerk may also raise a P0 straight to bigm. RULE comes only from
 // bigm; START and ANSWER come only from the parent of the receiver or from bigm. Like a deny
 // rule, it is a speed bump: a Bash command can set BRUH_ROLE_KEY (SECURITY.md).
 func mailAllowed(from, to, header string) error {
 	f, _ := ParseRoleKey(from)
 	t, _ := ParseRoleKey(to)
-	toBigm := f.Role == "clerk" && to == "bigm" && (strings.HasPrefix(header, "P0 ") || (isScout(f) && strings.HasPrefix(header, "DONE: ")))
-	if from != "bigm" && t.Parent() != from && f.Parent() != to && !toBigm {
+	if from != "bigm" && t.Parent() != from && f.Parent() != to && !(f.Role == "clerk" && to == "bigm" && strings.HasPrefix(header, "P0 ")) {
 		return fmt.Errorf("%s cannot post to %s: a message goes only to the parent or a child of the sender, or from bigm", from, to)
 	}
 	switch {

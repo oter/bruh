@@ -45,7 +45,7 @@ func TestReportWriteScoutNeedsSource(t *testing.T) {
 		t.Fatalf("scout line with an empty value: %v", err)
 	}
 	// The event line of the mail procedure (clerk.md) has no source, so the bigm sweep can resume
-	// an idle starter.
+	// an idle clanker.
 	if _, err := call(t, env, "report_write", map[string]any{"kind": "event", "text": "clanker-a not running; mail pending"}); err != nil {
 		t.Fatalf("scout mail-pending event: %v", err)
 	}
