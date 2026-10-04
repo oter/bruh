@@ -292,6 +292,22 @@ Decisions of 2026-10-03, L38 to L49. The owner answered the open questions of sp
   - A clanker or a clerk sends the notice `DONE: bruh defect: <subject>` to its parent, and bigm makes the offer. A merger clerk that bigm started writes a report event instead, because the mailbox accepts its message to bigm only for a P0. The notice blocks no work and needs no answer.
   - bigm makes the offer as a P1. In autonomous mode, the offer is an item of "Never without the owner", and it goes to the owner as `priorities.md` says for those items.
   - An exception to "Posting is clerk work" (spec 6.1): a bug report on the bruh repository is not a post of project work. The session that got the yes of the owner files it, with no clerk.
+- L50: bigm, and each role that routes work, routes the work to a lane itself and tells its commitment. It does not ask the owner which agent, clanker, or clerk does the work. bigm had asked the owner: "Want me to send "local sessions visible in Orca" to clanker-bruh as task 5 (design first)?". The owner answered with a bug report in the terminal on 2026-10-04, word for word:
+
+  ```text
+  also bruh, bug report -
+  Want me to send "local sessions visible in Orca" to clanker-bruh as task 5 (design first)?
+
+  you shoud not ask q like what agent what to do. this is your jobs to head work to the lanes and and show your commitment what to do, my job - observe and say yes, ok
+  ```
+
+  bigm recorded the words as rule R-2 of the ledger of the owner, and stated it so: "Applies to every role: route work to the lanes yourself and say what you will do; do not send the owner questions about which agent or clerk does what. Real owner decisions (P1 classes, never-without-the-owner items) still go up as before." Owner decision 2026-10-04 (spec 3.4, 3.5, and 14.2). The procedure of bigm did not have the rule, so nothing stopped the question. Dependent decisions, each agent-derived, needs owner decision:
+  - The commitment is one line in the closed form `I send <work> to clanker-<project> as task <n>.`. bigm acts at once and does not wait for a yes. On a no, it tells the clanker to drop the task. The task number is 1 more than the highest number in the rows of the project file and in its `close task:` commit subjects (spec 3.4).
+  - A clanker divides the work and starts its clerks itself, and sends bigm no question about which clerk does a task or whether to start it. Its dispatch record is its commitment (spec 3.5).
+  - `agents/clerk.md` does not change: a clerk owns one task, divides no work, and asks only about the content of its task. `defaults/bug-reports.md` does not change: its step 6 is the yes for an outward post, and the sessions of `/bruh:init` and of a manual `/bruh:implement` that also follow it have no lanes.
+  - The yes of the owner before a public bug report stays (L49), because the issue is an outward post. The fix of the defect is work: when the ledger has a project for the repository of bruh, bigm routes the fix with the commitment line.
+  - The stop for the rule (principle 2), ranked: (a) a structural test in `agents_test.mjs` that the rule text and the commitment form exist, built; (b) a routing eval in `tests/eval/routing/` that runs bigm on fixed requests and checks the commitment line and the `AskUserQuestion` calls with exact rules, built and run before each release, not in CI; (c) a closed list of question classes in `question_open` or `mail_post`, not built, because the defect was chat text in the terminal that goes through neither tool, and because (c) changes the tool contract of each role. A check of the meaning of the reply text is a regex semantic classifier, which the owner forbids.
+  - The clanker of the bruh project answered the question of the scope of this change at P2: build (a) and (b) in this change, and not (c). This answer is not an owner decision.
 
 ## Knowledge
 
@@ -327,7 +343,7 @@ The verified facts that these decisions depend on are in [knowledge.md](knowledg
 
 The owner looked for the running bruh sessions (bigm, its clankers, and their clerks) in Orca and found no trace of them, because `session_launch` starts each local role with `claude --bg`, and bruh used Orca only for remote clankers (spec 4.2). The built design is in spec section 4.3. The facts are in knowledge.md, sections "Orca" and "Background sessions (agent view)", with the date 2026-10-04.
 
-- L50: local role sessions in Orca. The owner said in the terminal on 2026-10-04 (2026-10-04T11:39:24Z): "yo, bruh yes, for local case - see if orca installed and make sure running sessions are visible in orca. but you also should support claude --bg". Owner decision 2026-10-04: when Orca is on the machine and runs, the running local role sessions are visible in Orca, and bruh also supports `claude --bg`.
+- L57: local role sessions in Orca. The owner said in the terminal on 2026-10-04 (2026-10-04T11:39:24Z): "yo, bruh yes, for local case - see if orca installed and make sure running sessions are visible in orca. but you also should support claude --bg". Owner decision 2026-10-04: when Orca is on the machine and runs, the running local role sessions are visible in Orca, and bruh also supports `claude --bg`.
   - The owner answered the six open choices in the terminal on 2026-10-04 (2026-10-04T20:01:30Z): "go ahead. BUT MAKE SURE YOU ARE NOT OVERCOMPLICATING THINGS. the setup we develop must have some free choices fro agents, not too hard framing - this limits the prformance". Each choice below is an owner decision 2026-10-04:
     - O1: the plugin option `orca_local`, a string option with the values `auto` and `off`, default `auto`.
     - O2: the code constant `orcaMinVersion = "1.4.218"`.

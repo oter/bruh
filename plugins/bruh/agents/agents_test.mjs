@@ -436,3 +436,94 @@ test('priorities.md has the post grant wording of spec 13', () => {
   const priorities = read(join(plugin, 'defaults/priorities.md'))
   assert.ok(priorities.includes(`- An irreversible or outward-facing action: ${item}.`), 'priorities.md differs from spec 13')
 })
+
+// Spec 3.4, 3.5, and 14.2 (owner decision 2026-10-04): the role that routes work picks the lane
+// itself and states its commitment; it asks no routing question. Structural checks only: the
+// fixed sentences exist, and no text is judged by its meaning.
+const COMMIT = '`I send <work> to clanker-<project> as task <n>.`'
+const section = (text, heading) => text.split(`\n${heading}\n`)[1].split('\n## ')[0].split('\n### ')[0]
+
+test('bigm routes each work request and states its commitment', () => {
+  const work = section(agents.bigm, '## Work requests of the owner')
+  assert.ok(work.includes(COMMIT), 'bigm.md: the commitment line')
+  assert.ok(work.includes('The Task cell of the row is `task <n>: <work>`'), 'bigm.md: the task number')
+  assert.ok(work.includes('Never ask the owner which agent, clanker, or clerk does the work, how to divide the work, or whether to start it.'))
+  assert.ok(work.includes('Do not wait for a yes.'))
+  assert.ok(work.includes('"Never without the owner"'))
+  assert.ok(work.includes('`priorities.md`'))
+})
+
+test('bigm routes the fix of a bruh defect and keeps the yes before the issue', () => {
+  const bugs = section(agents.bigm, '## Bug reports of bruh')
+  assert.ok(bugs.includes(COMMIT), 'bigm.md: the commitment line for a defect fix')
+  assert.ok(bugs.includes('The yes of the owner before the public issue stays'))
+  assert.ok(bugs.includes('File nothing without it'))
+})
+
+test('the clanker starts its clerks and asks bigm no routing question', () => {
+  const tasks = section(agents.clanker, '## Tasks')
+  assert.ok(tasks.includes('Divide the work and start the clerks yourself'))
+  assert.ok(tasks.includes('Never send bigm a question about which clerk does a task, how to divide the work, or whether to start a task.'))
+  assert.ok(tasks.includes('"Never without the owner"'))
+})
+
+test('the routing eval checks the commitment form of bigm', () => {
+  const run = read(join(repo, 'tests/eval/run.sh'))
+  const form = run.match(/^form='([^']*)'$/m)?.[1]
+  assert.ok(form, 'tests/eval/run.sh: form=')
+  assert.equal(`\`${form}\``, COMMIT, 'the eval form differs from bigm.md')
+  assert.ok(run.includes('--tools Read,Grep,Glob,AskUserQuestion --strict-mcp-config'), 'the eval gives bigm only tools that read')
+  assert.ok(run.includes('env -u BRUH_ROLE_KEY'), 'the eval runs bigm with no role key')
+})
+
+test('spec 3.4, 3.5, and 14.2 carry the routing decision of 2026-10-04', () => {
+  const spec = read(join(repo, 'docs/spec.md'))
+  for (const h of ['### 3.4 bigm', '### 3.5 Clanker', '### 14.2 Routing']) {
+    assert.ok(section(spec, h).includes('Owner decision 2026-10-04'), `spec ${h} has no owner decision of 2026-10-04`)
+  }
+})
+
+// The routing eval driver with no model call: the dry run and the compare rule of spec 20.
+// CI runs this file, so the driver is checked in CI; the eval itself is not.
+test('the routing eval driver: dry run and compare rule', async () => {
+  const { mkdtempSync, writeFileSync, readdirSync, rmSync } = await import('node:fs')
+  const { tmpdir } = await import('node:os')
+  const { spawnSync } = await import('node:child_process')
+  const runSh = join(repo, 'tests/eval/run.sh')
+  const sh = (...args) => spawnSync('sh', [runSh, 'routing', ...args], { encoding: 'utf8' })
+  const dry = sh('--dry-run')
+  assert.equal(dry.status, 0, dry.stderr)
+  const cases = readdirSync(join(repo, 'tests/eval/routing'), { withFileTypes: true })
+    .filter((d) => d.isDirectory() && d.name !== 'ledger').map((d) => d.name)
+  assert.equal(dry.stdout.split('\n').filter((l) => l.includes('claude -p --agent bruh:bigm')).length, cases.length, 'one bigm command for each case')
+  assert.ok(dry.stdout.includes(`--plugin-dir ${plugin}`), 'the plugin of the checkout')
+  assert.ok(dry.stdout.includes('--tools Read,Grep,Glob,AskUserQuestion --strict-mcp-config'), 'only tools that read, no MCP server')
+  assert.ok(dry.stdout.includes('env -u BRUH_ROLE_KEY'), 'no role key')
+  assert.ok(!dry.stdout.includes('bruh:learner'), 'no learner')
+  for (const c of cases) {
+    for (const line of read(join(repo, 'tests/eval/routing', c, 'expected.txt')).split('\n').filter(Boolean)) {
+      assert.match(line, /^(ROUTE clanker-[a-z0-9-]+ [0-9]+|NOASK)$/, `${c}/expected.txt: closed lines only`)
+    }
+  }
+
+  const tmp = mkdtempSync(join(tmpdir(), 'route-'))
+  try {
+    const j = (o) => JSON.stringify(o)
+    const say = (text) => j({ type: 'assistant', message: { content: [{ type: 'text', text }] } })
+    const ask = j({ type: 'assistant', message: { content: [{ type: 'tool_use', name: 'AskUserQuestion', input: {} }] } })
+    const readOk = j({ type: 'assistant', message: { content: [{ type: 'text', text: 'I read the ledger.' }, { type: 'tool_use', name: 'Read', input: {} }] } })
+    const result = (r) => j({ type: 'result', result: r })
+    const file = (name, ...lines) => { const p = join(tmp, name); writeFileSync(p, lines.join('\n') + '\n'); return p }
+    const expected = file('expected.txt', 'ROUTE clanker-shop 3', 'NOASK')
+    const compare = (exp, ...lines) => sh('--compare', exp, file('out.jsonl', ...lines)).status
+    assert.equal(compare(expected, readOk, result('I send the wish list to clanker-shop as task 3.\nYou can say no.')), 0, 'passes a ROUTE line and no question')
+    assert.equal(compare(expected, readOk, result('Shall I send the wish list to clanker-shop?')), 1, 'fails a missing commitment line')
+    assert.equal(compare(expected, readOk, result('I send the wish list to clanker-shop as task 4.')), 1, 'fails a wrong task number')
+    assert.equal(compare(expected, ask, result('I send the wish list to clanker-shop as task 3.')), 1, 'fails an AskUserQuestion call under NOASK')
+    assert.equal(compare(expected, 'warning: not JSON', say('Some text.\nI send the wish list to clanker-shop as task 3.\nMore text.'), result('Done.')), 0, 'ignores other text')
+    const offer = file('offer.txt', 'ROUTE clanker-bruh 5')
+    assert.equal(compare(offer, ask, result('I send the watcher fix to clanker-bruh as task 5.')), 0, 'allows an AskUserQuestion call with no NOASK')
+  } finally {
+    rmSync(tmp, { recursive: true, force: true })
+  }
+})

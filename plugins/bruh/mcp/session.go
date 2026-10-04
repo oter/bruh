@@ -19,6 +19,9 @@ import (
 
 var shortIDRE = regexp.MustCompile(`backgrounded · ([0-9a-f]+)`)
 
+// ansiRE matches the CSI escape sequences (SGR colors and others) in the output of claude --bg.
+var ansiRE = regexp.MustCompile("\x1b\\[[0-?]*[ -/]*[@-~]")
+
 // claudeCmd builds a claude command. BRUH_ROLE_KEY of this session never leaks into the child.
 func claudeCmd(ctx context.Context, env Env, dir string, extra []string, args ...string) *exec.Cmd {
 	cmd := exec.CommandContext(ctx, env.ClaudeBin, args...)
@@ -60,7 +63,9 @@ func launchBackground(env Env, key, dir string, args []string, wantID string, ch
 		ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 		defer cancel()
 		var err error
-		if out, err = claudeCmd(ctx, env, dir, []string{"CLAUDE_CODE_FORCE_SESSION_PERSISTENCE=1"}, args...).CombinedOutput(); err != nil {
+		out, err = claudeCmd(ctx, env, dir, []string{"CLAUDE_CODE_FORCE_SESSION_PERSISTENCE=1"}, args...).CombinedOutput()
+		out = ansiRE.ReplaceAll(out, nil)
+		if err != nil {
 			return fmt.Errorf("claude %s: %w: %s", args[0], err, out)
 		}
 		return nil

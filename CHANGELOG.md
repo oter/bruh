@@ -10,6 +10,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 - When a session finds a defect of bruh itself, the owner gets the offer of a bug report with the final text of the issue. The session files the issue only after the owner says yes. A vulnerability gets a private report. A clanker or a clerk sends a notice to its parent, and bigm makes the offer.
 - Local sessions in Orca: when the Orca app runs, `session_launch` and `session_resume` open an Orca tab titled with the role key that runs `claude attach <short ID>`. The new tool `session_tab_close` closes the tab of a retired role. The plugin option `orca_local` (`auto` or `off`, default `auto`) turns it off, and the init trust step offers to add the repositories to Orca. Without Orca nothing changes (spec 4.3).
+- The routing eval (`tests/eval/run.sh routing`): a run of bigm on fixed work requests that checks the commitment line and that bigm asks no question. Run it before each release.
+
+### Changed
+
+- bigm and each clanker route work to a lane themselves and state the commitment, for example `I send <work> to clanker-<project> as task <n>.` They do not ask the owner which agent, clanker, or clerk does the work. The owner observes and can say no. Owner decisions, such as a merge or a scope change, still go to the owner.
+
+### Fixed
+
+- `session_launch` and `session_resume` find the session ID when `claude --bg` prints it with ANSI color codes. The error texts show the output without escape codes.
 
 ## [0.10.0] - 2026-10-03
 
