@@ -325,28 +325,22 @@ The verified facts that these decisions depend on are in [knowledge.md](knowledg
 
 ## Local sessions in Orca (owner, 2026-10-04)
 
-The owner looked for the running bruh sessions (bigm, its clankers, and their clerks) in Orca and found no trace of them. Today, `session_launch` starts each local role with `claude --bg`, and bruh uses Orca only for remote clankers (spec 4.2). The design is in spec section 4.3, with the status "Design for owner review, not built". The facts are in knowledge.md, sections "Orca" and "Background sessions (agent view)", with the date 2026-10-04.
+The owner looked for the running bruh sessions (bigm, its clankers, and their clerks) in Orca and found no trace of them, because `session_launch` starts each local role with `claude --bg`, and bruh used Orca only for remote clankers (spec 4.2). The built design is in spec section 4.3. The facts are in knowledge.md, sections "Orca" and "Background sessions (agent view)", with the date 2026-10-04.
 
-- L50: local role sessions in Orca. The owner said in the terminal on 2026-10-04 (2026-10-04T11:39:24Z): "yo, bruh yes, for local case - see if orca installed and make sure running sessions are visible in orca. but you also should support claude --bg". Owner decision 2026-10-04: when Orca is on the machine and runs, the running local role sessions are visible in Orca, and bruh also supports `claude --bg`. The design decisions below are each agent-derived, needs owner decision:
-  - Without Orca, the local mechanism of spec 4.1 stays exactly as it is today: the launch command, `session_list`, `session_resume`, the P0 with `claude attach <id>`, the idle stop of the supervisor, the reboot check, the failure handling, the worktrees, and the launch flags. Orca is optional, and nothing of the setup of one user goes into the plugin.
-  - Why Orca shows nothing today: the Claude hook of Orca exits when `CLAUDE_JOB_DIR` is set, `orca terminal list` lists only the terminals that Orca manages, and an Orca tab needs a repository that Orca knows (Verify, probe P6). A read of the hook script of Orca 1.4.218 confirms the line about the Orca hook in spec 4.1.
-  - The MCP server detects Orca in code at each launch, resume, and open of a tab. It does these checks in this order:
-    1. Find the executable in the order of the `orca-cli` skill (never `orca-dev`, and never a bare `orca` on Linux).
-    2. Look it up on `PATH`.
-    3. Run `orca status --json` and require a running app and a ready runtime.
-    4. Require a minimum version.
-
-    bruh never runs `orca open`. A failed step gives the path without Orca.
-  - The plugin option `orca_local` is the knob, read at each call.
-  - The title of a tab is the role key. The tab is in the Orca worktree of the start folder of the role. The MCP server keeps the handle in `<plugin data folder>/orca/<role key>.json`, with the time of its clock, and finds a stale handle again by the exact title and path.
-  - An Orca failure never fails a launch and is never a P0, because the session runs. The tool result names the failure, and the caller writes a report event.
-  - Each spec 4.3 point has a form for each of the two leading options of O3: a viewer tab of a background session, and an interactive session in an Orca tab.
-  - Nine probes that start something wait for a yes of the owner (spec 4.3, "Probes for later"). One of them checks a possible conflict with knowledge.md: a background session had the `ORCA_*` variables of the terminal of bigm, and knowledge.md says that a background session keeps only `PATH` and the cloud provider variables of the dispatching shell.
-  - Tests: Go unit tests with a fake `orca`, in the same way that `ghBin` fakes `gh`, for the detection true and false and for both paths. The smoke test runs once without Orca, as today, with the new step `orca-absent`, and once with Orca, with the new step `orca-view`.
-  - Open choices for the owner, each with ranked options and a recommendation in spec 4.3, and listed in spec section 22, items 5 to 10:
-    - O1: the values and the default of `orca_local`. Recommendation: `auto` and `off`, default `auto`.
-    - O2: the minimum version of Orca. Recommendation: the constant `1.4.218`.
-    - O3: the launch with Orca. The documented options are an interactive session in an Orca tab (`orca terminal create --command`), `orca worktree create --agent claude`, and `orca orchestration worker-start`. The custom option is `claude --bg` as today plus a viewer tab that runs `claude attach <short ID>`. Recommendation: the viewer tab, because it keeps one life cycle for both paths and meets spec 3.1 with no change.
-    - O4: when a viewer tab opens and closes. Recommendation: at each launch and resume, and the parent closes the tab of a retired role.
-    - O5: the worktree of a task clerk with Orca. Recommendation: `.claude/worktrees/`, as today.
-    - O6: a start folder in a repository that Orca does not know. Recommendation: the trust step of the init skill adds it to Orca after a yes of the owner.
+- L50: local role sessions in Orca. The owner said in the terminal on 2026-10-04 (2026-10-04T11:39:24Z): "yo, bruh yes, for local case - see if orca installed and make sure running sessions are visible in orca. but you also should support claude --bg". Owner decision 2026-10-04: when Orca is on the machine and runs, the running local role sessions are visible in Orca, and bruh also supports `claude --bg`.
+  - The owner answered the six open choices in the terminal on 2026-10-04 (2026-10-04T20:01:30Z): "go ahead. BUT MAKE SURE YOU ARE NOT OVERCOMPLICATING THINGS. the setup we develop must have some free choices fro agents, not too hard framing - this limits the prformance". Each choice below is an owner decision 2026-10-04:
+    - O1: the plugin option `orca_local`, a string option with the values `auto` and `off`, default `auto`.
+    - O2: the code constant `orcaMinVersion = "1.4.218"`.
+    - O3: `claude --bg` as today, plus an Orca viewer tab that runs `claude attach <short ID>`.
+    - O4: a viewer opens at each launch and each resume. The parent closes the tab of a retired role.
+    - O5: `.claude/worktrees/` with `EnterWorktree`, as today.
+    - O6: the trust step of the init skill runs `orca repo add` for each repository after a yes of the owner.
+  - The build choices below are each agent-derived, needs owner decision. The clanker cut the design to one path under its rule R-3:
+    - Without Orca, or with `orca_local` `off`, bruh runs no `orca` command, and the launch, `session_list`, `session_resume`, the P0 with `claude attach <id>`, the idle stop, the reboot check, the failure handling, the worktrees, and the flags stay as they are. Orca is optional, and nothing of the setup of one user goes into the plugin.
+    - The MCP server detects Orca in code at each call: `orca_local` from the user settings file, the executable (`ORCA_CLI_COMMAND`, else `orca-ide` on Linux, else `orca`; never `orca-dev`, and never a bare `orca` on Linux), a lookup on `PATH`, and `status --json` with a ready runtime and an app version of at least `orcaMinVersion`. bruh never runs `orca open`.
+    - A tab is found by its exact title, the role key. bruh keeps no handle file, and `session_list` has no tab field. `session_launch` closes an old tab with the title and opens a new one. `session_resume` opens one only when no tab has the title.
+    - An Orca failure only sets `orca_error` in the tool result. It never fails the call, and the MCP server does not try again.
+    - The new tool `session_tab_close` closes the tab of a retired role. Only its tool description tells the parent when to call it: no agent file names it, because the agent files were outside the file list of the task. A parent that does not call it leaves the tab open until the owner closes it.
+    - No P0 line names the tab: `claude attach <id>` still works, and the tab has the role key as its title.
+    - An open viewer keeps the session process alive (accepted cost).
+    - Tests: Go unit tests with a fake `orca`. The smoke test does not change. The probes P1 (the viewer) and P6 (a repository that Orca does not know) have a go of the owner (2026-10-04T20:05:11Z) and have not run yet.

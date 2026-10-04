@@ -9,6 +9,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 ### Added
 
 - When a session finds a defect of bruh itself, the owner gets the offer of a bug report with the final text of the issue. The session files the issue only after the owner says yes. A vulnerability gets a private report. A clanker or a clerk sends a notice to its parent, and bigm makes the offer.
+- Local sessions in Orca: when the Orca app runs, `session_launch` and `session_resume` open an Orca tab titled with the role key that runs `claude attach <short ID>`. The new tool `session_tab_close` closes the tab of a retired role. The plugin option `orca_local` (`auto` or `off`, default `auto`) turns it off, and the init trust step offers to add the repositories to Orca. Without Orca nothing changes (spec 4.3).
 
 ## [0.10.0] - 2026-10-03
 

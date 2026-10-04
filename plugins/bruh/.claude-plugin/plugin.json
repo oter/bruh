@@ -28,6 +28,13 @@
       "default": 8,
       "min": 1
     },
+    "orca_local": {
+      "type": "string",
+      "title": "bruh: Show local sessions in Orca",
+      "description": "auto: when the Orca app runs, each local role session gets an Orca tab that runs claude attach. off: bruh runs no orca command for local sessions.",
+      "options": ["auto", "off"],
+      "default": "auto"
+    },
     "slack_bot_token": {
       "type": "string",
       "title": "bruh: Slack bot token",
