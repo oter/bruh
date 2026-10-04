@@ -92,11 +92,12 @@ func TestMailSenderPolicy(t *testing.T) {
 		{"clerk-a-x", "bigm", "P1 Q-a-host-4: permission prompt", false},
 		{"clerk-a-x", "bigm", "DONE: x delivered", false},
 		// R-1: the clanker starts its scout, the scout reports to its clanker like any clerk, and
-		// the clanker relays the claims to bigm. A scout has no edge of its own to bigm.
+		// the clanker relays the claims to bigm. A scout has no edge to bigm, not even a P0,
+		// because question_open is denied to it, so it has no question ID.
 		{"clanker-a", "clerk-a-scout1", "START: scout state of owner/a#3", true},
 		{"clerk-a-scout1", "clanker-a", "DONE: scout state of owner/a#3", true},
 		{"clerk-a-scout1", "bigm", "DONE: scout state of owner/a#3", false},
-		{"clerk-a-scout1", "bigm", "P0 Q-a-host-9: permission prompt", true},
+		{"clerk-a-scout1", "bigm", "P0 Q-a-host-9: permission prompt", false},
 		{"clerk-a-scout1", "bigm", "P1 Q-a-host-9: which branch?", false},
 		{"clerk-a-scout1", "clanker-b", "DONE: scout state of owner/a#3", false},
 		{"bigm", "clanker-a", "DONE: info request owner/a#3", true},
