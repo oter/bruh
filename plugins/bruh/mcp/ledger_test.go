@@ -364,7 +364,7 @@ func TestLedgerEditTimeTokens(t *testing.T) {
 	env, dir := ledgerFixture(t, map[string]string{"owed.md": owedFixture, "mode.md": "changed: x\n"})
 	for token, want := range map[string]string{"now": "2026-10-04T12:00:00Z", "now+30m": "2026-10-04T12:30:00Z", "none": "none", "": ""} {
 		out, err := edit(t, env, map[string]any{"action": "add", "file": "owed.md", "kind": "owed", "subject": "s",
-			"cells": map[string]string{"Owner": "t", "Item": "token " + token + ".","Due (UTC)": token}})
+			"cells": map[string]string{"Owner": "t", "Item": "token " + token + ".", "Due (UTC)": token}})
 		if err != nil {
 			t.Fatalf("%q: %v", token, err)
 		}
