@@ -9,9 +9,24 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
+	"time"
 )
 
+func isRFC3339(s string) bool {
+	_, err := time.Parse(time.RFC3339, s)
+	return err == nil
+}
+
 var reportKinds = []string{"status", "answer", "event", "result"}
+
+// isMailPendingEvent reports whether a line is the event "<role key> not running; mail pending"
+// of the mail procedure (clerk.md, "How to send a message"), with a valid role key.
+func isMailPendingEvent(kind, text string) bool {
+	key, ok := strings.CutSuffix(text, " not running; mail pending")
+	_, err := ParseRoleKey(key)
+	return kind == "event" && ok && err == nil
+}
 
 type Source struct {
 	Call  string `json:"call"`
@@ -32,7 +47,7 @@ func reportTools() []Tool {
 	return []Tool{
 		{
 			Name:        "report_write",
-			Description: "Append one line to the report file of the calling role. A status claim (merged, deployed, live, down, out of quota) carries source: {call, value, at}.",
+			Description: "Append one line to the report file of the calling role. A status claim (merged, deployed, live, down, out of quota) carries source: {call, value, at}. Each line of a scout clerk needs the full source, with at in RFC 3339 and value present (it can be empty), except the event '<role key> not running; mail pending'.",
 			InputSchema: map[string]any{
 				"type": "object",
 				"properties": map[string]any{
@@ -50,9 +65,13 @@ func reportTools() []Tool {
 					return nil, err
 				}
 				a, err := decode[struct {
-					Kind   string  `json:"kind"`
-					Text   string  `json:"text"`
-					Source *Source `json:"source"`
+					Kind   string `json:"kind"`
+					Text   string `json:"text"`
+					Source *struct {
+						Call  string  `json:"call"`
+						Value *string `json:"value"` // a pointer: present but empty is valid output
+						At    string  `json:"at"`
+					} `json:"source"`
 				}](raw)
 				if err != nil {
 					return nil, err
@@ -60,11 +79,27 @@ func reportTools() []Tool {
 				if !slices.Contains(reportKinds, a.Kind) {
 					return nil, fmt.Errorf("invalid kind: %q", a.Kind)
 				}
+				var src *Source
+				if s := a.Source; s != nil {
+					src = &Source{Call: s.Call, At: s.At}
+					if s.Value != nil {
+						src.Value = *s.Value
+					}
+				}
+				// A scout reports only facts that it read (principle 1), so each of its lines has a
+				// full source read with a UTC time (R-1, spec 3.6.1). The value can be empty: a read
+				// that finds nothing often prints nothing. The one exception is the event line of
+				// the mail procedure (clerk.md), which the bigm sweep reads to resume a receiver.
+				if k, _ := ParseRoleKey(me); isScout(k) && !isMailPendingEvent(a.Kind, a.Text) {
+					if s := a.Source; s == nil || s.Call == "" || s.Value == nil || !isRFC3339(s.At) {
+						return nil, errors.New("a scout report line needs source {call, value, at}, with at in RFC 3339 from date -u; only the event line '<role key> not running; mail pending' has no source")
+					}
+				}
 				dir, err := c.Env.Dir("reports")
 				if err != nil {
 					return nil, err
 				}
-				line := ReportLine{At: c.Env.Stamp(), From: me, Kind: a.Kind, Text: a.Text, Source: a.Source}
+				line := ReportLine{At: c.Env.Stamp(), From: me, Kind: a.Kind, Text: a.Text, Source: src}
 				data, _ := json.Marshal(line)
 				f, err := os.OpenFile(filepath.Join(dir, me+".jsonl"), os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
 				if err != nil {

@@ -21,7 +21,7 @@ You talk to one session, bigm. bigm keeps the status of all work in a private le
 |---|---|---|---|---|
 | bigm | Long-lived | You | All projects. Keeps the ledger and the "Owed to owner" list. | No |
 | Clanker | Long-lived | bigm | One project. Knows the full picture of that project. Divides the work into tasks. | No |
-| Clerk | One task | A clanker | One task. Starts workflows, pushes the branch, and reports with evidence. | No |
+| Clerk | One task | A clanker | One task. Starts workflows, pushes the branch, and reports with evidence. A scout clerk only reads the sources for one question and reports each fact with its source. | No |
 | Workflow | One run | A clerk | One step of a task: plan, implement, review, and fix. | Yes |
 
 Each role runs as a plugin agent (`bruh:bigm`, `bruh:clanker`, `bruh:clerk`). The work runs in the `/bruh:deliver` workflow.
@@ -91,7 +91,7 @@ When the folder is empty, the init skill creates the layout: `README.md`, `mode.
 
 The Markdown files hold only the current state. When an item closes, bigm deletes its row in the commit that closes it, with the subject `close <kind>: <subject>`. Git is the history: `git log --grep` finds each closed item.
 
-bigm writes the Markdown files. Plugin code writes `learn/` (the init skill, and the refresh at each sweep of bigm). The init skill writes `.claude/settings.json`. bigm is the only role that commits the ledger. The ledger clerk pushes the ledger after each commit of bigm.
+bigm writes the Markdown files. It changes a table row or a key line with the tool `ledger_edit`, which commits that file and writes the DONE mail to the ledger clerk. Plugin code writes `learn/` (the init skill, and the refresh at each sweep of bigm). The init skill writes `.claude/settings.json`. bigm is the only role that commits the ledger. The ledger clerk pushes the ledger after each commit of bigm.
 
 ### 3. Run the init skill
 
@@ -220,7 +220,7 @@ Tell bigm the environment name. bigm writes it on the line `remote_environments:
 
 For autonomous work, the container image is `ghcr.io/oter/autonomous-agents/agent`. The image is outside this repository. It has no `latest` tag: pick a published tag of the image, and check that the image has the requirements of step 8.
 
-Put the whole `~/.claude` folder of the container user on a volume. It holds the plugin install (step 1), the user settings that the init skill writes (the allow rules, `autoCompactWindow`, and the status line), the Claude login, and the plugin data folder with the handoffs, the mailboxes, and the leases. With a volume for only a part of it, a new container loses the rest, and bigm starts without the plugin or without its allow rules.
+Put the whole `~/.claude` folder of the container user on a volume. It holds the plugin install (step 1), the user settings that the init skill writes (the allow rules, `autoCompactWindow`, and the status line), the Claude login, and the plugin data folder with the handoffs, the mailboxes, the leases, the monitors (`monitors.json`), and the waiter files (`wake/`). With a volume for only a part of it, a new container loses the rest, and bigm starts without the plugin or without its allow rules.
 
 ```bash
 docker volume create bruh-claude
@@ -250,7 +250,7 @@ Run one bigm at a time. Each other `claude` in the ledger folder is a second big
 
 The ledger settings file holds the role key, the env values, and the deny rules of bigm. If you installed bruh before this file existed, run `/bruh:init` again (step 3) to write it. bigm stays an interactive session. Do not start it with `--bg`.
 
-bigm starts a clanker for each project that has work. Tell bigm what to do. For a project that init learned, bigm takes the repositories from `learn/projects/<key>.json`, and records them with the `repos_set` tool of bruh, so that the watcher and the merge train know them. Tell bigm the code host repositories (`owner/name` and the host: GitHub, GitLab, or Gitea) only for a project on a remote machine.
+bigm starts a clanker for each project that has work. Tell bigm what to do. For a project that init learned, bigm takes the repositories from `learn/projects/<key>.json`, and records them with the `repos_set` tool of bruh, so that the watcher (the poller in the plugin monitor of bigm) and the merge train know them. Tell bigm the code host repositories (`owner/name` and the host: GitHub, GitLab, or Gitea) only for a project on a remote machine.
 
 ### 8. Check the requirements
 

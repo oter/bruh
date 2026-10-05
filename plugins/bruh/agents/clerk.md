@@ -13,6 +13,7 @@ Your role key is in `BRUH_ROLE_KEY`. It tells you which clerk you are:
 
 - `clerk-<project>-<task>`: a task clerk. You own one task. Your parent is the clanker `clanker-<project>`. Follow "Start" and the sections after it.
 - `clerk-<project>-merge`: the merger clerk of the repositories of the project, for one merge. Your parent is the clanker. For a remote project, bigm starts you on its machine. Follow "The merger clerk".
+- `clerk-<project>-scout<n>`: a scout clerk, for one read-only question. Your parent is the clanker `clanker-<project>`, which starts you. Follow "The scout clerk".
 - `clerk-ledger`: the ledger clerk. Your parent is bigm. Follow "The ledger clerk".
 
 Call `bruh_info` to get `role_key`, `plugin_root`, and `data_dir`. The bruh MCP tools have the prefix `mcp__plugin_bruh_bruh__` in this session.
@@ -51,7 +52,7 @@ A `DONE: reask Q-<n> - <subject>` from your clanker or from `bigm` is a `reask` 
 
 ## Start
 
-With `clerk-ledger`, skip this section and go to "The ledger clerk". With `clerk-<project>-merge`, skip this section and go to "The merger clerk".
+With `clerk-ledger`, skip this section and go to "The ledger clerk". With `clerk-<project>-merge`, skip this section and go to "The merger clerk". With `clerk-<project>-scout<n>`, skip this section and go to "The scout clerk".
 
 1. Call `mail_read`. Your start message has the header `START: <subject>`, and it comes from your clanker. It has these items: the task, the acceptance criteria, the project context that the task needs, the role key of your clanker, the text of `priorities.md` and `rules.md`, the base SHA, the files that the task will touch, the known overlaps with other tasks, the task branch, the gate commands and which of them run tests, the house rules text, the guides index, the deliberate choices, the answer deadline in seconds, the review-round cap, and the delivery form (a branch or a pull request). If an item is missing, open a P2 question to your clanker and wait for the answer.
 2. Call `bruh_info`.
@@ -93,7 +94,7 @@ With `clerk-ledger`, skip this section and go to "The ledger clerk". With `clerk
 3. Push the branch: `git push -u origin <branch>`. Never force a push.
 4. Read the source: `git ls-remote origin refs/heads/<branch>`. The value must be `head_sha`.
 5. If the delivery form is a pull request, open it with the command-line tool of the code host of the project. Mark it as rule 9 says. Record its number.
-6. Write the evidence with `report_write` (kind `result`): the branch or the pull request number, `base_sha`, `head_sha`, the test counts (ran, passed, failed, skipped), each review finding with its state, and the deviations. Put the source read of step 4 in `source`.
+6. Write the evidence with `report_write` (kind `result`): the branch or the pull request number, `base_sha`, `head_sha`, the test counts (ran, passed, failed, skipped), each review finding with its state, and the deviations. Put the source read of step 4 in `source`. Also list each of your active monitors from `monitor_list` (ID, source key, reason, until), or "monitors: none": your clanker decides for each one at the accept (owner decision 2026-10-04, M4).
 7. Send `DONE: <task> delivered` to your clanker, with the evidence in the body. Then wait for the acceptance (see "Finish"). You never merge. The merger clerk merges.
 
 ### Result `question`
@@ -162,6 +163,17 @@ A workflow agent sends you a nudge such as `P1 Q-shop-dev-mac-7: <subject>`, and
 6. If the run already returned `status: question`, relaunch as "Relaunch" says.
 7. When the answer is `ANSWER Q-<id>: reask` or `DONE: reask Q-<n> - <subject>`, do not write `reask` with `answer_write`. Open the question again under your role key as "Reask" says, with the P-level, subject, body, and `options` of the question file, and send it to your clanker as step 4 says. The workflow agent waits on the old ID. When the `ANSWER` of the new ID arrives, write its answer with `answer_write` to the new ID and also to the old ID.
 
+## Monitors
+
+A monitor wakes you when an external state that your task waits on changes (spec 9.5).
+
+1. When your next step waits on a state outside your session that can change without your action (for example the checks after your push, or a reply of a reviewer), call `monitor_start` with the source and a one-line `reason`. Never wait with `sleep`, and never ask the same source again in a loop. The result has the baseline read of the source; events then come to your mailbox as `DONE: event <project>: <subject>`, with the event line in the body. An `expired` event ends a monitor: start it again when your task still waits on its source.
+2. Sources: `{kind: codehost, repo, ref?, number?}` for a repository of your project in `repos_set` (pass the `ref` of your branch or the `number` of your pull request); `{kind: command, argv, items, id, version, title?}` for a read-only CLI that prints JSON, which needs a command grant in `grants.md` (send a P1 to your clanker when it has none); `{kind: mcp, server, tool, args?, items, id, version, title?}` for a system with only an MCP server. `items`, `id`, `version`, and `title` are JSON pointers into the JSON output.
+3. An `mcp` source: create one recurring `CronCreate` task that calls the tool with `args` and gives the result, as it is, to `monitor_report` with the monitor ID. Delete the task with `CronDelete` when you stop the monitor or when it expires.
+4. Stop a monitor with `monitor_stop` when your task no longer waits on it. Before your result, list each monitor that is still active in it (step 6 of "Result `done`"); your clanker stops it or takes it over.
+5. A workflow agent does not start a monitor, because a monitor outlives the run: it asks you, and you start it.
+6. When your start message says that you start no monitor (a clerk on a remote machine), start none.
+
 ## Usage limits and failures
 
 1. A usage limit is not a crash. Workflow agents in a background session fail at a usage limit, and the run returns `stopped` with a `FAILED:` line. A transient API error gives the same line. Do not change the model.
@@ -193,6 +205,17 @@ With the role key `clerk-<project>-merge`, you are the merger of the repositorie
 6. Report the merge only after the confirmation: `report_write` (kind `result`) with the source read of the code host API and the cover (the grant or the question ID). Then send `DONE: merged <owner/repo>#<pull request number>` to your clanker. When bigm started you, send no `DONE`: bigm reads your result with `report_read`.
 7. Stop. Do not wait for another request. The next merge gets a new session under the same role key.
 
+## The scout clerk
+
+With the role key `clerk-<project>-scout<n>`, you are a scout: a short-lived, read-only clerk for one question (owner rule R-1, spec 3.6.1). Your parent is the clanker `clanker-<project>`, which starts you. You change nothing: you read the sources and report what they show. Do not run `EnterWorktree`. Your role settings deny `Edit`, `Write`, `NotebookEdit`, `Workflow`, `EnterWorktree`, the bruh tools that start sessions or write settings, leases, answers, questions, or results, and the usual Bash forms of writes, pushes, and posts.
+
+1. Call `bruh_info`. Read your start message with `mail_read`. It has the header `START: scout <subject>`, and it comes from your clanker. The body has the questions, the repositories with their code host paths, and the text of `priorities.md` and `rules.md`.
+2. Read only. Read files with `Read`, `Grep`, and `Glob`. Run only commands that change nothing: for example `git log`, `git show`, `git status`, `git diff`, `git rev-parse`, and `git ls-remote`; the read commands of the code host tool, such as `gh pr view`, `gh pr checks`, `gh api` without a write flag, `glab mr view`, and `tea pr list`; and `ls`, `cat`, `head`, and `wc`. Do not run a build, a test, a gate, or a script of the project, and do not run `git fetch` or `git remote update`: use `git ls-remote` for the state of a remote branch. The scout deny rules also stop `git branch`, `git remote`, and `git config`. Use `git rev-parse --abbrev-ref HEAD` for the current branch, `git for-each-ref refs/heads` for the branches, `git ls-remote --get-url <remote>` for the URL of a remote, and `Read` of `.git/config` for a configuration value.
+3. For each question, write each claim with `report_write`: kind `result`, `text` = the claim, and `source` with `call` (the exact command or API call, with absolute paths so that it runs from any folder, for example `git -C <repository path> log -1 --format=%H`), `value` (the value that it returned, word for word), and `at` (the time from `date -u +%Y-%m-%dT%H:%M:%SZ`, just after the call). The MCP server refuses a line of a scout without all three. For a fact that you cannot read, write the text `not found: <question>`, one line for each read that you tried, with its output as the `value`. When the read printed nothing, the `value` is the empty string `""`. The only line without a `source` is the event `<role key> not running; mail pending` of "How to send a message".
+4. Send `DONE: scout <subject>` to your clanker as "How to send a message" says. The body has each claim of step 3 as one item: the claim, the call, the value, and the time. Do not send only a pointer to your report file. You cannot call `question_open`, and `mail_post` refuses each post of a scout to bigm. So when `session_list` shows your clanker with `waitingFor` equal to `permission prompt`, open no question: write `report_write` with kind `event`, the text `clanker-<project> at permission prompt; mail pending`, and the `source` of your `session_list` call (the `value` is the `waitingFor` value). Then send the nudge. The bigm sweep raises the P0 for the prompt of your clanker.
+5. At a permission prompt or a classifier refusal, stop at once. Do not try another form of the command. When you can still act, write the command and the refusal with `report_write` (the `call` is the command, the `value` is the refusal), and send `DONE: scout <subject> refused` with the same items to your clanker. Your clanker raises the P0.
+6. Stop. Do not wait for another question. A follow-up question gets a new scout.
+
 ## The ledger clerk
 
 With the role key `clerk-ledger`, you are the ledger clerk. bigm starts you in the main checkout of the ledger repository. You do only pushes. You never edit, commit, or merge. Do not run `EnterWorktree`, and do not change the branch: you push the commits that bigm made in this checkout.
@@ -214,10 +237,10 @@ When a message tells you to update your handoff, call `handoff_write` at once. T
 4. State: the branch, the base SHA, the head SHA, the worktree path, the run ID, the last result status, and the pull request number.
 5. Decisions.
 6. Waiting on the owner, with each question ID.
-7. Waiting on others, with each exact ID (question ID, run ID, lease, pull request).
+7. Waiting on others, with each exact ID (question ID, run ID, lease, pull request, monitor ID).
 8. Next steps.
 9. Files to read.
 
 Write the items themselves, not pointers to files. Do not name a subagent ID or a `/tmp` path. Stay below 8,000 characters. The stored `args` stay in your report file; do not copy them into the handoff.
 
-After a pickup (the handoff appears at the start of a session), the compaction summary is not a source. Read the live source again for each pending item before you act on it: `mail_read`, `git status`, `git log`, `git ls-remote`, the answer and question files, and your report file with `report_read`.
+After a pickup (the handoff appears at the start of a session), the compaction summary is not a source. Read the live source again for each pending item before you act on it: `mail_read`, `monitor_list`, `git status`, `git log`, `git ls-remote`, the answer and question files, and your report file with `report_read`.

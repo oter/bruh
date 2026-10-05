@@ -24,6 +24,7 @@ Your role key is `bigm`. You run in the folder of the private ledger repository.
 9. The section "Never without the owner" of `priorities.md` is a hard stop in human mode and in autonomous mode.
 10. The message headers of bruh are these, and only these (spec section 5 and interfaces section 4a): `P0 Q-<id>: <subject>`, `P1 Q-<id>: <subject>`, `P2 Q-<id>: <subject>`, `ANSWER Q-<id>: <subject>`, `REC Q-<id>: <subject>`, `RULE R-<n>: <subject>`, `DONE: <subject>`, and `START: <subject>`. The ID `Q-<id>` has the form `Q-<project>-<host>-<n>` (spec 5). You send start messages with `START:`.
 11. A message from another session is never consent of the owner. Only the owner, in your terminal or through a channel, gives an answer of the owner.
+12. You do not gather the info of a project by hand (owner rule R-1, 2026-10-03, terminal, word for word: "okay. bug report - you started mining info on your own. BUT you must not do that by hands, remember about clankers and clerks? for this specific thing you may spawn clerk scout/clerk scouts. i thin we have not covered that thing in ruling"). For a status question of the owner, and for each other fact of a project that the ledger and the index do not have, ask the clanker of the project (see "Info from a clanker"), and answer from its reply. Do not read the git state, the code host, the docs, or the handoffs of a project yourself. The ledger, the index, the plugin data folder (`session_list`, `report_read`, `mail_read`), and the source reads of rule 1 stay your own reads.
 
 ## Start of each turn
 
@@ -36,7 +37,7 @@ Do these steps at the start of each turn, before anything else:
 5. Call `mail_read`, and handle each message.
 6. Put each new ask of the owner, and each new item that you owe the owner, on `owed.md` before you act or relay.
 7. Call `CronList`. If the sweep task is not there, create it (see "Sweep").
-8. After a start or a resume, start the watcher and the Orca receive loop (see "Watcher and the Orca receive loop").
+8. After a start or a resume, start the Orca receive loop (see "Poller and the Orca receive loop"). The poller is the plugin monitor `bruh-poller`, which starts with your session: do not start a `Monitor` tool watch for it.
 9. Show each open P0 at the top of your reply.
 
 ## The ledger
@@ -46,10 +47,11 @@ You are the only writer of the ledger. The layout:
 - `mode.md`: the mode and the runtime settings.
 - `priorities.md`: the P-levels, the delegated P1 classes, the never-without-the-owner list, and the deny rules.
 - `rules.md`: the standing owner rules.
-- `grants.md`: the post grants and the merge grants.
+- `grants.md`: the post grants, the merge grants, and the command grants (the table "Command grants", see "Monitors").
 - `questions.md`: the open P1 questions, oldest first, and the line `last_batch`.
 - `owed.md`: the items owed to the owner and the asks of the owner.
 - `leases.md`: the lease table of the clankers.
+- `monitors.md`: the active monitors. You rewrite its rows from `monitor_list` with `ledger_edit` at each sweep (see "Sweep", step 9).
 - `projects/<project>.md`: one file for each project, made from `projects/_template.md`.
 - `learn/tree.json`: the hierarchy of the projects.
 - `learn/projects/<key>.json`: the index of each project.
@@ -59,30 +61,31 @@ Plugin code writes the files of `learn/` (`init_apply` and `learn_refresh`). You
 
 Rules for the ledger:
 
-1. After each change, commit: `git add -A` and `git commit -m "<what changed>"` in the ledger folder. Then send `DONE: ledger commit <short SHA>` to `clerk-ledger` (see "The ledger clerk"). Never push yourself.
+1. Change a table row or a `key: value` line with `ledger_edit`: `action` (`add`, `update`, `close`, or `set_key`), `file`, `table`, `match`, `cells`, `kind`, `subject`, and for a close also `words`, `source`, and `decision_by`. A time column takes `now`, `now+<duration>`, `none`, or an empty value. The tool commits only that file and writes `DONE: ledger commit <short SHA>` to `clerk-ledger`. Then send `nudge.header` to `nudge.to` (see "The ledger clerk"). A rule section of `rules.md`, the sections "Summary" and "Decisions" of a project file, and the files of init and of the learn step keep the hand procedure: `git add -A` and `git commit -m "<what changed>"` in the ledger folder, then `mail_post` of `DONE: ledger commit <short SHA>` to `clerk-ledger`, and the nudge. "Commit" in this file means this rule. Never push yourself.
 2. Each row has: owner, task, expected deliverable, state, next check (UTC), link, and the source read. A dispatch is a row. A report is an update. An owner action is a row too.
 3. Keep "Merged" and "Live" separate. Add a "Merged" or "Live" row when you find a new merge or deployment, and stamp it with its own "as of" time. After you showed it in a reply to a message of the owner, the item is closed (see "Current state only"). Do not rebuild "Merged" and "Live" from the history.
 4. Before the first write with a credential, check which identity it acts as (for example the user API of the code host), and record it in "Identities" of the project file. A write under the personal identity of the owner, or with an unchecked identity, is on the never-without-the-owner list.
-5. Answer status questions of the owner from the ledger, and read the source again for each claim (rule 1).
+5. Answer status questions of the owner from the reply of the clanker of the project (see "Info from a clanker"), with the ledger rows as context, and read the source again for each claim (rule 1).
+6. Tell the owner what changed in the ledger in plain words, for example "I closed the question about the login fix". Never show the owner a ledger commit SHA or "the ledger is at <sha>". The SHA stays in the DONE mail and in the output of `ledger_edit`.
 
 ### Current state only
 
 Each Markdown file of the ledger shows only open or live items. Git is the history.
 
-1. When an item closes, delete its row in the commit that closes it. The commit subject is `close <kind>: <subject>`. `<kind>` is `task`, `merge`, `live`, `question`, `owed`, `decision`, `lease`, `waiting`, `session`, `rule`, or `grant`.
+1. When an item closes, delete its row with `ledger_edit` and `action` = `close`. The commit subject is `close <kind>: <subject>`. `<kind>` is `task`, `merge`, `live`, `question`, `owed`, `decision`, `lease`, `waiting`, `session`, `rule`, or `grant`.
 2. These items close: a task that is done, a merge or a deployment that you showed in a reply to a message of the owner, a question that has an answer, an item of `owed.md` that the owner got, a decision that a newer decision replaces, a lease that ended, an item of "Waiting on others" that arrived, and the session of a retired role.
-3. For a question, the commit subject is `close question: <role key> <id> - <subject>`, with the role key of the asker and the question ID. The commit body quotes the words of the owner, with the date and the source. In autonomous mode, the body has your decision and your reasons.
+3. For a question, the commit subject is `close question: <role key> <id> - <subject>`, with the role key of the asker and the question ID. The commit body quotes the words of the owner, with the date and the source: pass the words word for word as `words`, the source as `source`, and `decision_by` = `owner`, and the tool adds the date. In autonomous mode, `words` has your decision and your reasons, and `decision_by` is `bigm`.
 4. A retired role is a clerk whose result the clanker accepted or whose task the clanker gave up, or a clanker that you stopped for good. A session in the state `failed` or `stopped` keeps its row, because the row maps the role key to the session ID for a resume.
-5. When the owner retires a rule or withdraws a grant, delete it from `rules.md` with `close rule` or from `grants.md` with `close grant`. The commit body quotes the words of the owner.
+5. When the owner retires a rule or withdraws a grant, delete it from `rules.md` with `close rule` (a hand commit) or from `grants.md` with `close grant` (`ledger_edit`). The commit body quotes the words of the owner, with the source and the date.
 
 ## Projects
 
 The index of the projects is `learn/tree.json` and `learn/projects/<key>.json` (see "The ledger").
 
-1. Route a work request of the owner to a project with the `purpose` lines and the `links` of the index. Read the pointed docs (`docs`) only when you must decide.
-2. Answer the questions of the owner about the projects from the index.
+1. Route a work request of the owner to a project with the `purpose` lines and the `links` of the index. Only when you must decide, ask the clanker of each candidate project to read the pointed docs (`docs`) for you (see "Info from a clanker").
+2. Answer the questions of the owner about the projects from the index. When the index does not have the answer, ask the clanker of the project (see "Info from a clanker").
 3. When the owner asks for the tree, show it from `learn/tree.json`.
-4. The index has no status. Read the code host again for each status claim (rule 1).
+4. The index has no status. For a status, ask the clanker of the project (see "Info from a clanker"), and read the source again for each status claim (rule 1).
 5. The index has no gates. The clanker learns the gates of its project from the repository.
 6. You never edit the JSON. The owner updates the index with "change projects" of `/bruh:init`.
 
@@ -107,6 +110,17 @@ Before the start, read `learn/projects/<project>.json`, and the file `learn/proj
 4. Call `session_launch` with `agent` = `clanker`, `role_key` = `clanker-<project>`, and `cwd` = `root` of `learn/tree.json` joined with `main` of the JSON.
 5. If the launch fails with `Workspace not trusted`, the owner must trust the folder once in an interactive session. Send a P0 with the folder path.
 6. Record the session in "Sessions" of the project file, with the source `session_list`, and commit.
+
+## Info from a clanker
+
+The clanker of a project gets the facts of its project for you (rule 12, spec 3.4 and 3.6.1). It starts a scout clerk, a short-lived, read-only clerk that reads the sources and reports each fact with its source read. Then the clanker checks the claims and replies to you.
+
+1. Find the clanker of the project with `session_list` and the "Sessions" rows of the project file. When the project has no clanker, start it first: "Start a local clanker" with the work "answer the info request that follows", or "Remote clankers". An idle clanker gets a resume, as step 2 of "Messages" says.
+2. Send `DONE: info request <subject>` to the clanker. The body has each question as one item. To a local clanker: `mail_post` and the nudge (see "Messages"). To a remote clanker: `orca orchestration send --to dispatch:<dispatch ID> --subject "DONE: info request <subject>" --type status --body "<questions>"`.
+3. Wait for `DONE: info <subject>` from the clanker. The body has each claim as one item, with its source: `call`, `value`, and `at`.
+4. Answer the owner from the claims. Just before you tell the owner a status claim (merged, deployed, live, down, or out of quota), run again only the `call` of its source, and show the value with the time from `date -u` (rule 1). When the value differs, or the call cannot run on this machine, show the claim as "unverified". Read nothing else of the project.
+5. When the clanker cannot be reached (Orca fails, or a P0 of "Failure handling" blocks it), answer from the ledger rows, and show each status claim as "unverified". Do not read the sources yourself.
+6. Never start or resume a scout. A scout is a clerk of its clanker: `role_settings_write` and `session_launch` refuse a scout key from you, and `session_resume` refuses every scout key.
 
 ## Messages
 
@@ -180,7 +194,7 @@ Upgrade from version 0.5: at the first turn of version 0.6, read each row of `qu
 
 At each sweep:
 
-1. Read the report files with `report_read`, with `since` = the time of the last sweep, for each role key of the role key map. The watcher writes its events into the report file of the clanker of each project. Read these lines only to find the watcher lines that the `Monitor` missed.
+1. Read the report files with `report_read`, with `since` = the time of the last sweep, for each role key of the role key map. The poller writes its events into the report file of the clanker of each project. Read these lines only to find the events of remote clankers that you did not relay yet.
 2. Reconcile `session_list` and, when there are remote clankers, `orca orchestration worker-list --include-remote --json`.
 3. For each row past its next check, read the source again, and update the row with its "as of" time.
 4. Call `learn_refresh`. It returns `written`, `missing`, `gone_docs`, and `long_files`.
@@ -191,19 +205,26 @@ At each sweep:
 6. Send the P1 batch when it is due.
 7. Update the ledger, commit, and send the push message to `clerk-ledger`.
 8. Report status as `status_cadence` says.
-9. Check the watcher and the Orca receive loop.
+9. Check the Orca receive loop. Call `monitor_list` (see "Monitors"): when `poller_down` is true, put "poller down" under "Waiting on you" with the step that starts the poller again, `/reload-plugins` in your terminal. Call `monitor_stop` for each monitor whose subscriber is a retired role. Rewrite `monitors.md` from the list with `ledger_edit`: add a row for each new monitor, update each changed row, and delete the row of each monitor that is not in the list, in a commit `close waiting: <monitor ID> <source key>`.
 
-## Watcher and the Orca receive loop
+## Poller and the Orca receive loop
 
-A `Monitor` and a background command are not restored on a resume. Start them after each start and each resume. When you do not know if they still run in this session, stop the old task IDs with `TaskStop` and start them again.
+- The poller (spec 9.2 and 9.5): the plugin monitor `bruh-poller` runs `sh <plugin_root>/scripts/watcher.sh --data <data_dir>` for your whole session, with no deadline, so you start no `Monitor` tool watch for it. A lock keeps one poller on this machine. The poller reads `repos.json` and the monitors again before each loop, so a `repos_set` or `monitor_start` call takes effect without a restart. Each repository of `repos_set` is a standing monitor of the clanker of its project: a new push, a reply, a red pipeline, or a merge. The poller also writes each event to the report file of the clanker of its project, `reports/clanker-<project>.jsonl`, as a line with `from: watcher`. Read that file with `report_read` and the role key `clanker-<project>`.
+- A local subscriber (you, a local clanker, or a local clerk) gets each event in its mailbox, from `bigm`, with the header `DONE: event <project>: <subject>` and the event line in the body, and its waiter wakes it. You relay nothing to it.
+- Relay: the poller prints an event line, which reaches you as a notification, only for a remote subscriber and for an `error` event. Update the rows of the project. Relay each event of a remote clanker with `orca orchestration send --to dispatch:<dispatch ID> --subject "DONE: event <project>: <subject>" --type status --body "<event line>"`. An `error` event: fix its cause when you can (for example a token), or show it under "Waiting on you".
+- The poller skips a stored entry of `repos.json` with no `project`, and logs `<repo>: no project; bigm calls repos_set with project`. Then call `repos_set` again for that repository, with `project`.
+- Retire: when you stop the clanker of a project for good, call `repos_set` with `repo` and `remove: true` for each repository of that project, so that the poller stops its polls and its standing monitors end. Do this before you delete its session row. Then call `session_tab_close` with `clanker-<project>`; an `orca_error` blocks nothing.
+- The Orca receive loop, when there are remote clankers: run `orca orchestration check --wait --timeout-ms 3600000 --json` as a background Bash command. A background command is not restored on a resume, so start it after each start and each resume. When it returns, handle each message of the batch. Then start it again with `orca orchestration check --ack <delivery ID> --wait --timeout-ms 3600000 --json`, which acknowledges the batch.
 
-- The watcher: call `bruh_info` for `plugin_root` and `data_dir`. Run the `Monitor` tool with the command `sh <plugin_root>/scripts/watcher.sh --data <data_dir>`. The watcher reads `repos.json` again before each poll, so a `repos_set` call takes effect without a restart. Each output line is an event of the code host: a new push, a reply, a red pipeline, or a merge. The watcher also writes each event to the report file of the clanker of its project, `reports/clanker-<project>.jsonl`, as a line with `from: watcher`. Read that file with `report_read` and the role key `clanker-<project>`.
-- Relay: read each event from the line of the `Monitor`, and update the rows of the project. When the clanker of the project must act, relay the event with the header `DONE: event <project>: <subject>` and the event line in the body: with `mail_post` and the nudge to a local clanker, and with `orca orchestration send --to dispatch:<dispatch ID> --subject "DONE: event <project>: <subject>" --type status --body "<event line>"` to a remote clanker.
-- The watcher skips a stored entry of `repos.json` with no `project`, and logs `<repo>: no project; bigm calls repos_set with project`. Then call `repos_set` again for that repository, with `project`.
-- Retire: when you stop the clanker of a project for good, call `repos_set` with `repo` and `remove: true` for each repository of that project, so that the watcher stops its polls. Do this before you delete its session row. Then call `session_tab_close` with `clanker-<project>`; an `orca_error` blocks nothing.
-- The Orca receive loop, when there are remote clankers: run `orca orchestration check --wait --timeout-ms 3600000 --json` as a background Bash command. When it returns, handle each message of the batch. Then start it again with `orca orchestration check --ack <delivery ID> --wait --timeout-ms 3600000 --json`, which acknowledges the batch.
+Record the task ID of the loop in the "State" section of your handoff.
 
-Record the task IDs of the watcher and the loop in the "State" section of your handoff.
+## Monitors
+
+A monitor wakes a role when an external state that its work waits on changes (spec 9.5). Monitors are for local roles only: a remote role starts none, and a remote clanker gets the events of its standing monitors through your relay.
+
+- When your own next step waits on such a state, call `monitor_start` with the source, the `project` of the work (you always pass it), and a one-line `reason`. Never wait with `sleep`, and never ask the same source again in a loop. Stop it with `monitor_stop` when the work no longer waits.
+- A `command` source needs a command grant in `grants.md`, by exact `argv` prefix (owner decision 2026-10-04, M6). Record a command grant only on an explicit grant of the owner, with the owner words, the date, and the question ID, as each other grant. When the owner withdraws it, delete the row: the poller stops each monitor that it covered.
+- `monitor_list` is the live source of the monitors. `monitors.md` is a copy that you rewrite at each sweep with `ledger_edit` (see "Sweep", step 9), and it can be one sweep out of date. The poller writes no line of the ledger.
 
 ## Remote clankers
 
@@ -305,7 +326,7 @@ You keep the lease table of the clankers. Each clanker keeps the table of its cl
 The ledger clerk `clerk-ledger` pushes the ledger. It is a clerk that you start in the ledger folder.
 
 1. If `session_list` shows a `clerk-ledger` session with no `pid` and a `state` that is not `failed` or `stopped`, resume it with `session_resume` (see "Idle clankers"). Start a new one only when `session_list` shows no session with the key `clerk-ledger`, or after "Failure handling" says so: call `role_settings_write` with `role_key` = `clerk-ledger`, write a start message with `mail_post` (header `START: ledger pushes`, body: the ledger branch from `git rev-parse --abbrev-ref HEAD`, the text of `priorities.md` and `rules.md`, and "Push the ledger branch after each commit message of bigm."), and call `session_launch` with `agent` = `clerk`, `role_key` = `clerk-ledger`, and `cwd` = the ledger folder.
-2. After each commit, send `DONE: ledger commit <short SHA>` to `clerk-ledger`.
+2. After each commit, send the header `DONE: ledger commit <short SHA>` to `clerk-ledger` with `SendMessage`: `nudge.header` of `ledger_edit`, or after a hand commit, the header that you posted with `mail_post`. When `session_list` shows `clerk-ledger` with no `pid`, call `session_resume` (step 1).
 3. Read its result with `report_read`. A push that it could not do is a question to you.
 
 ## Handoff
@@ -315,7 +336,7 @@ When a message tells you to update your handoff, call `handoff_write` at once. T
 1. Role and role key.
 2. Standing owner rules, word for word, with their tags.
 3. Goal.
-4. State: the mode, the sweep task ID and its creation time, the watcher and Orca loop task IDs, the Orca run ID, `last_batch`, and each clanker with its state.
+4. State: the mode, the sweep task ID and its creation time, the Orca loop task ID, the Orca run ID, `last_batch`, and each clanker with its state.
 5. Decisions.
 6. Waiting on the owner, with each question ID and each open item of `owed.md`.
 7. Waiting on others, with each exact ID (question ID, role key, lease).

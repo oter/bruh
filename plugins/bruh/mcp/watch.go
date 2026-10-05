@@ -1,6 +1,7 @@
 package main
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
@@ -13,6 +14,7 @@ import (
 	"regexp"
 	"slices"
 	"strings"
+	"syscall"
 	"time"
 )
 
@@ -59,10 +61,23 @@ type repoState struct {
 	Feeds      map[string]*feedState `json:"feeds"`       // issue_comments, review_comments, reviews
 	Merged     []int                 `json:"merged"`
 	LastError  string                `json:"last_error,omitempty"`
+	// Items is the cursor of a command or mcp source: item ID -> version. nil before the baseline.
+	Items map[string]string `json:"items,omitzero"`
+	// The last good read of the source key, which monitor_start returns for a shared key.
+	LastCall  string `json:"last_call,omitempty"`
+	LastValue string `json:"last_value,omitempty"`
+	LastAt    string `json:"last_at,omitempty"`
 }
 
 type watchEvent struct {
-	Type    string `json:"type"` // push, red, comment, review, merge, or error
+	// push, red, comment, review, merge (codehost); new, changed, gone (command, mcp); error; expired
+	Type    string `json:"type"`
+	Monitor string `json:"monitor,omitempty"` // the monitor ID of the subscriber
+	Key     string `json:"key,omitempty"`     // the source key
+	Subject string `json:"subject,omitempty"` // new, changed, gone: the title or the ID of the item
+	Item    string `json:"item,omitempty"`
+	Version string `json:"version,omitempty"`
+	Cause   string `json:"cause,omitempty"` // expired: until or grant
 	Repo    string `json:"repo"`
 	Project string `json:"project"`
 	Ref     string `json:"ref,omitempty"`
@@ -79,26 +94,69 @@ type watcher struct {
 	env    Env
 	out    io.Writer
 	errOut io.Writer // the log of skipped entries; runWatch sets os.Stderr
+	subs   []monitor // the monitors of the source key that is polled now
+	key    string
+	quiet  bool         // monitor_report: the report file only, no mail and no print
+	sent   []watchEvent // the events emitted, for monitor_report
 }
 
-// emit prints one report line and appends it to reports/clanker-<project>.jsonl, the report
-// file of the project of the event, in one write.
+// emit delivers one event to each monitor of w.subs that wants it (spec 9.5): one report line
+// with the monitor ID, appended once for each project to reports/clanker-<project>.jsonl; the
+// line as mail from bigm with the header DONE: event <project>: <text> to each local subscriber;
+// and the printed line, which reaches bigm as a notification of the plugin monitor, only for a
+// remote subscriber (bigm relays it through Orca) and once for an error.
 func (w *watcher) emit(ev watchEvent, text, call, value string) error {
-	if !projectRE.MatchString(ev.Project) {
-		return fmt.Errorf("invalid project of %s: %q", ev.Repo, ev.Project)
-	}
 	at := w.env.Stamp()
-	raw, _ := json.Marshal(ev)
-	line, _ := json.Marshal(ReportLine{At: at, From: "watcher", Kind: "event", Text: text, Source: &Source{Call: call, Value: value, At: at}, Event: raw})
-	line = append(line, '\n')
-	if _, err := w.out.Write(line); err != nil {
-		return err
+	ev.Key = w.key
+	reported := map[string]bool{}
+	printed := false
+	for _, m := range w.subs {
+		if !m.wants(ev) {
+			continue
+		}
+		e := ev
+		e.Monitor, e.Project = m.ID, cmp.Or(e.Project, m.Project)
+		if !projectRE.MatchString(e.Project) {
+			return fmt.Errorf("invalid project of %s: %q", cmp.Or(e.Repo, w.key), e.Project)
+		}
+		if len(reported) == 0 {
+			w.sent = append(w.sent, e)
+		}
+		raw, _ := json.Marshal(e)
+		line, _ := json.Marshal(ReportLine{At: at, From: "watcher", Kind: "event", Text: text, Source: &Source{Call: call, Value: value, At: at}, Event: raw})
+		line = append(line, '\n')
+		if !reported[e.Project] {
+			reported[e.Project] = true
+			if err := appendReport(w.env, e.Project, line); err != nil {
+				return err
+			}
+		}
+		if w.quiet {
+			continue
+		}
+		local := isLocal(w.env, m.Subscriber)
+		if local {
+			if _, err := writeMail(w.env, "bigm", m.Subscriber, eventHeader(e.Project, text), string(line[:len(line)-1])); err != nil {
+				return err
+			}
+		}
+		if !local || (e.Type == "error" && !printed) {
+			printed = true
+			if _, err := w.out.Write(line); err != nil {
+				return err
+			}
+		}
 	}
-	dir, err := w.env.Dir("reports")
+	return nil
+}
+
+// appendReport appends one line to reports/clanker-<project>.jsonl in one write.
+func appendReport(env Env, project string, line []byte) error {
+	dir, err := env.Dir("reports")
 	if err != nil {
 		return err
 	}
-	f, err := os.OpenFile(filepath.Join(dir, "clanker-"+ev.Project+".jsonl"), os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
+	f, err := os.OpenFile(filepath.Join(dir, "clanker-"+project+".jsonl"), os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
 	if err != nil {
 		return err
 	}
@@ -248,45 +306,211 @@ func loadWatchState(file string) (map[string]*repoState, error) {
 	return st, json.Unmarshal(raw, &st)
 }
 
-// pollAll polls each repository once and saves the state. An error of one repository is an
-// event (once for each new error text), and the other repositories are still polled.
+// pollAll is one loop of the poller (spec 9.5). It stops the monitors that expired or lost
+// their command grant, polls each codehost key of repos.json and each command key that is due,
+// once for all subscribers of the key, saves each cursor, prunes the cursors of keys with no
+// monitor, and writes watch/poller_at. An error of one key is an event (once for each new error
+// text), and the other keys are still polled.
 func (w *watcher) pollAll(ctx context.Context, cfg reposConfig, hosts []codeHost) error {
-	dir, err := w.env.Dir("watch")
+	file, err := watchFile(w.env)
 	if err != nil {
 		return err
 	}
-	file := filepath.Join(dir, "state.json")
+	grants, gerr := readCommandGrants(w.env)
+	if gerr != nil {
+		fmt.Fprintf(w.log(), "command grants: %v; command sources are not polled\n", gerr)
+	}
+	stored, err := w.stopMonitors(grants, gerr == nil)
+	if err != nil {
+		return err
+	}
+	groups := map[string][]monitor{}
+	for _, m := range append(standingMonitors(cfg), stored...) {
+		if m.Source.Kind != "mcp" {
+			groups[m.key()] = append(groups[m.key()], m)
+		}
+	}
 	state, err := loadWatchState(file)
 	if err != nil {
 		return err
 	}
-	for i, r := range cfg.Repos {
-		key := r.Host + ":" + r.Repo
+	poll := func(key string, call func(*repoState) error, errEv watchEvent, errText string, lastCall func() string) error {
+		w.subs, w.key = groups[key], key
 		st := state[key]
 		if st == nil {
 			st = &repoState{}
-			state[key] = st
 		}
-		if err := w.pollRepo(ctx, r, hosts[i], st); err != nil {
+		if err := call(st); err != nil {
 			if err.Error() != st.LastError {
 				st.LastError = err.Error()
-				if eerr := w.emit(watchEvent{Type: "error", Repo: r.Repo, Project: r.Project}, "watcher error on "+r.Repo+": "+err.Error(), hosts[i].LastCall(), "error"); eerr != nil {
+				if eerr := w.emit(errEv, errText+": "+err.Error(), lastCall(), "error"); eerr != nil {
 					return eerr
 				}
 			}
 		} else {
 			st.LastError = ""
 		}
-		raw, _ := json.MarshalIndent(state, "", "  ")
-		if err := atomicWrite(file, raw); err != nil {
+		return updateWatchState(w.env, func(s map[string]*repoState) error { s[key] = st; return nil })
+	}
+	for i, r := range cfg.Repos {
+		h := hosts[i]
+		err := poll(r.Host+":"+r.Repo, func(st *repoState) error {
+			if err := w.pollRepo(ctx, r, h, st); err != nil {
+				return err
+			}
+			st.LastCall, st.LastValue, st.LastAt = h.LastCall(), fmt.Sprintf("%d branches", len(st.Branches)), w.env.Stamp()
+			return nil
+		}, watchEvent{Type: "error", Repo: r.Repo, Project: r.Project}, "watcher error on "+r.Repo, h.LastCall)
+		if err != nil {
 			return err
 		}
 	}
-	return nil
+	every := time.Duration(max(cfg.IntervalSeconds, 60)) * time.Second
+	for _, key := range slices.Sorted(maps.Keys(groups)) {
+		src := groups[key][0].Source
+		if src.Kind != "command" || gerr != nil {
+			continue
+		}
+		if st := state[key]; st != nil && st.LastAt != "" && w.env.Now().Sub(parseStamp(st.LastAt)) < every {
+			continue
+		}
+		call := commandCall(src.Argv)
+		err := poll(key, func(st *repoState) error {
+			out, err := runCommand(ctx, src.Argv)
+			if err != nil {
+				return err
+			}
+			items, err := sourceItems(out, src)
+			if err != nil {
+				return err
+			}
+			return w.applyItems(st, items, call)
+		}, watchEvent{Type: "error"}, "monitor error on "+key, func() string { return call })
+		if err != nil {
+			return err
+		}
+	}
+	// Prune under the lock with a fresh read of the monitors, so that a cursor that
+	// monitor_start wrote after the read above stays.
+	err = updateWatchState(w.env, func(s map[string]*repoState) error {
+		live, err := loadMonitors(w.env)
+		if err != nil {
+			return err
+		}
+		repos, err := loadReposOrEmpty(w.env.DataDir)
+		if err != nil {
+			return err
+		}
+		keep := map[string]bool{}
+		for _, m := range slices.Concat(standingMonitors(cfg), standingMonitors(repos), live) {
+			keep[m.key()] = true
+		}
+		maps.DeleteFunc(s, func(k string, _ *repoState) bool { return !keep[k] })
+		return nil
+	})
+	if err != nil {
+		return err
+	}
+	dir, err := w.env.Dir("watch")
+	if err != nil {
+		return err
+	}
+	return atomicWrite(filepath.Join(dir, "poller_at"), []byte(w.env.Stamp()+"\n"))
 }
 
-// runWatch polls every interval_seconds until ctx ends, or once.
+func parseStamp(s string) time.Time {
+	t, _ := time.Parse(stampLayout, s)
+	return t
+}
+
+func (w *watcher) log() io.Writer {
+	if w.errOut == nil {
+		return os.Stderr
+	}
+	return w.errOut
+}
+
+// stopMonitors removes each stored monitor that is past its until, or whose command source
+// lost its grant (when the grants could be read), and sends one expired event for each. It
+// returns the stored monitors that stay.
+func (w *watcher) stopMonitors(grants [][]string, grantsRead bool) ([]monitor, error) {
+	type stop struct {
+		m     monitor
+		cause string
+	}
+	var stops []stop
+	var kept []monitor
+	err := w.env.WithLock("monitors", func() error {
+		all, err := loadMonitors(w.env)
+		if err != nil {
+			return err
+		}
+		now := w.env.Now()
+		for _, m := range all {
+			switch {
+			case m.expired(now):
+				stops = append(stops, stop{m, "until"})
+			case grantsRead && m.Source.Kind == "command" && !granted(grants, m.Source.Argv):
+				stops = append(stops, stop{m, "grant"})
+			default:
+				kept = append(kept, m)
+			}
+		}
+		if len(stops) == 0 {
+			return nil
+		}
+		return saveMonitors(w.env, kept)
+	})
+	if err != nil {
+		return nil, err
+	}
+	for _, s := range stops {
+		w.subs, w.key = []monitor{s.m}, s.m.key()
+		call, value := "monitors.json until", s.m.Until
+		if s.cause == "grant" {
+			call, value = "grants.md Command grants", "no grant for "+commandCall(s.m.Source.Argv)
+		}
+		ev := watchEvent{Type: "expired", Repo: s.m.Source.Repo, Project: s.m.Project, Cause: s.cause}
+		if err := w.emit(ev, fmt.Sprintf("monitor %s expired (%s): %s", s.m.ID, s.cause, s.m.Reason), call, value); err != nil {
+			return nil, err
+		}
+	}
+	return kept, nil
+}
+
+// lockPoller takes the poller lock for the life of the process, with no wait: one poller for
+// each machine (M2, M3). The kernel releases it when the process exits.
+func lockPoller(env Env) (release func(), ok bool, err error) {
+	locks, err := env.Dir("locks")
+	if err != nil {
+		return nil, false, err
+	}
+	f, err := os.OpenFile(filepath.Join(locks, "poller.lock"), os.O_RDWR|os.O_CREATE, 0o600)
+	if err != nil {
+		return nil, false, err
+	}
+	if err := syscall.Flock(int(f.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
+		f.Close()
+		if errors.Is(err, syscall.EWOULDBLOCK) {
+			return nil, false, nil
+		}
+		return nil, false, err
+	}
+	return func() { f.Close() }, true, nil
+}
+
+// runWatch polls every interval_seconds until ctx ends, or once. Another poller on the same
+// data folder makes it return at once.
 func runWatch(ctx context.Context, env Env, out io.Writer, once bool) error {
+	release, ok, err := lockPoller(env)
+	if err != nil {
+		return err
+	}
+	if !ok {
+		fmt.Fprintln(os.Stderr, "bruh: another poller runs for", env.DataDir)
+		return nil
+	}
+	defer release()
 	w := &watcher{env: env, out: out, errOut: os.Stderr}
 	if once {
 		return pollOnce(ctx, env, w)

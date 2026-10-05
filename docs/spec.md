@@ -49,6 +49,8 @@ Owner decision 2026-09-27: the four roles, their names, the spawn chain, the lif
 
 Premise changed: the role table of 2026-09-27 has four roles, and only a clerk starts a workflow. Version 0.6 adds the subagent `bruh:learner` (section 8.5). Dependent decisions re-decided: the learner is not a role, because the init session starts it with the Agent tool for one read of one project, it has no role key of its own, and it does no hands-on work; the table, the spawn chain, and the rule that only a clerk starts a workflow stay. Agent-derived, needs owner decision.
 
+Owner rule R-1 (2026-10-03) makes the scout clerk, a short-lived, read-only clerk (section 3.6.1). The owner said "you may spawn clerk scout/clerk scouts", so a scout is a kind of clerk, not a fifth role. Owner decision 2026-10-03. The table keeps its four roles and its spawn chain. Premise changed: the first build had bigm start scouts, as one more exception to "a clanker starts a clerk". The owner said on 2026-10-04 in the terminal, word for word: "okay maybe scout must be spawned by his lead? e.g. clanker? ". Dependent decision re-decided: the clanker of the project starts each scout, so a scout follows "a clanker starts a clerk" and is not an exception to the spawn chain (design.md, L52). Agent-derived, needs owner decision.
+
 Each role runs as a plugin agent: `--agent bruh:bigm`, `--agent bruh:clanker`, `--agent bruh:clerk`. The role instructions are then the system prompt, which reloads after compaction. In the setup of the owner, the "no hands" rule faded after compaction because it was only in the conversation. Agent-derived, accepted 2026-09-30. Verify: `--agent` accepts the namespaced name of a plugin agent.
 
 ### 3.1 Launch settings of every role
@@ -90,7 +92,7 @@ Each role has a stable role key: `bigm`, `clanker-<project>`, `clerk-<project>-<
   For remote work, bigm runs in an Orca terminal. A channel runs only when the session starts with `--channels`. Agent-derived, accepted 2026-09-30.
 - The start settings of bigm are `<ledger>/.claude/settings.json`, committed to the ledger repository. Owner decision 2026-10-02. The file has the key `agent` with the value `bruh:bigm`, the `env` values (`BRUH_ROLE_KEY=bigm` and the env of `defaults/role-settings.json`), and the deny rules of `defaults/role-settings.json`. It replaces `<plugin data folder>/roles/bigm.json`, so the full command has no `--settings`. Init writes the file (section 16). Agent-derived, accepted 2026-10-03.
   - Each session that starts in the ledger folder or in another clone of the ledger with no `--agent` and no `--setting-sources user` is bigm. Today only the machine of bigm has the ledger, because a remote clanker does not clone it. Agent-derived, accepted 2026-10-03.
-  - On the machine of bigm, a second `claude` in the ledger folder is a second bigm. It reads the mailbox of bigm with `mail_read`, starts a second sweep and a second watcher, and writes the handoff of bigm. So the owner runs one bigm at a time, and opens each other session in the ledger folder with `claude --setting-sources user`. Agent-derived, accepted 2026-10-03. The owner also runs `/bruh:init` from such a session, because `learn_scan` refuses a caller with a role key (section 16). Agent-derived, needs owner decision.
+  - On the machine of bigm, a second `claude` in the ledger folder is a second bigm. It reads the mailbox of bigm with `mail_read`, starts a second sweep (the poller lock of section 9.5 stops a second poller), and writes the handoff of bigm. So the owner runs one bigm at a time, and opens each other session in the ledger folder with `claude --setting-sources user`. Agent-derived, accepted 2026-10-03. The owner also runs `/bruh:init` from such a session, because `learn_scan` refuses a caller with a role key (section 16). Agent-derived, needs owner decision.
   - On a remote machine, init writes the same file into the stand-in ledger folder (README step 5). A plain `claude` in that folder is a bigm on the remote machine, so the owner does not start `claude` there. Agent-derived, accepted 2026-10-03.
   - The ledger clerk and a merger clerk start in the ledger folder with `--agent bruh:clerk` and their own `--settings`. Both flags rank above the project settings, so each stays a clerk with its own role key. Agent-derived, accepted 2026-10-03.
   - An agent name that does not exist gives a normal session with no warning (probe of 2026-10-02 with Claude Code 2.1.284). So the release smoke test checks the plain start (section 20). A missing role key is not silent: each bruh tool call fails with "BRUH_ROLE_KEY is not set", so the smoke test does not probe it. Agent-derived, accepted 2026-10-03.
@@ -101,6 +103,7 @@ Each role has a stable role key: `bigm`, `clanker-<project>`, `clerk-<project>-<
 - bigm is the only writer of the ledger, except the files of the learn step (section 8.5), which plugin code writes, and `.claude/settings.json`, which init writes (section 16). bigm commits after each change. The setup of the owner confirmed that one writer kept the ledger consistent. Agent-derived, accepted 2026-09-30. The exception for the learn step: owner decision 2026-10-02. bigm is also the only role that commits the files of the learn step: agent-derived, accepted 2026-10-03. The exception for `.claude/settings.json`: agent-derived, accepted 2026-10-03.
 - bigm runs the sweep of section 9.1 and reconciles all sessions at each sweep and at the start of each turn. Agent-derived, accepted 2026-09-30.
 - bigm answers status questions from the ledger. It reads the source again for each claim of principle 1. Agent-derived, accepted 2026-09-30.
+  - Premise changed: bigm read the sources of a project itself to answer, and owner rule R-1 forbids this: bigm does not gather the info of a project by hand (section 3.6.1). Owner decision 2026-10-03. Dependent decision re-decided: bigm asks the clanker of the project with `DONE: info request <subject>`, and answers from its reply `DONE: info <subject>`, with the ledger rows as context. The clanker gets the facts from its scouts. For each claim of principle 1, bigm runs again only the call of the source of that claim, just before it tells the owner, and reads nothing else of the project. The ledger, the index, and the files of the plugin data folder stay the reads of bigm. When the project has no running clanker, bigm starts or resumes it first. bigm never starts a scout. Agent-derived, needs owner decision (design.md, L52).
 - bigm keeps an "Owed to owner" list. Each ask of the owner, and each item that bigm owes the owner, goes on the list before bigm acts or relays. In the field run, two such items were lost. Agent-derived, accepted 2026-09-30.
 - bigm shows P0 and P1 questions to the owner in its terminal, and through a channel (section 12). Owner decision 2026-09-27 (terminal) and 2026-09-29 (channels).
 - bigm keeps the lease table of the clankers (section 8.4). Owner decision 2026-09-29.
@@ -130,6 +133,28 @@ Each role has a stable role key: `bigm`, `clanker-<project>`, `clerk-<project>-<
 - A clerk delivers a branch or a pull request. It merges only under a merge grant (section 8.3). Owner decision 2026-09-29.
 - A clerk reports the result with evidence: the branch or the pull request, the base SHA and the head SHA, the test counts of section 6.3, and the review findings. Agent-derived, accepted 2026-09-30.
 - A clerk stops when its task is done. The next task gets a new clerk. Owner decision 2026-09-27.
+
+#### 3.6.1 Scout clerk
+
+Owner rule R-1, 2026-10-03, in the terminal, after bigm read the git state, the code host, and the handoff docs of a project itself for a status question: "okay. bug report - you started mining info on your own. BUT you must not do that by hands, remember about clankers and clerks? for this specific thing you may spawn clerk scout/clerk scouts. i thin we have not covered that thing in ruling". Owner decision 2026-10-03: bigm does not gather the info of a project by hand, and scout clerks gather it. The owner said on 2026-10-04 in the terminal, word for word: "okay maybe scout must be spawned by his lead? e.g. clanker? ". So the clanker of the project starts each scout (design.md, L52). The items below are agent-derived, needs owner decision, except where tagged (design.md, L51 to L53).
+
+- A scout is a short-lived, read-only clerk. It reads the sources of a project for one question, and reports each fact with its source read. A scout is a clerk, not a fifth role (section 3). Owner decision 2026-10-03.
+- Who starts it: the clanker of the project, the lead of the scout. The owner said "okay maybe scout must be spawned by his lead? e.g. clanker? " (terminal, 2026-10-04). The clanker starts a scout for a read-only question of its own that needs no task, and for each `DONE: info request <subject>` of bigm. bigm never starts a scout. Agent-derived, needs owner decision.
+- How bigm asks: bigm sends `DONE: info request <subject>` to the clanker of the project, with each question as one item of the body. The clanker replies with `DONE: info <subject>`, with each claim and its source as one item. Both use the header `DONE: <subject>` of section 5, on edges that `mail_post` already accepts: from bigm to anyone, and from a clanker to its parent bigm. To and from a remote clanker, they go through Orca (section 4.2). When the project has no running clanker, bigm starts or resumes it first, as for a work request (section 3.4). bigm has no fallback that starts a scout. Agent-derived, needs owner decision.
+- Key: `clerk-<project>-scout<n>`, where `<n>` is one or more digits. The task names `scout` and `scout<n>` are reserved for scouts, as `merge` is for the merger clerk. The key gives `clanker-<project>` as the parent, and the rules of a clerk key apply: `role_settings_write` and `session_launch` accept only the parent. `session_resume` refuses every scout key: for the clanker because the key is a scout key, and for each other caller, bigm too, because the caller is not the parent.
+- Each key is used once. `role_settings_write` creates the settings file of a scout key only when no file exists, and else refuses and names the next free key. So a new scout reads no old mail and no old report lines. The clanker takes `<n>` = one more than the highest `<n>` of the scout keys of the project in `session_list`.
+- Folder: the main checkout of the repository of the question. For facts of the code host only, the main checkout of the main repository of the project. One scout reads one repository, and a question about more than one repository gets one scout for each repository. A scout gets no `allow`: `role_settings_write` accepts `allow` only for a clanker key, written by bigm.
+- Reads and runs: the `Read`, `Grep`, and `Glob` tools, and commands that change nothing: for example `git log`, `git show`, `git status`, `git diff`, `git rev-parse`, `git ls-remote`, the read commands of the code host tool, and `ls` or `cat`. A scout runs no build, test, gate, or script of the project, and no `git fetch` or `git remote update`, because these write the remote-tracking refs of the checkout. It uses `git ls-remote` for the state of a remote branch.
+- Mechanical stops (principle 2). Owner decision 2026-10-04: the stop for Bash writes is option 1, "Auto + deny rules": `auto` mode, the scout deny rules, and the checks of `report_write` and `session_resume` (design.md, L53).
+  - Deny rules that the MCP server adds to each scout settings file (`scoutDeny` in `mcp/roles.go`). The clanker cannot leave them out. The tool rules remove `Edit`, `Write`, `NotebookEdit`, `Workflow`, `EnterWorktree`, and the bruh tools that start or resume sessions or write role settings, leases, answers, questions, results, the repository list, and the init and learn files. These rules are stops for those tools.
+  - Deny rules for the usual Bash forms of writes, pushes, merges, and posts, for example `Bash(git push:*)`, `Bash(git fetch:*)`, `Bash(rm:*)`, `Bash(gh pr merge:*)`, and `Bash(gh api * -X *)`. The git rules cover each subcommand of `scoutGitWrites` in `mcp/roles.go`: `push`, `commit`, `add`, `rm`, `mv`, `merge`, `rebase`, `reset`, `checkout`, `switch`, `restore`, `stash`, `tag`, `worktree`, `clean`, `pull`, `fetch`, `apply`, `cherry-pick`, `revert`, `branch`, `remote`, `config`, `update-ref`, `symbolic-ref`, `update-index`, `read-tree`, `submodule`, `sparse-checkout`, `bisect`, `notes`, `replace`, `am`, `init`, `clone`, `gc`, `prune`, `repack`, `pack-refs`, `maintenance`, `filter-branch`, `format-patch`, `reflog expire`, and `reflog delete`. Each subcommand has the rules `Bash(git <subcommand>:*)`, `Bash(git -C * <subcommand>)`, and `Bash(git -C * <subcommand> *)`, because a scout writes its git calls as `git -C <repository path> ...`. `branch`, `remote`, `config`, and `symbolic-ref` also have read forms, and the rules stop these reads too. For these facts, a scout uses `git rev-parse --abbrev-ref HEAD`, `git for-each-ref`, `git ls-remote --get-url <remote>`, and `Read` of `.git/config`. A git write that is not on the list has only the rule of "Reads and runs" as its stop. These rules also stop a read whose text has the subcommand as a word after `-C <path>`, for example `git -C <path> log --grep push x`. A Bash deny rule matches only the command text, so these rules are speed bumps.
+  - A check in code: `report_write` refuses a line of a scout key without `source` with `call`, `value`, and `at`, and with `at` in RFC 3339. The `value` must be present and can be empty, because a read that finds nothing often prints nothing. The one line without a source is the event `<role key> not running; mail pending` of the mail procedure of a clerk, with a valid role key, which bigm reads at its sweep to resume the receiver.
+  - A check in code: `session_resume` refuses a scout key.
+  - Not built: a stop for every Bash write, with another permission mode or the sandbox for scouts. It changes the owner decision 2026-09-30 of section 3.1, and the owner chose option 1 on 2026-10-04.
+- Report: the scout writes each claim as one `report_write` line with kind `result` and the source read of principle 1: `call` (the command or the API call, with absolute paths, so that it runs again from any folder), `value` (the value that it returned), and `at` (a UTC time from `date -u`). For a fact that it cannot read, it writes `not found: <question>`, with one line for each read that it tried. Then it sends `DONE: scout <subject>` to its clanker, on the edge to the parent. The body has the claims as items, not a pointer to the report file. The clanker reads the claims with `report_read` and the scout key, and checks each status claim at its source (section 3.5, principle 1). For a request of bigm, the clanker sends the claims to bigm as `DONE: info <subject>`. A scout has no edge to bigm. `question_open` is denied to it, so it has no question ID for a P0, and `mail_post` refuses each post of a scout to bigm (`mailAllowed` in `mcp/mail.go`). When `session_list` shows its clanker with `waitingFor` equal to `permission prompt`, the scout opens no question: it writes the event `clanker-<project> at permission prompt; mail pending` with the source read of its `session_list` call, sends the nudge, and stops. A nudge cannot approve a prompt. The bigm sweep raises the P0 for the prompt of the clanker (section 15). Agent-derived, needs owner decision (design.md, L54).
+- End: after its `DONE`, the scout stops. One question gets one report, and a follow-up question gets a new scout. A scout is never resumed and never respawned. At a permission prompt or a classifier refusal, the scout stops at once, and when it can still act, it sends `DONE: scout <subject> refused` to its clanker with the command and the refusal. The clanker raises the P0 (principle 6), and no other session runs the refused command. A scout that failed or stopped without its `DONE` gets a new scout.
+- Cap: a scout does not count against `max_busy_clerks`, like the merger clerk and the ledger clerk in the cap count of the clanker (section 3.7). A scout lives for one question and starts no workflow agents, because `Workflow` is denied. Owner decision 2026-10-04, "Scouts do not count" (design.md, L53).
+- A project on a remote machine: the remote clanker starts the scout on its own machine, in a checkout there. It sends the claims to bigm with `orca orchestration send` and the subject `DONE: info <subject>`, because bigm cannot read the report file of a remote machine (section 4.2). When bigm cannot run the call of a status claim on its own machine, for example a path of the remote checkout, the claim is "unverified" (principle 1).
 
 ### 3.7 Concurrency
 
@@ -366,17 +391,18 @@ README.md
 mode.md               human or autonomous, and the runtime settings (section 11)
 priorities.md         P-level definitions, delegated P1 classes, and the never-without-the-owner list
 rules.md              standing owner rules, word for word, with dates
-grants.md             merge grants (section 8.3)
+grants.md             post grants, merge grants (section 8.3), and command grants (section 9.5)
 questions.md          open P1 questions, oldest first, with age and what they block
 owed.md               items owed to the owner, and asks of the owner
 leases.md             the lease table of the clankers (section 8.4)
+monitors.md           the active monitors, a copy of monitor_list (section 9.5)
 projects/<project>.md one file for each project
 learn/tree.json       the hierarchy (section 8.5)
 learn/projects/<key>.json  the index of each project (section 8.5)
 .claude/settings.json the start settings of bigm (section 3.4)
 ```
 
-Version 0.6 adds `learn/`: owner decision 2026-10-02. Version 0.6 adds `.claude/settings.json`: owner decision 2026-10-02.
+Version 0.6 adds `learn/`: owner decision 2026-10-02. Version 0.6 adds `.claude/settings.json`: owner decision 2026-10-02. `monitors.md`: owner decision 2026-10-04 (M7, section 9.5). The command grants of `grants.md`: owner decision 2026-10-04 (M6, section 9.5).
 
 ### 8.1 Project file
 
@@ -393,6 +419,7 @@ Sections: Summary; In progress; Merged; Live; Decisions; Sessions (role key, ses
 ### 8.2 Commits and pushes
 
 - bigm commits after each change to the ledger. Agent-derived, accepted 2026-09-30.
+- bigm changes a table row or a `key: value` line with `ledger_edit`, which commits only that file and writes the DONE mail to `clerk-ledger` (section 8.7). A rule section of `rules.md`, the sections "Summary" and "Decisions" of a project file, and the files of init and of the learn step keep the hand commit. Agent-derived, needs owner decision.
 - Clerks do all pushes. Owner decision 2026-09-30. The ledger clerk pushes the ledger after each commit of bigm. Agent-derived, accepted 2026-09-30.
 
 ### 8.3 Merges
@@ -608,8 +635,82 @@ Owner decision 2026-10-02 (delegated to the agent): the owner said "i want to av
 - The init skill updates the text above the first table of each ledger file, and the file `projects/_template.md`, to the text of the plugin version, and keeps each table row. The change is in the diff. So a ledger of version 0.5 gets the rules of this section. Premise changed: the init skill of version 0.5 never changed a ledger file that existed.
 - `rules.md` and `grants.md` hold the rules and the grants that apply now. When the owner retires a rule or withdraws a grant, bigm deletes it with `close rule` or `close grant`, and the commit body quotes the words of the owner. Premise changed: the ledger template said "Do not delete a rule; the owner retires it with a new rule".
 - Size check: at each sweep, `learn_refresh` also returns each Markdown file of the ledger that has more lines than `ledger_max_lines` in `mode.md`. bigm first deletes each row of a closed item that it missed. When the file still has more lines, bigm sends one P1 for that file, and no other P1 for it until the file is below the cap again. The P1 has the options "raise the cap", "I close items", and "keep it". No commit is refused, so bigm never stops. Version 0.6 has no `pre-commit` hook: a refused commit stops bigm, because bigm commits before it acts.
-- The size check counts each `*.md` file under the ledger, except the files under `.git/` and `learn/`. The number of lines of a file is the number of `\n` characters, plus 1 when the file does not end with `\n`. Agent-derived, needs owner decision.
+- The size check counts each `*.md` file at the top of the ledger folder and each `projects/*.md` file. It counts no file in another folder, such as `research/`, `learn/`, or `.git/`, because those files are not ledger state. The number of lines of a file is the number of `\n` characters, plus 1 when the file does not end with `\n`. Agent-derived, needs owner decision.
 - The details of this section, except the first paragraph, are agent-derived, accepted 2026-10-03. `ledger_max_lines` is a runtime setting with the default 300.
+
+### 8.7 Ledger tools
+
+Status: built (design.md, L55).
+
+bigm edited the tables of the ledger with a hand-written `python3` heredoc, then ran `git add` and `git commit`, and then sent a DONE message to `clerk-ledger`. After the owner saw this, the owner said in the terminal (2026-10-04T10:15:21Z): "maybe for this have a mcp functionality, so no need to craft commands every time ?". bigm wrote the task in its START message (2026-10-04T10:15:29Z):
+
+```text
+Today bigm changes the Markdown tables of the ledger (projects/<project>.md, owed.md, questions.md, leases.md, grants.md, rules.md) by crafting a new edit command each time, then commits by hand and sends "DONE: ledger commit <sha>" to clerk-ledger. Design bruh MCP tools that do this in one call: add a row, update cells of a row, and close a row (delete it with the commit subject "close <kind>: <subject>" and a body with the owner's words). The commit and the push message to clerk-ledger should be part of the tool. Times come from the server clock. Keep bigm the only writer of the ledger (only role key bigm may call the tools). Keep the ledger plain Markdown that a human can read and edit by hand. ... the design goes to the owner for review before you apply it, open choices go to me as P1 with OPTION lines, docs and code ship in one PR, and the change must be general for any developer who installs bruh.
+```
+
+The owner asked for a design first. The decision log is in design.md, L55. The item that stays open is in section 22, item 6.
+
+The owner answered the five open choices of the first design (owner answer, terminal, 2026-10-04T11:29:35Z, relayed by the clanker `clanker-bruh`): OC1 "One edit tool", OC2 "Nudge in output", OC3 "Refuse dirty target", OC4 "Rows and key lines", and OC5 "Tokens only". For OC1, the owner did not select the recommendation of the first design. Then the owner approved the fix plan of the review findings of the first design (owner approval of the fix plan, terminal, 2026-10-04T11:34:42Z, answer "Apply the plan"). That approval also settles the shape of the action `set_key`. At the build, the clanker `clanker-bruh` cut details of the design under the rule R-3 of the ledger of the owner ("do not overcomplicate bruh"). The cuts are not owner decisions (design.md, L55).
+
+Each decision bullet ends with one tag from the list at the top of this file. A bullet that starts with "Fact:" is not a decision and has no tag.
+
+#### Owner decisions
+
+- OC1: the ledger has one tool, `ledger_edit`. Its input `action` is `add`, `update`, `close`, or `set_key`. `add` adds one row at the end of a table. `update` changes the named cells of one row, and each other cell keeps its bytes. `close` deletes one row. `set_key` sets the value of one `key: value` line. Rejected: "Edit and commit tool", "Three row tools" (the recommendation of the first design), and "One tool for each file" (custom). Owner decision 2026-10-04.
+- OC2: `ledger_edit` writes the DONE mail to `clerk-ledger` and returns `nudge`. bigm sends the header of `nudge` with `SendMessage`, and calls `session_resume` when `clerk-ledger` has no `pid`. The MCP server cannot call `SendMessage`. Rejected: "Tool resumes the clerk", "Clerk watches its mailbox", and "Git hook" (custom). Owner decision 2026-10-04.
+- Clerks do all pushes (section 8.2), so `ledger_edit` never pushes. Owner decision 2026-09-30.
+- OC3: `ledger_edit` refuses a target file that has a change that is not committed, and commits only the target file. Each other changed file stays as it is. Rejected: "Refuse any dirty file" and "Add all". Owner decision 2026-10-04.
+- OC4: rows and key lines. A rule section of `rules.md`, and the sections "Summary" and "Decisions" of a project file, keep the hand procedure (an edit, a commit, and the DONE mail). Rejected: "Rows only" and "Rows, key lines, and rules". Owner decision 2026-10-04.
+- OC5: a time column accepts only `now`, `now+<duration>` (a Go duration, for example `now+30m`), `none`, or an empty cell. Each time comes from the server clock. Rejected: "Tokens or a stamp" and "Free text". Owner decision 2026-10-04.
+- The rows of `monitors.md` use the same generic table path as each other ledger table, with no special case. Owner decision 2026-10-04.
+- Only the role key `bigm` calls `ledger_edit`. Owner decision 2026-10-04. Fact: like the other role checks, it is a speed bump (SECURITY.md): a Bash command can set `BRUH_ROLE_KEY`. A hand edit of the owner stays allowed.
+- One cell-text rule applies to each action: split a row at the pipes that are not escaped, read `\|` as `|`, and remove only the spaces and the tabs at the two ends of each cell. No backtick is removed: the cell text of `` `a` and `b` `` is `` `a` and `b` ``, as in the file. So `ledger_edit` does not use `tableCells`. Owner decision 2026-10-04.
+- The output has the commit SHA, the cell texts of the row that the tool matched or wrote, and the nudge. With 0 matching rows, or with 2 or more, the tool writes nothing and returns the cell texts of the match columns of up to 10 candidate rows. Owner decision 2026-10-04.
+- Each close needs `words`. The body of a close has the line `Words:`, and then the words as a Markdown quote block: each line of the words gets the prefix `>` and one space. The message goes on the standard input, and `git commit` runs with `--cleanup=verbatim`. The tool refuses empty `words`, and `words` with a control character other than a newline and a tab. Owner decision 2026-10-04.
+- The tests have table-driven cell-text cases (`` `a` and `b` ``, `` `x` ``, `a | b` written as `a \| b`, a value with a space at an end, which is refused, and a non-ASCII text), each written with `add` and found again with `update` and `close`. A test reads a close back with `git log -1 --format=%B` and compares it byte for byte, for words with a newline, a double quote, a backtick, a line that starts with `#`, and spaces at the end of a line. Owner decision 2026-10-04.
+
+#### What the code does
+
+The code is `mcp/ledger.go`, and its tests are in `mcp/ledger_test.go`.
+
+| Input | Actions | Meaning |
+|---|---|---|
+| `action` | all | `add`, `update`, `close`, or `set_key`. |
+| `file` | all | The path of the ledger file, relative to the ledger folder. |
+| `table` | add, update, close | The text of the heading above the table. Optional when the file has one table. |
+| `match` | update, close | An object of header text to the exact cell text of the row. |
+| `cells` | add, update, set_key | For an add, each header of the table to its value. For an update, the changed cells. An empty string is an empty cell. For `set_key`, exactly one pair: the key and its new value. |
+| `kind` | add, update, close | One word, for example `task` or `question`. |
+| `subject` | all | The subject of the commit, one line. |
+| `words` | close | The words of the owner, word for word. In autonomous mode, the decision of bigm and its reasons (section 11). |
+| `source` | close | Where the words come from, one line: `terminal`, the channel and its thread, or the question ID. |
+| `decision_by` | close | `owner` or `bigm`. |
+
+- Order of the checks: the caller check first, before any file read or lock. Then the inputs: `subject` is one line with no control character; `kind` is one word; each value of `cells` and `match` is one line with no control character and no space or tab at either end; an add and an update need `cells`, an update and a close need `match`; the key of `set_key` matches `[a-z0-9_]+`; a close needs `words`, `source`, and `decision_by`. An input that the action does not use is ignored. Agent-derived, needs owner decision.
+- The file rule: `file` is an existing regular `*.md` file of the ledger folder (`ledger_path` of `<plugin data folder>/init/config.json`), not under `learn/`, `.git/`, or `.claude/`. An absolute path, a path with `..`, and a symbolic link are refused. The tool makes no new file. Agent-derived, needs owner decision.
+- `table` is the text of the nearest line above the header line that starts with `#`, without the `#` signs and the spaces at its two ends. A table is found with `isTableHeader` and `tableRows`, as init finds it. Two tables under the same heading, an empty header cell, or two header cells with the same text are an error. A column is named by the cell text of its header cell. Agent-derived, needs owner decision.
+- A row is written as `| <cell> | <cell> |`, with each `|` of a value written as `\|`. An add puts the new row after the last row of the table, with the line ending of the header line. An update replaces only the changed cells, so each other cell keeps its bytes. A missing cell of a short row reads as empty, and an update adds the cells up to the changed column. A close deletes the row line. Each other byte of the file stays the same: the line endings (LF or CRLF), and a missing last newline too. Agent-derived, needs owner decision.
+- `match`: each value is compared byte for byte with the cell text. Exactly one data row must match each pair. With any other count, the error has `count` and `candidates` as JSON: the match-column cell texts of the first 10 data rows when no row matches, or of the first 10 matching rows. An unknown column is an error. Agent-derived, needs owner decision.
+- `set_key`: exactly one line outside the fenced code blocks starts with `<key>:` and one space. The tool replaces only the text after it. With 0 lines, or with 2 or more, it writes nothing and returns the count. `now` and `now+<duration>` give the server time, and each other value is written as given. Agent-derived, needs owner decision.
+- A column whose header text ends with `(UTC)` is a time column. The tool writes a time of the server clock (`Env.Now`) in the layout `2006-01-02T15:04:05Z`, the layout of `date -u +%Y-%m-%dT%H:%M:%SZ`. A time inside a free-text cell is not checked. Agent-derived, needs owner decision.
+- The output is `sha` (the full SHA), `row`, and `nudge`. `row` maps each header to the cell text of the row as read back after the write. For a close, it is the deleted row. For `set_key`, it is the key and its value. `nudge` is `{to: "clerk-ledger", header: "DONE: ledger commit <short SHA>"}`. Agent-derived, needs owner decision.
+- The tool holds the lock `ledger` (`Env.WithLock`) from the dirty check to the end of the mail. It runs `git` only in the ledger folder, with `--literal-pathspecs`: `status --porcelain -- <file>` (any output, also an untracked file, is a dirty target), then `commit --only --cleanup=verbatim -F - -- <file>` with the message on the standard input, then `rev-parse`. It writes the file with `atomicWrite` and keeps its file mode. Agent-derived, needs owner decision.
+- The subjects are those of section 8.6: `add <kind>: <subject>`, `update <kind>: <subject>`, `close <kind>: <subject>`, and `set <key>: <subject>`. The body of an add, an update, and a `set_key` is the line `Recorded (UTC): <server time>`. The body of a close is below. An empty line of the words is the line `>`. `<date>` is the UTC date of the server clock, and the tag is `bigm decision <date>` when `decision_by` is `bigm`. Agent-derived, needs owner decision.
+
+  ```text
+  Words:
+  > <line 1 of the words>
+  > <line 2 of the words>
+  Source: <source>
+  Recorded (UTC): <server time>
+  Tag: owner decision <date>
+  ```
+
+- When the commit fails, for example when a hook refuses it, the tool writes the old bytes back, runs `git reset -q -- <file>` (the target was clean, so its index entry was `HEAD`), and returns the output of `git`. Agent-derived, needs owner decision.
+- After the commit, the tool writes the mail with the code of `mail_post`: from `bigm` to `clerk-ledger`, with the header `DONE: ledger commit <short SHA>`, and a body with the full SHA, the subject, and the file. When the mail fails, the commit stays, and the error has the SHA and tells bigm to post the DONE mail with `mail_post`. Agent-derived, needs owner decision.
+- Each refusal writes nothing and makes no commit. The tool retries no step. Each call reads the file again, so a hand edit between two calls stays. Agent-derived, needs owner decision.
+- The tests use a temporary git ledger with the global and system git config off, and fail when `git` is missing: one round trip of each action (with the exact subject, the mail, the nudge, a CRLF file with no last newline, and another staged file that stays out of the commit), the cell-text cases and the close body of the owner decisions above, the refused words, a match error with 0, 2, and 12 matching rows, a dirty target, the caller check, the time tokens, a failing `pre-commit` hook, and the file rule. Agent-derived, needs owner decision.
+- The dependents change in the same pull request: agents/bigm.md, sections 8.2 and 10.1, SECURITY.md, README.md, the ledger template `README.md`, docs/flow.md, and CHANGELOG.md. An existing install runs `/bruh:init` again to allow the tool. Agent-derived, needs owner decision.
 
 ## 9. Loops
 
@@ -619,7 +720,8 @@ Agent-derived, accepted 2026-09-30.
 
 - bigm runs the sweep as a recurring `CronCreate` task every 15 minutes, and a message wakes it sooner. `CronCreate` tasks are restored on resume. A recurring task expires after 7 days, so bigm creates it again every 6 days.
 - The sweep reads all report files, reconciles `claude agents --json --all` and Orca `worker-list`, reads the source for each row past its next check, sends the P1 batch when it is due, and updates the ledger.
-- A `Monitor`, a background command, and a self-paced `/loop` are not restored on resume. So on a resume, bigm starts the watcher (section 9.2) and the Orca receive loop again. In the setup of the owner, the sweep loop died on a usage limit, and nobody restarted it.
+- A `Monitor`, a background command, and a self-paced `/loop` are not restored on resume. So on a resume, bigm starts the Orca receive loop again. In the setup of the owner, the sweep loop died on a usage limit, and nobody restarted it. The poller of section 9.2 is a plugin monitor, which starts with the session, so bigm does not start it (owner decision 2026-10-04, M2, section 9.5).
+- At each sweep, bigm calls `monitor_list`. When `poller_down` is true, it shows "poller down" under "Waiting on you" (section 9.4), with `/reload-plugins` as the step that starts the poller again. It calls `monitor_stop` for each monitor of a retired role, and rewrites the rows of `monitors.md` from `monitor_list` with `ledger_edit` (section 9.5, part h). Agent-derived, needs owner decision.
 - Verify: `CronCreate` tasks run in an interactive bigm while the owner is away from the terminal.
 - At each sweep, bigm calls `learn_refresh` (section 8.5) and commits a change of the files of the learn step. Owner decision 2026-10-02: the refresh at each sweep. Agent-derived, accepted 2026-10-03: the tool and the commit.
 - The refresh makes no model call and starts no agent (owner decision 2026-10-02). The commit of a refresh names each doc pointer that changed its `gone` state (section 8.5). Agent-derived, needs owner decision.
@@ -628,13 +730,14 @@ Agent-derived, accepted 2026-09-30.
 
 Agent-derived, accepted 2026-09-30.
 
-- A plugin script, run by a background `Monitor` in bigm, watches the code host for events of the projects: new pushes, replies, red pipelines, merges. It writes each event to the report file of the project of the event, not to one shared file. Owner decision 2026-10-03. In the setup of the owner, sessions reviewed a change, left comments, and then did nothing more until a watcher was added.
+- A plugin script watches the code host for events of the projects: new pushes, replies, red pipelines, merges. It writes each event to the report file of the project of the event, not to one shared file. Owner decision 2026-10-03. In the setup of the owner, sessions reviewed a change, left comments, and then did nothing more until a watcher was added.
+- The watcher is the poller of section 9.5, with the source kind `codehost`, and each repository of `repos_set` is a standing monitor of the clanker of its project: owner decision 2026-10-04 (M8). The poller runs in the plugin monitor `bruh-poller` of bigm (`monitors/monitors.json` starts `scripts/watcher.sh`), not in a `Monitor` tool watch: owner decision 2026-10-04 (M2).
 - The details below are agent-derived, needs owner decision:
-  - The report file of a project is `<plugin data folder>/reports/clanker-<project>.jsonl`, the report file of its clanker. `<project>` is the project of the repository in `repos_set`. `mcp/watch.go` writes the one file `reports/watcher.jsonl` today, so the code changes.
+  - The report file of a project is `<plugin data folder>/reports/clanker-<project>.jsonl`, the report file of its clanker. `<project>` is the project of the repository in `repos_set`.
   - `repos_set` requires `project` for each repository, and checks it with the project grammar of a role key (`projectRE`, section 3.2). The watcher skips a stored entry with no `project` and logs it, and bigm calls `repos_set` again for that repository.
   - The watcher and `report_write` append whole lines with one write each to a file that is open with `O_APPEND`, so no lock is necessary.
-  - One rule for the events: bigm reads each event from the line of the `Monitor`. When the clanker of the project must act, bigm relays the event to it: with `mail_post` for a local clanker, and with Orca `send` for a remote clanker (section 4.2). The relay has the header `DONE: event <project>: <subject>`. At each sweep, bigm reads the report files with `since` only to find lines that the `Monitor` missed (section 9.1). `report_read` has no role key `watcher`.
-  - When bigm retires the clanker of a project, it removes the repositories of that project from `repos_set`, so that the watcher stops its polls of them.
+  - One rule for the events: the poller puts each event into the mailbox of each local subscriber, from `bigm`, with the header `DONE: event <project>: <subject>` and the event line in the body, so a local clanker gets the events of its standing monitors with no relay. The poller prints the event line, which reaches bigm as a notification of the plugin monitor, only for a remote subscriber and once for an `error` event. bigm relays each printed event of a remote clanker with Orca `send` and the same header (section 4.2). At each sweep, bigm reads the report files with `since` only to find events of remote clankers that it did not relay (section 9.1). `report_read` has no role key `watcher`.
+  - When bigm retires the clanker of a project, it removes the repositories of that project from `repos_set`, so that the poller stops its polls of them and their standing monitors end.
 - An agent marks each post it makes with a structural marker, so that the watcher separates agent posts from human posts by structure, not by wording.
 - The merge train refuses a stored entry of `repos_set` with no `project`, with the same log text as the watcher, so that no merge runs without a project for the identity check. Agent-derived, needs owner decision.
 - `repos_set` keys each entry by `repo` only, and refuses the same `repo` with another `api_url`, so bigm removes the old entry first. Agent-derived, needs owner decision.
@@ -651,6 +754,157 @@ Agent-derived, accepted 2026-09-30.
 - bigm reports status in three parts: "Ready for you", "Waiting on you", "In progress". Commands that the owner must run are in code blocks, never "see above". The setup of the owner used this form.
 - The status cadence is a runtime setting in `mode.md`: report only on change, or always.
 
+### 9.5 Monitors
+
+Status: Built 2026-10-04.
+
+Owner decision 2026-10-04: a role starts a monitor on demand for each external state that its work depends on, and the mechanism is general, for each developer who installs bruh. The examples of the owner (a push, a task tracker, team work in another system) show the range only. bruh does not hard-code them. The words of the owner are in design.md, L56.
+
+The verified facts for this section are in knowledge.md, "Monitors, background tasks, and event delivery". The owner decided the choices M1 to M9 on 2026-10-04, and part k lists them. The rejected options and their reasons are in design.md, L56. Part k also lists the decisions of the build that are not owner decisions: the limit to local roles (bigm, Q-bruh-maksyms-macbook-pro-56), and the cuts of the clanker of the bruh project under RULE R-3. Each decision bullet carries its tag. Section 22, item 7, lists the agent-derived items of this section.
+
+Terms:
+
+- Monitor: one subscription. It has a source, a subscriber, a project, a reason, and an expiry (`until`).
+- Source: the description of one external state, as data (part b).
+- Source key: the canonical identity of a source. Monitors with the same source key share one poll and one cursor.
+- Subscriber: the role key that gets the events of the monitor. The subscriber owns the monitor.
+- Poller: the process that polls the sources and delivers the events (`scripts/watcher.sh`, `mcp/watch.go`).
+- Waiter: the hook script that wakes the session of a subscriber on new mail (`scripts/wake.sh`).
+- Event: one change of a source, as one JSON line.
+
+#### a. Who starts a monitor
+
+- Each local role can start a monitor: bigm, a clanker, or a clerk. The subscriber is the caller. Agent-derived, needs owner decision.
+- The general trigger: the next step of the role waits on a state outside its session, and that state can change without an action of the role. Examples, as categories only: the result of checks after a push, a reply of a person in another system, the state of a task that the role took from a tracker, and the progress of work of others in a shared system. Agent-derived, needs owner decision.
+- A role does not wait with `sleep`, and does not ask the same source again in a loop. Each such wait becomes a monitor. The agent files of bigm, the clanker, and the clerk carry this rule. It has no mechanical stop yet: a deny rule in the role settings is a follow-up. Agent-derived, needs owner decision.
+- The MCP tool `monitor_start` takes `source`, `reason` (one line), the optional `project`, and the optional `hours`. The expiry is the clock of the MCP server plus `hours`, so the model writes no time. It returns `id` (`m-` and 8 random characters), `key`, `until`, `shared` (true when another active monitor, standing or stored, has the same source key), and `source`, the source read of principle 1 (`call`, `value`, `at`). Agent-derived, needs owner decision.
+- The baseline: when the source key has no cursor yet, `monitor_start` polls once (a `codehost` source with the poll code of section 9.2, a `command` source with one run), stores the result as the cursor, and returns its source read. A key that has a cursor returns the last stored read. An `mcp` source has no baseline at the start: its first `monitor_report` is the baseline. After the baseline, events are changes only. `monitor_start` stores the monitor before it writes the cursor, so the poller does not prune the new cursor. Agent-derived, needs owner decision.
+- `monitor_start` refuses a `codehost` or `command` source while `poller_down` is true (part e), with an error that says the poller runs only in the session of bigm on this machine. An `mcp` source is exempt, because its role polls it with `monitor_report`. Agent-derived, needs owner decision.
+- The project: a clanker or a clerk starts a monitor only for its own project, which is the default. bigm passes `project`. A `codehost` source takes the project of its entry in `repos.json`. Agent-derived, needs owner decision.
+- A workflow agent does not start a monitor, because a monitor outlives the run. It asks its clerk, and the clerk starts the monitor. Agent-derived, needs owner decision.
+- A monitor of a clerk at the end of its task: owner decision 2026-10-04 (M4, option 3). The clerk lists its monitors in its result, and the clanker decides for each one at the accept.
+- The form of M4: the result of the clerk (its `report_write` of the kind `result`) lists each monitor that `monitor_list` shows as active for the clerk: the monitor ID, the source key, the reason, and `until`. At the accept of the result, or when it gives up the task, the clanker stops each listed monitor with `monitor_stop`, or takes it over: it calls `monitor_start` with the same source, which shares the poll and the cursor of the same source key, and then stops the monitor of the clerk. Between the two calls, an event goes to both subscribers, so no event is lost. An `mcp` source has no shared poll, so the clanker starts its own poll for it. Agent-derived, needs owner decision.
+- Monitors are for local roles only. A remote role starts no monitor, because the one poller runs on the machine of bigm (M3). `monitor_start` refuses a `codehost` or `command` source while `poller_down` is true, and that is always the case on a machine without the poller of bigm. An `mcp` source is not checked, so the rule of the agent file of the clanker (a remote clanker starts none, and tells its clerks so in their start messages) covers only that gap. The standing monitors of a remote clanker stay on the machine of bigm, and bigm relays their events through Orca, as section 9.2 says. bigm decision 2026-10-04 (Q-bruh-maksyms-macbook-pro-56, under RULE R-4). Agent-derived, needs owner decision.
+
+#### b. What a monitor watches
+
+- Plugin code stores each monitor in `<plugin data folder>/monitors.json` (principle 3), under a file lock. The poller reads the file again before each loop, as it reads `repos.json`. `monitors.json` is the source of truth for the poller and for each role. Agent-derived, needs owner decision.
+- A source has a closed schema: `kind` and the keys of that kind only. An unknown key, or a key of another kind, is an error. There are three kinds (R-3 cut 1: no `http` kind; an HTTP API is polled through a granted CLI). Agent-derived, needs owner decision.
+  - `codehost` `{repo, ref?, number?}`: a repository of `repos_set` with a project. `monitor_start` refuses a repository that is not there ("bigm calls repos_set"), and copies `host` and `api_url` from the entry; the caller cannot pass them. The events are the events of section 9.2: push, red checks, comment, review, and merge. With `ref` or `number`, the monitor gets only the events of that branch or that pull request, and each `error` and `expired` event. A `codehost` monitor gets events only while its repository is in `repos.json`.
+  - `command` `{argv, items, id, version, title?}`: a read-only CLI that prints JSON. `argv` is an array, run with no shell, with a time limit of 30 seconds and at most 1 MiB of standard output. The CLI keeps its own login.
+  - `mcp` `{server, tool, args?, items, id, version, title?}`: a tool of an MCP server in the session of the subscriber. The role polls it, not the poller (M5, below).
+- `items` is a JSON pointer (RFC 6901) to an array, or `""` for the root. `id` and `version` are pointers into each item, and the optional `title` is a pointer to a text for the subject. A value is a string as it is, or else compact JSON. Each item needs a non-empty and unique ID; else the read is an error. Code emits `new` for a new ID, `changed` for a new version, and `gone` for an ID that is not there any more, and the subject is the title or else the ID. A result that is a JSON string (the text of an MCP tool result) is decoded once more. These rules use structure and exact values only, never the meaning of words (the owner rule against regex classifiers). Agent-derived, needs owner decision.
+- The source key is `<host>:<repo>` for `codehost`, the state key of the watcher, so an upgrade needs no new baseline, and `ref` and `number` are filters, not parts of the key. It is `command:` with the first 16 hex characters of the SHA-256 of the `argv` and the pointers, and `mcp:<monitor ID>`, because a source of the kind `mcp` has no shared poll. Agent-derived, needs owner decision.
+- Examples use placeholders only: `owner/repo` and `["tracker-cli", "list", "--json"]` for an issue tracker CLI. bruh names no tracker and no code host product as a built-in case. Agent-derived, needs owner decision.
+- A system that has only an MCP server: owner decision 2026-10-04 (M5, option 1). The role polls it with a `CronCreate` task, and reports each result with the MCP tool `monitor_report`.
+- The details of M5, each agent-derived, needs owner decision:
+  - `monitor_start` records a source of the kind `mcp` in `monitors.json` with its expiry, so that `monitor_list` and `monitors.md` (part h) show it. The poller does not poll it.
+  - The subscriber creates one recurring `CronCreate` task for the monitor. At each fire, the task calls the tool with `args`, and gives the result as it is to `monitor_report` with the monitor ID. Each fire costs one turn of the subscriber.
+  - `monitor_report` applies the pointers of the source and keeps the cursor in `watch/state.json`. The first call is the baseline and returns `{baseline: true, items: <n>}`. Each later call returns the events and writes each event to the report file of the project. The subscriber has the events in the result of the call, so no mail goes to it. The source read of each event names the MCP server and the tool.
+  - `monitor_report` refuses a caller that is not the subscriber, a monitor of another kind, and a monitor that is stopped or past its `until`.
+  - At `monitor_stop`, or at the `expired` event, the subscriber deletes its task with `CronDelete`.
+- A `command` source runs a program outside the Bash permission rules, because the poller starts it and not the Bash tool. Owner decision 2026-10-04 (M6, option 1): a command grant in `grants.md`, by exact `argv` prefix. The owner approves a CLI with its fixed first arguments, and bigm records it in `grants.md`, as a merge grant or a post grant (sections 8.3 and 13).
+- The check of M6 in code: the first cell of each row of the section "Command grants" of `grants.md` is a JSON array of strings, the prefix; a row that does not parse never matches. A `command` source is accepted only when its first `argv` elements are equal, one by one and byte for byte, to a prefix. So the grant `["tracker-cli", "list"]` accepts `["tracker-cli", "list", "--json"]`, and refuses `["tracker-cli", "listx"]` and `["tracker-cli"]`. With no ledger, nothing is granted. `monitor_start` checks it, and the poller reads the grants again at each loop and stops a monitor whose grant is gone with an `expired` event with the cause `grant`. When `grants.md` cannot be read, the poller polls no `command` key in that loop. Agent-derived, needs owner decision.
+
+#### c. How events reach the role
+
+- Durable first, as section 5 says for messages. Each event is one report line (`from: watcher`, `kind: event`, the source read of principle 1, and the event), with the monitor ID and the source key of its subscriber. The poller appends the line once for each project to `reports/clanker-<project>.jsonl` (owner decision 2026-10-03, section 9.2), and puts it into the mailbox of each local subscriber, with the existing header `DONE: event <project>: <subject>` and the line as the body. One inbox for each role and one read tool (`mail_read`), so the rule of bigm for idle roles (resume a role that has unread mail at each sweep) covers events too. Agent-derived, needs owner decision.
+- A local subscriber is bigm, or a role key that has a role settings file `<plugin data folder>/roles/<role key>.json` on this machine; a remote clanker writes its role settings on its own machine. The header is cleaned of control characters and cut to the 200 characters that the mailbox accepts. Agent-derived, needs owner decision.
+- The poller writes the mail with the sender `bigm`, because it runs in the plugin monitor of bigm (owner decision 2026-10-04, M2, option 1), and the mailbox allows a post from `bigm` to each role (`mail.go`). Agent-derived, needs owner decision.
+- The event adds no new header. Its fields: `type` (`push`, `red`, `comment`, `review`, `merge`, `new`, `changed`, `gone`, `error`, or `expired`), `monitor`, `key`, `project`, the optional `subject`, `item`, and `version` of an item, the fields of a code host event of section 9.2, and `cause` (`until` or `grant`) of an `expired` event. Agent-derived, needs owner decision.
+- One poller on the machine of bigm serves all subscribers: owner decision 2026-10-04 (M3, option 1).
+- The poller prints an event line, which reaches bigm as a notification of the plugin monitor, only for a remote subscriber (a remote clanker with its standing monitors, which bigm relays through Orca as section 9.2 says) and once for an `error` event, so that events of local roles cost no context of bigm. Agent-derived, needs owner decision.
+- The wake of the subscriber session: owner decision 2026-10-04 (M1, option 1), an `asyncRewake` hook. Part e describes the waiter.
+
+#### d. Lifetime, expiry, and stop
+
+- Each monitor that a role starts has an expiry: `until` is the clock of the MCP server plus `hours`. When the caller gives no `hours`, it is `monitor_default_hours` of `mode.md`, and `monitor_start` refuses more than `monitor_max_hours`. Both are runtime settings of `mode.md` (section 11), read at each call, with the defaults when the ledger or the line is missing. Agent-derived, needs owner decision.
+- The default values: `monitor_default_hours` 24, `monitor_max_hours` 168, and `monitor_max_active` 20 (part g). Owner decision 2026-10-04 (M9, option 1).
+- A standing monitor has no `until`: the codehost monitors of a clanker (part i) end when bigm removes their repositories with `repos_set` and `remove: true`, and `monitor_stop` refuses them. Agent-derived, needs owner decision.
+- At the first loop past `until`, the poller removes the monitor and sends one `expired` event with the cause `until` to the subscriber, so that the role can start it again when its work still needs it. The monitor is gone, so no second event follows. Agent-derived, needs owner decision.
+- The subscriber stops its monitor with `monitor_stop` when its work no longer waits on the source. The parent of the subscriber and bigm can also stop it. Agent-derived, needs owner decision.
+- At the end of each loop, the poller deletes the cursor of each source key that has no monitor left, so a shared key keeps its poll and its cursor while one monitor of it is left. Agent-derived, needs owner decision.
+- At each sweep, bigm calls `monitor_stop` for each monitor whose subscriber is a retired role (section 8.6). It is the net for a monitor of a retired clerk that its result did not list (M4). Agent-derived, needs owner decision.
+
+#### e. The waiter, and the re-arm after a resume or a compaction
+
+- The monitors are data in the plugin data folder, and the cursor of each source key is in `watch/state.json`. So the poller keeps its polls while a subscriber session is down, and the events wait in the mailbox. No event is lost. Agent-derived, needs owner decision.
+- The handoff of each role lists the ID of each active monitor in "Waiting on others" (section 7). After a pickup, the role calls `monitor_list` as the live source before it acts, and never reads `monitors.md`, which can be one sweep out of date (part h). Agent-derived, needs owner decision.
+- The wake and its re-arm: owner decision 2026-10-04 (M1, option 1). A `SessionStart` hook with the matcher `startup|resume|compact` starts the waiter of the role key, and the `Stop` hook starts a new waiter at the end of each turn. Both are separate entries of `hooks/hooks.json` that run `scripts/wake.sh` with `asyncRewake: true` and `timeout: 3600`.
+- The waiter in code: it exits 0 at once when `BRUH_ROLE_KEY` or `CLAUDE_PLUGIN_DATA` is not set, or when the role key is not a key. It writes its PID to `<plugin data folder>/wake/<role key>.pid`, and at each poll (every `BRUH_WAKE_POLL` seconds, 2 by default) it exits 0 in silence when that file names another waiter. So the newest waiter replaces the older one, one waiter for each role key, with no kill. New mail is a `*.json` file in `mail/<role key>/` whose name is not in `wake/<role key>.seen`. On new mail, the waiter writes the names of the mailbox to that file, prints `bruh: new mail for <role key>. Call mail_read.` on standard error, and exits 2, which wakes the session. After `BRUH_WAKE_SECONDS` (3300 by default), before the hook timeout, it prints `bruh: no new mail for <role key>.` and exits 2. Agent-derived, needs owner decision.
+- The `Stop` hook also re-arms after the other kinds of session start (`clear`, and `fork`, which also fires when a conversation moves to the background), at the end of the first turn. So the matcher list stays as M1 says. Agent-derived, needs owner decision.
+- A `CronCreate` task of a source of the kind `mcp` needs no re-arm: Claude Code restores it on `--resume` and `--continue` (knowledge.md). A recurring task expires after 7 days, which is equal to `monitor_max_hours`. Agent-derived, needs owner decision.
+- The poller is a plugin monitor of bigm (M2). The docs say that a plugin monitor starts at session start and on `/reload-plugins`, and do not say if `--resume` or `--continue` starts it again. So `monitor_list` returns `poller_at`, the time of the last poll loop from `<plugin data folder>/watch/poller_at`, and `poller_down`, which code computes: the file is missing, or older than 3 times `interval_seconds` of `repos.json`. At each sweep, when `poller_down` is true, bigm shows "poller down" under "Waiting on you" of its status report (section 9.4), with `/reload-plugins` as the step that starts the poller again. This catches a poller that did not start again after a resume. Agent-derived, needs owner decision.
+
+#### f. Credentials and identity
+
+Owner decision 2026-09-29 (section 13): a read-only token read inside a process is allowed, and bruh never moves or copies a credential.
+
+- `codehost`: the token rules of today (`hostToken` in `codehost.go`), and `glab api` for that host kind, so that the CLI keeps the login. The use of `glab api`: owner decision 2026-10-02 (design.md, L18). The use of these rules for monitors: agent-derived, needs owner decision.
+- `command`: bruh passes no token. The CLI uses its own login. Agent-derived, needs owner decision.
+- `mcp`: bruh passes no token. The MCP server keeps its own login in the session of the subscriber. Agent-derived, needs owner decision.
+- A monitor makes no write. So the identity check before the first write (section 13) does not apply. Agent-derived, needs owner decision.
+
+#### g. Rate limits and shared polling
+
+- One poll for each source key, shared by all its subscribers. Each subscriber gets each event. Agent-derived, needs owner decision.
+- The poller polls each `codehost` key at each loop, every `interval_seconds` of `repos.json` (default 60 seconds, at least 10, as section 9.2 does), and each `command` key at most once in `interval_seconds` or 60 seconds, whichever is longer. Agent-derived, needs owner decision.
+- One `error` event for each new error text of a source key, as the watcher did before (R-3 cut 4: no `Retry-After` and no doubling of the interval). A failed `command` (an exit code other than 0, a run over the limits, or output that is not JSON) is an error. Agent-derived, needs owner decision.
+- `monitor_max_active` of `mode.md` caps the active source keys of the machine, standing monitors and `mcp` keys included. `monitor_start` refuses a new source key past the cap with a clear error, and the role sends a P2 to its parent. Part d has the default. Agent-derived, needs owner decision.
+- One poller for each machine (M2, M3): `scripts/watcher.sh` exits 0 at once unless `BRUH_ROLE_KEY` is `bigm`, and the poller takes a non-blocking lock on `<plugin data folder>/locks/poller.lock` for the life of its process. A second poller, for example of a second bigm, prints one line on standard error and exits. Agent-derived, needs owner decision.
+
+#### h. How the ledger shows the active monitors
+
+Owner decision 2026-10-04 (M7, option 3): a separate ledger file, `monitors.md`.
+
+- L24 (owner decision 2026-10-02: bruh stores no live status) holds for the state of the external systems: `monitors.md` holds the subscriptions, never a polled value, a cursor, or an event. Agent-derived, needs owner decision.
+- `monitors.md` has one table, with one row for each active monitor: `| ID | Subscriber | Project | Source key | Reason | Until |`. The column is "Until", not "Until (UTC)", because its value is copied from `monitor_list` (a time from code, or `standing`), and `ledger_edit` accepts only `now` and `now+<duration>` in a column whose header ends with "(UTC)". Agent-derived, needs owner decision.
+- Writer: bigm, because bigm is the only writer of the ledger (section 8). At each sweep, bigm rewrites the rows from `monitor_list` with `ledger_edit` (task 3): it adds each new monitor, updates each changed row, and deletes the row of each monitor that is not in the list. `monitor_list` wins each difference, so a row is at most one sweep out of date. The poller prints no lifecycle lines (R-3 cut 5). Agent-derived, needs owner decision.
+- A deleted row uses the existing closed kind `waiting` of section 8.6, because a monitor is a wait on an outside state: `close waiting: <monitor ID> <source key>`. So the closed kind list of `ledger_edit` needs no new kind. Agent-derived, needs owner decision.
+- The size check of section 8.6 counts `monitors.md`, because it counts each Markdown file of the ledger. Agent-derived, needs owner decision.
+
+#### i. How the watcher of section 9.2 fits
+
+- The poller runs in the plugin monitor of M2, which has no deadline, and not in a `Monitor` tool watch of bigm, which stopped after at most 30 minutes (design.md, L56, F1): owner decision 2026-10-04 (M2, option 1).
+- The watcher: owner decision 2026-10-04 (M8, option 1), fold it in. The watcher is the poller, with the source kind `codehost`, and each repository of `repos_set` is a standing monitor of the clanker of its project.
+- A standing monitor is derived from `repos.json` at each read and is never stored: its ID is `standing:<host>:<repo>`, its subscriber is `clanker-<project>`, and it has no `until`. Agent-derived, needs owner decision.
+- So the rule of section 8.5 and L24 holds: bigm calls `repos_set` only when it starts a clanker, so a project with no clanker gets no polls and no events. The merge train keeps `repos.json` for its configuration. Agent-derived, needs owner decision.
+
+#### j. Tests
+
+- Go tests in `mcp/monitor_test.go`, with temporary data folders, a fake CLI that prints a JSON file and counts its runs, a fake clock, and a ledger fixture (R-3 cut 6). Agent-derived, needs owner decision.
+  - A shared poll: two subscribers of one `command` source cause one baseline run and one run for each due loop, and each subscriber gets each event.
+  - The baseline and the source read of `monitor_start`, then `new`, `changed`, and `gone` by nested JSON pointers (with the `~1` escape), with titles that mean nothing. A duplicate ID is one `error` event.
+  - The expiry: one `expired` event with the cause `until`, the monitor leaves `monitor_list`, and the next loop sends no second event and runs no command. `hours` over `monitor_max_hours` is refused, and `monitor_default_hours` applies, both read from `mode.md`.
+  - The command grant by exact `argv` prefix: `["tracker-cli", "list"]` accepts `[..., "--json"]` and refuses `listx`, a shorter `argv`, and a source with no grant or no ledger. A refused source does not run. A deleted grant row stops the monitor with the cause `grant`.
+  - The mailbox delivery: a local subscriber gets `DONE: event <project>: <subject>` with the line as the body, the report file gets the same line, a long title with a newline and a control character gives a header that the mailbox accepts, and a remote subscriber gets no mail and a printed line.
+  - The poller lock: a second `runWatch` returns at once while the first holds the lock, and polls nothing.
+  - `monitor_report`: the first call is the baseline, then the events, with no mail; a caller that is not the subscriber is refused, and so is a call past `until`.
+  - A standing monitor of `repos.json` is in `monitor_list` and `monitor_stop` refuses it; a `codehost` monitor with `ref` gets only the events of that branch; a repository outside `repos.json`, a key of another kind, and the kind `http` are refused.
+- `TestHooksJSON` checks the two waiter entries, and `TestMonitorsJSON` checks the plugin monitor against the strict keys of the docs, because `claude plugin validate` does not read the default file `monitors/monitors.json`. The watch tests of section 9.2 run unchanged through the standing monitors. Agent-derived, needs owner decision.
+- Script tests in `tests/test.sh`: the waiter exits 0 and writes no pid file without `BRUH_ROLE_KEY`; a second waiter of the same role key replaces the first, which exits 0; the waiter exits 2 on new mail of its role key and not on mail of another role key; mail that a waiter reported does not wake the next one; the waiter exits 2 with "no new mail" at its limit; `watcher.sh` exits 0 with no output and polls nothing without a role key and in a clanker. Agent-derived, needs owner decision.
+- The smoke step, documented and not run (R-3 cut 6): running it starts `claude` sessions, so it needs a P1 to the owner first. Steps: in the smoke home, grant a fake CLI in `grants.md`; a clerk starts a `command` monitor on it and goes idle; a change of the file that the fake CLI prints wakes the clerk within one poll interval, and it calls `mail_read`; after `claude stop` of the clerk and `session_resume`, the next change wakes it again; after a resume of bigm, `monitor_list` shows `poller_down` false (the restart that the docs do not state, part e). Agent-derived, needs owner decision.
+
+#### k. Decided choices
+
+The owner decided each choice on 2026-10-04 (terminal, a select, 2026-10-04T11:29:35Z). The rejected options and their reasons are in design.md, L56.
+
+- M1, the wake: an `asyncRewake` hook. A `Stop` hook and a `SessionStart` hook (`startup`, `resume`, `compact`) start a waiter for the role key, and the waiter exits 2 when the mailbox of the role gets new mail (part e). Owner decision 2026-10-04.
+- M2, the host of the poller: a plugin monitor of bigm. `monitors/monitors.json` starts `scripts/watcher.sh`, which polls only when `BRUH_ROLE_KEY` is `bigm`, and a lock keeps one poller on each machine (part g). Owner decision 2026-10-04.
+- M3, the topology: one poller on the machine of bigm for all subscribers (part c). Owner decision 2026-10-04.
+- M4, a monitor of a clerk at the end of its task: the clerk lists its active monitors in its result, and the clanker decides for each one at the accept: it stops it, or takes it over with `monitor_start` on the same source and then `monitor_stop` (part a). Owner decision 2026-10-04.
+- M5, a system that has only an MCP server: the role polls it with a `CronCreate` task, and gives each result to `monitor_report` (part b). Owner decision 2026-10-04.
+- M6, the approval of a `command` source: a command grant in `grants.md`, matched by exact `argv` prefix (part b). Owner decision 2026-10-04.
+- M7, the ledger view: a separate ledger file, `monitors.md` (part h). Owner decision 2026-10-04.
+- M8, the watcher of section 9.2: it becomes the poller with the kind `codehost`, and each repository of `repos_set` is a standing monitor of the clanker of its project (part i). Owner decision 2026-10-04.
+- M9, the defaults: `monitor_default_hours` 24, `monitor_max_hours` 168, and `monitor_max_active` 20, as runtime settings in `mode.md` (part d). Owner decision 2026-10-04.
+
+Decisions of the build that are not owner decisions. Each is agent-derived, needs owner decision:
+
+- Q-bruh-maksyms-macbook-pro-56, bigm decision 2026-10-04 under RULE R-4: monitors for local roles only (part a). The relay of section 9.2 for remote clankers keeps working.
+- bigm added on 2026-10-04 to M6: keep the command grant check strict, because no lease coupling exists (part b).
+- The cuts of the clanker of the bruh project under RULE R-3: (1) no `http` source kind; (2) no coupling of monitors and leases; (3) no remote subscriber path; (4) one `error` event for each new error text, with no `Retry-After` and no doubling of the interval; (5) bigm rewrites `monitors.md` from `monitor_list` at each sweep with `ledger_edit`, with no lifecycle lines from the poller; (6) the tests of part j, with one smoke step that is documented and not run.
+
 ## 10. Files, the MCP server, and environments
 
 ### 10.1 Files and the MCP server
@@ -660,6 +914,8 @@ Owner decision 2026-09-29: bruh keeps all its files in the plugin data folder `$
 The plugin ships a stdio MCP server written in Go with the standard library only. Claude Code starts it with `go run -C ${CLAUDE_PLUGIN_ROOT}/mcp .` and `GOTOOLCHAIN=local`, so the repository holds no binaries. Owner decision 2026-09-30. Its tools: `mail_post`, `mail_read`, `handoff_write`, `handoff_read`, `answer_write`, `answer_wait`, `report_write`, `role_settings_write`, `lease_request`, `lease_grant`, `lease_release`. It reads the role key of its caller from `BRUH_ROLE_KEY`. Agent-derived, accepted 2026-09-30. Verify: an MCP server started by a session gets the `env` values of its `--settings` file. Version 0.6 adds the tools `learn_scan` and `learn_refresh` (section 8.5; agent-derived, accepted 2026-10-03), the field `options` of `question_open` (section 14.2; owner decision 2026-10-02), and the input `allow` of `role_settings_write` (section 8.5; agent-derived, accepted 2026-10-03).
 
 The input and the output of `learn_scan` and `learn_refresh` are in section 8.5, "Schema". Agent-derived, needs owner decision.
+
+The tool `ledger_edit` (section 8.7) changes one row or one key line of a ledger file and commits it. The MCP server runs `git` only in the ledger folder, and never pushes. Agent-derived, needs owner decision.
 
 ### 10.2 Local and container
 
@@ -782,6 +1038,8 @@ Both branches write or merge `<ledger>/.claude/settings.json` in the same way as
 
 When a ledger file exists, init updates it with a rule for each file. `README.md` and `projects/_template.md` become the template, a `priorities.md` with no section "Never without the owner" becomes the default, `rules.md` gets the template text above its line `## Rules`, and each other file gets the template text with the values of its `key: value` lines and the data rows of its tables with the same header line (a table whose header line is not in the template goes to the end). Agent-derived, needs owner decision. Init does not change an existing `projects/<key>.md`, so a project file of version 0.5 keeps its section "Questions and answers". Agent-derived, needs owner decision.
 
+The ledger template has the parts of the monitors of section 9.5: the file `monitors.md` (owner decision 2026-10-04, M7), the table "Command grants" of `grants.md` (owner decision 2026-10-04, M6), and the keys `monitor_default_hours: 24`, `monitor_max_hours: 168`, and `monitor_max_active: 20` of `mode.md` (owner decision 2026-10-04, M9). A later run of init adds them to an existing ledger with the rules above: a new file from the template, the new table after the tables of the template, and each new key with its template value. The table "Command grants" comes before "Merge grants", so the merge grants table stays the last part of `grants.md`. Agent-derived, needs owner decision.
+
 Since version 0.6, "change projects" also has "learn again" for a selected project. An added project and a project to learn again go through steps 8 to 10. This is how the owner updates the index. `init_plan` keeps each stored project JSON that the answers do not change. Agent-derived, needs owner decision.
 
 Verify: a select of `AskUserQuestion` has no option that is selected at the start.
@@ -806,6 +1064,7 @@ plugins/bruh/agents/clerk.md
 plugins/bruh/agents/learner.md
 plugins/bruh/skills/init/SKILL.md
 plugins/bruh/hooks/hooks.json
+plugins/bruh/monitors/monitors.json
 plugins/bruh/mcp/go.mod
 plugins/bruh/mcp/*.go
 plugins/bruh/channels/slack/
@@ -814,6 +1073,7 @@ plugins/bruh/scripts/handoff-nudge.sh
 plugins/bruh/scripts/handoff-inject.sh
 plugins/bruh/scripts/lease-guard.sh
 plugins/bruh/scripts/watcher.sh
+plugins/bruh/scripts/wake.sh
 plugins/bruh/scripts/merge-train.sh
 plugins/bruh/workflows/deliver.js
 plugins/bruh/workflows/tickets.js
@@ -924,8 +1184,10 @@ All numbered questions of version 0.3 are decided. Their answers are in design.m
 3. Each item in this file tagged "Agent-derived, needs owner decision". All of them are new on 2026-10-03 (design.md, L37, L38, L39, L42, L43, L44, L47, L48, and L49). The items of L49 are in sections 2 and 6.1. The build of 2026-10-03 adds more items with the same tag: the user information of a remote URL, the gaps of this specification that the build found, and five details of the build. They are in sections 3, 3.4, 3.5, 5, 6.4, 7, 8.3, 8.5, 8.6, 9.1, 9.2, 10.1, 12, 14.2, 16, 17, 18, and 20, and in the change list of section 25. The release version of section 19 is settled: owner decision 2026-10-03, the first release is `v0.9.0` (design.md, L46). Owner decision 2026-10-03: the other items are built as written, and the owner reviews them during the onboarding run (design.md, L45).
 4. Inbound messages (design.md, open question 6). Without a `crossSessionInbound` value, a session that bypasses permission prompts holds a message from a session that does not. Options, as design.md lists them: run all roles in one permission mode, or the init skill sets `crossSessionInbound: accept` in user settings. `accept` delivers every message from any session of the same operating-system user.
 5. The routing rule of 2026-10-04 (design.md, L50). The rule is an owner decision. Its details are tagged "Agent-derived, needs owner decision": the commitment form and the task number (section 3.4), the routing of a defect fix (section 3.4), the commitment of a clanker (section 3.5), the ranked stops (section 14.2), and the routing eval (section 20).
-6. The six Orca choices O1 to O6 of section 4.3 are decided. Owner decision 2026-10-04 (section 4.3, "Owner decisions").
-7. Each item of section 4.3 tagged "Agent-derived, needs owner decision": the detection, the viewer tab of `session_launch` and `session_resume`, the tool `session_tab_close` and the agent lines that call it, the option read from the user settings file at each call, the trust step of the init skill, and the tests. They are new on 2026-10-04 (design.md, L57).
+6. Ledger tools (section 8.7, built; design.md L55). The owner asked on 2026-10-04 for bruh MCP tools that change the tables of the ledger in one call, answered the open choices OC1 to OC5, and approved the fix plan of the review findings on the same day. The items of section 8.7 and of design.md L55 tagged "Agent-derived, needs owner decision" stay open for the owner, with the cuts of the clanker under rule R-3.
+7. Monitors ([section 9.5](#95-monitors)), built 2026-10-04. The owner request of 2026-10-04 is in design.md, L56. The owner decided the choices M1 to M9 on 2026-10-04 (section 9.5, part k). The limit to local roles is a bigm decision (Q-bruh-maksyms-macbook-pro-56), and the cuts of the build are clanker decisions under RULE R-3 (section 9.5, part k); neither is an owner decision. Each other item of section 9.5, and the dependent items of sections 8, 9.1, 9.2, and 16, are tagged "Agent-derived, needs owner decision".
+8. The six Orca choices O1 to O6 of section 4.3 are decided. Owner decision 2026-10-04 (section 4.3, "Owner decisions").
+9. Each item of section 4.3 tagged "Agent-derived, needs owner decision": the detection, the viewer tab of `session_launch` and `session_resume`, the tool `session_tab_close` and the agent lines that call it, the option read from the user settings file at each call, the trust step of the init skill, and the tests. They are new on 2026-10-04 (design.md, L57).
 
 ## 23. Changes from version 0.3
 

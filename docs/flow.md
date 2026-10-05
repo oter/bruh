@@ -26,12 +26,13 @@ flowchart TB
     host[("Code host")]
     subgraph local["Machine of bigm"]
         bigm["bigm<br/>interactive<br/>in the ledger folder<br/>in an Orca terminal<br/>for remote work<br/>started with<br/>--channels"]
-        watcher["Watcher<br/>background Monitor"]
+        watcher["Poller<br/>plugin monitor bruh-poller"]
         ledger[("Ledger<br/>private repository")]
         cl["clerk-ledger"]
         mcp[("bruh MCP server<br/>plugin data folder:<br/>mailbox, handoffs, answers,<br/>leases, reports")]
         c1["clanker-projectA"]
         k1["clerk-projectA-task1"]
+        s1["clerk-projectA-scout1<br/>read-only, one question"]
         w1[["deliver workflow"]]
     end
     subgraph remote["Remote machine"]
@@ -44,7 +45,7 @@ flowchart TB
     chans <--> bigm
     bigm -->|commits| ledger
     cl -->|pushes| ledger
-    bigm -->|runs| watcher
+    bigm -->|"the plugin starts it in the session of bigm"| watcher
     watcher -->|reads events| host
     watcher -->|writes events to report files| mcp
     bigm <-->|"claude --bg, mailbox, SendMessage nudge"| c1
@@ -53,6 +54,10 @@ flowchart TB
     bigm -.->|MCP tools| mcp
     c1 & k1 -.->|MCP tools| mcp
     k1 -->|Workflow tool| w1
+    c1 -->|"claude --bg, START: scout"| s1
+    s1 -->|"reads"| host
+    s1 -->|"report_write with sources, DONE: scout to clanker"| mcp
+    c1 -->|"DONE: info, claims with sources"| bigm
     bigm <-->|"Orca send, ask, reply"| c2
     c2 <-->|"claude --bg, own mailbox"| k2
     k2 -->|Workflow tool| w2
@@ -73,7 +78,7 @@ sequenceDiagram
     participant Merger as clerk-project-merge
     participant CL as clerk-ledger
     Owner->>bigm: Work request for a project
-    bigm->>bigm: Record the request in the ledger, commit
+    bigm->>MCP: ledger_edit records the request and commits
     bigm->>MCP: mail_post start message, role_settings_write
     bigm->>Clanker: claude --bg --agent bruh:clanker --settings role file
     Clanker->>MCP: mail_read
@@ -104,7 +109,7 @@ sequenceDiagram
         Clerk->>Clerk: Remove the worktree and stop
     end
     bigm->>MCP: Sweep reads the report files
-    bigm->>bigm: Update the ledger, commit
+    bigm->>MCP: ledger_edit updates the ledger and commits
     bigm->>CL: Push the ledger
     CL->>CL: git push
 ```
@@ -239,7 +244,7 @@ flowchart TD
 
 ## 7. Sweep loop
 
-bigm runs the sweep as a recurring `CronCreate` task, and a message wakes it sooner. A `Monitor` and a background command are not restored on resume, so bigm starts them again.
+bigm runs the sweep as a recurring `CronCreate` task, and a message wakes it sooner. A background command is not restored on resume, so bigm starts the Orca receive loop again. The poller is the plugin monitor `bruh-poller`, which starts with the session.
 
 ```mermaid
 flowchart TD
@@ -249,13 +254,13 @@ flowchart TD
     rows --> due{"P1 batch due?<br/>interval and size from mode.md"}
     due -->|yes| batch[Send the P1 batch,<br/>one item for each message] --> upd
     due -->|no| upd[Update the ledger]
-    upd --> commit[bigm commits]
+    upd --> commit[ledger_edit commits]
     commit --> push[clerk-ledger pushes the ledger]
     push --> age{Task 6 days old?}
     age -->|yes| again["Create the CronCreate task again,<br/>it expires after 7 days"] --> wait
     age -->|no| wait([Wait for the next run])
     wait --> cron
     resume([bigm resumes]) --> restore[CronCreate tasks are restored]
-    restore --> restart["Start the watcher Monitor and<br/>orca orchestration check --wait again"]
+    restore --> restart["Start orca orchestration check --wait again;<br/>the poller bruh-poller starts with the session"]
     restart --> cron
 ```
