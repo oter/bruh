@@ -47,6 +47,31 @@ func TestPluginManifest(t *testing.T) {
 	}
 }
 
+func TestVersionsMatch(t *testing.T) {
+	var p struct {
+		Version string `json:"version"`
+	}
+	readJSON(t, "../.claude-plugin/plugin.json", &p)
+	versions := []string{p.Version}
+	for file, pattern := range map[string]string{
+		"main.go":                     `NewServer\("bruh", "([^"]+)"`,
+		"../channels/slack/server.go": `"bruh-slack", "version": "([^"]+)"`,
+	} {
+		data, err := os.ReadFile(filepath.FromSlash(file))
+		if err != nil {
+			t.Fatal(err)
+		}
+		m := regexp.MustCompile(pattern).FindAllSubmatch(data, -1)
+		if len(m) != 1 {
+			t.Fatalf("%s: %d matches of %s, want 1", file, len(m), pattern)
+		}
+		versions = append(versions, string(m[0][1]))
+	}
+	if versions[0] == "" || versions[1] != versions[0] || versions[2] != versions[0] {
+		t.Fatalf("versions differ: %v", versions)
+	}
+}
+
 func TestMCPConfig(t *testing.T) {
 	var c struct {
 		MCPServers map[string]struct {
