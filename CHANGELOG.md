@@ -13,6 +13,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 ### Fixed
 
 - The learner eval does not inherit BRUH_ROLE_KEY. Before, a learner eval that started in a role session did not stop.
+- A second poller waits for the poller lock and starts to poll when the first poller stops. Before, the second poller stopped at once, and the machine had no poller after the first bigm stopped.
 
 ## [0.11.0] - 2026-10-05
 
