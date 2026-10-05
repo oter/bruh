@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.11.1] - 2026-10-05
+
 ### Changed
 
 - A refusal does not stop bigm. After a refusal, the hook denies only the exact refused call of bigm, and bigm continues all other work. bigm must open the P0 before its turn ends. A held clanker or clerk stays blocked until bigm records the answer of the owner.
@@ -103,7 +105,8 @@ This is the first release of bruh. It contains all parts of the [specification](
 - `init_plan` does not write the plugin options (`pluginConfigs`).
 - The report file `reports/watcher.jsonl` and the role key `watcher` of `report_read`.
 
-[Unreleased]: https://github.com/oter/bruh/compare/v0.11.0...HEAD
+[Unreleased]: https://github.com/oter/bruh/compare/v0.11.1...HEAD
+[0.11.1]: https://github.com/oter/bruh/compare/v0.11.0...v0.11.1
 [0.11.0]: https://github.com/oter/bruh/compare/v0.10.0...v0.11.0
 [0.10.0]: https://github.com/oter/bruh/compare/v0.9.0...v0.10.0
 [0.9.0]: https://github.com/oter/bruh/releases/tag/v0.9.0
