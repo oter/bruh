@@ -8,6 +8,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strconv"
 	"strings"
@@ -69,6 +70,7 @@ func questionTools() []Tool {
 					"minItems": 2,
 					"maxItems": 4,
 				},
+				"hold": map[string]any{"type": "string", "description": "The hold ID of a refusal (spec 15.1): makes the question P0 and adds the COMMAND and CATEGORY lines from the hold record"},
 			}, "priority", "subject", "body", "blocks"),
 			Handler: func(c *Call, raw json.RawMessage) (any, error) {
 				me, err := c.Env.Caller()
@@ -76,11 +78,19 @@ func questionTools() []Tool {
 					return nil, err
 				}
 				a, err := decode[struct {
-					Priority, Subject, Body, Blocks string
-					Options                         []Option
+					Priority, Subject, Body, Blocks, Hold string
+					Options                               []Option
 				}](raw)
 				if err != nil {
 					return nil, err
+				}
+				if a.Hold != "" {
+					h, err := readHold(c.Env, a.Hold, me)
+					if err != nil {
+						return nil, err
+					}
+					a.Priority = "P0"
+					a.Body = strings.TrimRight(a.Body, "\n") + "\n\n" + h.lines()
 				}
 				if !slices.Contains([]string{"P0", "P1", "P2"}, a.Priority) {
 					return nil, fmt.Errorf("invalid priority: %q", a.Priority)
@@ -93,43 +103,62 @@ func questionTools() []Tool {
 					return nil, err
 				}
 				var q Question
-				err = c.Env.WithLock("questions", func() error {
-					dir, err := c.Env.Dir("questions")
-					if err != nil {
-						return err
-					}
-					n := 1
-					if data, err := os.ReadFile(filepath.Join(dir, "next")); err == nil {
-						if n, err = strconv.Atoi(strings.TrimSpace(string(data))); err != nil || n < 1 {
-							return fmt.Errorf("bad questions/next: %q", data)
-						}
-					} else if !errors.Is(err, fs.ErrNotExist) {
-						return err
-					}
-					q = Question{Priority: a.Priority, Subject: a.Subject, Body: a.Body, Blocks: a.Blocks, Asker: me, OpenedAt: c.Env.Stamp(), Options: a.Options}
-					if !headerRE.MatchString(q.Priority + " " + questionID(me, c.Env.Host, n) + ": " + q.Subject) {
-						return fmt.Errorf("invalid subject: %q (one line, 1 to 200 characters)", a.Subject)
-					}
-					// Create the file first and never over an existing one: after a crash between the
-					// two writes, the number in next is used already, and the loop skips it.
-					for ; ; n++ {
-						q.ID = questionID(me, c.Env.Host, n)
-						data, _ := json.MarshalIndent(q, "", "  ")
-						f, err := os.OpenFile(filepath.Join(dir, q.ID+".json"), os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
-						if errors.Is(err, fs.ErrExist) {
-							continue
-						}
+				open := func() error {
+					return c.Env.WithLock("questions", func() error {
+						dir, err := c.Env.Dir("questions")
 						if err != nil {
 							return err
 						}
-						_, werr := f.Write(data)
-						if err := errors.Join(werr, f.Close()); err != nil {
+						n := 1
+						if data, err := os.ReadFile(filepath.Join(dir, "next")); err == nil {
+							if n, err = strconv.Atoi(strings.TrimSpace(string(data))); err != nil || n < 1 {
+								return fmt.Errorf("bad questions/next: %q", data)
+							}
+						} else if !errors.Is(err, fs.ErrNotExist) {
 							return err
 						}
-						break
-					}
-					return atomicWrite(filepath.Join(dir, "next"), []byte(strconv.Itoa(n+1)))
-				})
+						q = Question{Priority: a.Priority, Subject: a.Subject, Body: a.Body, Blocks: a.Blocks, Asker: me, OpenedAt: c.Env.Stamp(), Options: a.Options}
+						if !headerRE.MatchString(q.Priority + " " + questionID(me, c.Env.Host, n) + ": " + q.Subject) {
+							return fmt.Errorf("invalid subject: %q (one line, 1 to 200 characters)", a.Subject)
+						}
+						// Create the file first and never over an existing one: after a crash between the
+						// two writes, the number in next is used already, and the loop skips it.
+						for ; ; n++ {
+							q.ID = questionID(me, c.Env.Host, n)
+							data, _ := json.MarshalIndent(q, "", "  ")
+							f, err := os.OpenFile(filepath.Join(dir, q.ID+".json"), os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+							if errors.Is(err, fs.ErrExist) {
+								continue
+							}
+							if err != nil {
+								return err
+							}
+							_, werr := f.Write(data)
+							if err := errors.Join(werr, f.Close()); err != nil {
+								return err
+							}
+							break
+						}
+						return atomicWrite(filepath.Join(dir, "next"), []byte(strconv.Itoa(n+1)))
+					})
+				}
+				if a.Hold == "" {
+					err = open()
+				} else {
+					// One P0 for each hold: check again and link the question under the lock.
+					err = c.Env.WithLock("holds", func() error {
+						h, err := readHold(c.Env, a.Hold, me)
+						if err != nil {
+							return err
+						}
+						if err := open(); err != nil {
+							return err
+						}
+						h.m["question_id"] = q.ID
+						data, _ := json.Marshal(h.m)
+						return atomicWrite(h.file, data)
+					})
+				}
 				if err != nil {
 					return nil, err
 				}
@@ -164,6 +193,53 @@ func questionTools() []Tool {
 }
 
 func (q Question) header() string { return q.Priority + " " + q.ID + ": " + q.Subject }
+
+var holdRE = regexp.MustCompile(`^H-[0-9A-Za-z-]+$`)
+
+// holdRecord is a hold file that scripts/refusal-stop.sh writes after a refusal (spec 15.1).
+type holdRecord struct {
+	file string
+	m    map[string]any
+}
+
+// readHold reads the hold id of the caller me that has no question yet.
+func readHold(env Env, id, me string) (holdRecord, error) {
+	if _, err := checkID(id, holdRE, "hold ID"); err != nil {
+		return holdRecord{}, err
+	}
+	dir, err := env.Dir("holds")
+	if err != nil {
+		return holdRecord{}, err
+	}
+	h := holdRecord{file: filepath.Join(dir, id+".json")}
+	data, err := os.ReadFile(h.file)
+	if err != nil {
+		return holdRecord{}, fmt.Errorf("no hold %s: %w", id, err)
+	}
+	if err := json.Unmarshal(data, &h.m); err != nil {
+		return holdRecord{}, fmt.Errorf("bad hold %s: %w", id, err)
+	}
+	if h.str("role_key") != me {
+		return holdRecord{}, fmt.Errorf("hold %s is not a hold of %s", id, me)
+	}
+	if qid := h.str("question_id"); qid != "" {
+		return holdRecord{}, fmt.Errorf("hold %s has the P0 %s already: wait for its answer with answer_wait", id, qid)
+	}
+	return h, nil
+}
+
+func (h holdRecord) str(key string) string { s, _ := h.m[key].(string); return s }
+
+// lines returns the COMMAND and CATEGORY lines of the P0, word for word from the record.
+func (h holdRecord) lines() string {
+	in, _ := h.m["tool_input"].(map[string]any)
+	cmd, ok := in["command"].(string)
+	if !ok {
+		data, _ := json.Marshal(h.m["tool_input"])
+		cmd = string(data)
+	}
+	return "COMMAND: " + cmd + "\nCATEGORY: " + h.str("denial_source") + " " + h.str("denial_reason")
+}
 
 // questionID returns the ID Q-<project>-<host>-<n> of a question of the role key caller:
 // clanker-<p> and clerk-<p>-<task> give <p>, bigm gives bigm, and clerk-ledger gives ledger.
