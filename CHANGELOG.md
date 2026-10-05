@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Fixed
+
+- The learner eval does not inherit BRUH_ROLE_KEY. Before, a learner eval that started in a role session did not stop.
+
 ## [0.11.0] - 2026-10-05
 
 ### Added
