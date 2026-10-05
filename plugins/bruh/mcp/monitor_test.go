@@ -312,28 +312,80 @@ func TestMonitorMailboxDelivery(t *testing.T) {
 	}
 }
 
+// A second poller waits for the lock and takes over when the first one releases it.
 func TestPollerLock(t *testing.T) {
+	old := pollerRetry
+	pollerRetry = 10 * time.Millisecond
+	t.Cleanup(func() { pollerRetry = old })
 	env := testEnv(t, "bigm")
-	release, ok, err := lockPoller(env)
-	if err != nil || !ok {
-		t.Fatalf("first lock: %v %v", ok, err)
+	pollerAt := filepath.Join(env.DataDir, "watch", "poller_at")
+	polled := func() bool { _, err := os.Stat(pollerAt); return err == nil }
+	hold := func() func() {
+		t.Helper()
+		release, ok, err := lockPoller(env)
+		if err != nil || !ok {
+			t.Fatalf("first lock: %v %v", ok, err)
+		}
+		return release
 	}
-	defer release()
-	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+	// returns waits up to 2 seconds for done.
+	returns := func(done <-chan error, what string) {
+		t.Helper()
+		select {
+		case err := <-done:
+			if err != nil {
+				t.Fatal(err)
+			}
+		case <-time.After(2 * time.Second):
+			t.Fatal(what)
+		}
+	}
+	release := hold()
+	defer func() { release() }()
+
+	// --once does not wait.
+	done := make(chan error, 1)
+	go func() { done <- runWatch(t.Context(), env, &bytes.Buffer{}, true) }()
+	returns(done, "a second poller with once did not return at once")
+	if polled() {
+		t.Fatal("a second poller with once polled")
+	}
+
+	// The loop waits while the lock is held, and polls after the release.
+	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
-	start := time.Now()
-	if err := runWatch(ctx, env, &bytes.Buffer{}, false); err != nil {
-		t.Fatal(err)
+	go func() { done <- runWatch(ctx, env, &bytes.Buffer{}, false) }()
+	time.Sleep(10 * pollerRetry)
+	select {
+	case err := <-done:
+		t.Fatalf("a second poller returned while the lock is held: %v", err)
+	default:
 	}
-	if time.Since(start) > 2*time.Second {
-		t.Fatal("a second poller did not return at once")
-	}
-	if _, err := os.Stat(filepath.Join(env.DataDir, "watch", "poller_at")); err == nil {
-		t.Fatal("a second poller polled")
+	if polled() {
+		t.Fatal("a second poller polled while the lock is held")
 	}
 	release()
-	if _, ok, _ := lockPoller(env); !ok {
-		t.Fatal("the lock stays after the release")
+	for deadline := time.Now().Add(2 * time.Second); !polled(); time.Sleep(pollerRetry) {
+		if time.Now().After(deadline) {
+			t.Fatal("the second poller did not take the lock after the release")
+		}
+	}
+	cancel()
+	returns(done, "the poller did not return at the end of its context")
+
+	// The end of the context ends the wait.
+	release = hold()
+	if err := os.Remove(pollerAt); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel = context.WithCancel(t.Context())
+	defer cancel()
+	go func() { done <- runWatch(ctx, env, &bytes.Buffer{}, false) }()
+	time.Sleep(5 * pollerRetry)
+	cancel()
+	returns(done, "a waiting poller did not return at the end of its context")
+	if polled() {
+		t.Fatal("a waiting poller polled")
 	}
 }
 
