@@ -364,7 +364,7 @@ The spinner shows who works and how. The glyphs show the role: `⣾⣽⣻⢿` fo
 | idle | stops, dim |
 | done | `✓`, gray |
 
-Each row has a name with the project path, the role, and the task, for example `oter/bruh (clanker, tasks 12, 13)`, `oter/bruh lessceremony (clerk, task 13 less-ceremony)`, and `oter/bruh liveui run wf_712df188-d86 (workflow run, task 14 bruh-board)`. The project path comes from `repos.json` (the MCP tool `repos_set` writes it), else the project key. The task number comes from the ledger "In progress" row that names the clerk in its State column. The slug comes from the worktree folder of the clerk session. With neither, the row shows the role key. A clanker without task rows shows `idle`.
+Each row has a name with the project path, the role, and the task, for example `oter/bruh (clanker, tasks 12, 13)`, `oter/bruh lessceremony (clerk, task 13 less-ceremony)`, and `oter/bruh liveui run wf_712df188-d86 (workflow run, task 14 bruh-board)`. The project path comes from `repos.json` (the MCP tool `repos_set` writes it), else the project key. The task number comes from the ledger "In progress" row that names the clerk in its State column. The slug comes from the worktree folder of the clerk session. With neither, the row shows the role key. A clanker shows the tasks of its ledger rows and of its live clerks (the number, else the slug), also when the clanker has no session. With no task, it shows `idle`.
 
 The board does not show the agents inside a workflow run. Claude Code does not list the agents of a workflow (`$.agent.list()` leaves them out), so the board shows the run line with its state: `done` after the result line of the run, else the state of the clerk.
 

@@ -174,3 +174,16 @@ test('row names: project path or key, role, task number and slug or role key', a
   expect(all).toContain('shop x (clerk, clerk-shop-x) · idle')
   expect(all).toContain('oter/bruh pollerwait run wf_712df188-d86 (workflow run, task 12 fix-poller-wait-lock)')
 })
+
+test('a clanker with no session still shows the tasks of its rows and its live clerks', async ($, on) => {
+  const w = world()
+  w.sessions.splice(0, 2) // no clanker-bruh session
+  w.sessions.find(s => s.name === 'clerk-shop-x')!.cwd = '/w/shop/.claude/worktrees/fix-x'
+  w.stub(on)
+  await $.command.run({ command: 'bruh-board' })
+  const ui = await mount($)
+  const all = (await texts(ui)).join('\n')
+  expect(all).toContain('oter/bruh (clanker, tasks 12, 13) · idle')
+  expect(all).toContain('shop (clanker, task fix-x) · done')
+  expect(all).not.toContain('no session')
+})

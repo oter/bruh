@@ -181,15 +181,18 @@ async function refresh($) {
       const rows = md ? parseInProgress(md) : []
       const clankerKey = `clanker-${project}`
       const owned = rows.filter(r => r.owner === clankerKey)
-      const numbers = owned.map(r => r.number).filter(Boolean)
       const firstCheck = owned.filter(r => r.check).sort((a, b) => a.check.localeCompare(b.check))[0]
-      const clanker = newest.get(clankerKey)
-      const label = !clanker ? 'no session' : numbers.length ? `task${numbers.length > 1 ? 's' : ''} ${numbers.join(', ')}` : 'idle'
-      const group = [await row(clankerKey, clanker, 'clanker', `${path} (clanker, ${label})`, 0, false, firstCheck)]
       const clerks = live.filter(s => parseKey(s.name).role === 'clerk' && parseKey(s.name).project === project)
-      for (const [i, clerk] of clerks.entries()) {
-        const ledgerRow = rows.find(r => r.clerk === clerk.name)
-        const task = taskLabel(ledgerRow?.number, clerk.cwd?.match(SLUG)?.[1]) ?? clerk.name
+        .map(session => {
+          const ledgerRow = rows.find(r => r.clerk === session.name)
+          return { session, ledgerRow, number: ledgerRow?.number, slug: session.cwd?.match(SLUG)?.[1] }
+        })
+      // The clanker's tasks: its ledger rows plus its live clerks (number, else slug), with or without a clanker session.
+      const tasks = [...new Set([...owned.map(r => r.number), ...clerks.map(c => c.number ?? c.slug)].filter(Boolean))]
+      const label = tasks.length ? `task${tasks.length > 1 ? 's' : ''} ${tasks.join(', ')}` : 'idle'
+      const group = [await row(clankerKey, newest.get(clankerKey), 'clanker', `${path} (clanker, ${label})`, 0, false, firstCheck)]
+      for (const [i, { session: clerk, ledgerRow, number, slug }] of clerks.entries()) {
+        const task = taskLabel(number, slug) ?? clerk.name
         const short = parseKey(clerk.name).short
         const clerkRow = await row(clerk.name, clerk, 'clerk', `${path} ${short} (clerk, ${task})`, 1, i === clerks.length - 1, ledgerRow)
         group.push(clerkRow)
