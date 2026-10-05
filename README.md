@@ -275,6 +275,74 @@ Background sessions use the Claude account of the Claude Code supervisor. bruh n
 > [!WARNING]
 > A plugin that adds text at session start (a `SessionStart` hook with `additionalContext`) adds that text to every role session: bigm, each clanker, and each clerk. bruh starts many sessions, so the cost is multiplied. Run `claude plugin list` and disable the plugins that the roles do not need.
 
+### Upgrade from 0.10.0
+
+Do these steps after the release v0.11.0 is published. Let the running tasks finish first.
+
+1. Update the marketplace and the plugin, in a terminal:
+
+   ```bash
+   claude plugin marketplace update oter
+   ```
+
+   ```bash
+   claude plugin update bruh@oter
+   ```
+
+2. Check the version:
+
+   ```bash
+   claude plugin list
+   ```
+
+   The entry of `bruh@oter` shows `Version: 0.11.0`.
+3. Run the init skill again (step 3 of Install). It adds the allow rules of the new tools (`ledger_edit`, `monitor_start`, `monitor_stop`, `monitor_list`, `monitor_report`, and `session_tab_close`) and the new ledger parts (`monitors.md`, the table "Command grants" in `grants.md`, and the monitor keys of `mode.md`). In the ledger folder, start a session with no role key:
+
+   ```bash
+   claude --setting-sources user
+   ```
+
+   Then run the skill:
+
+   ```text
+   /bruh:init
+   ```
+
+   Select "change settings", and keep each current value. Read the diff, then select "apply". At the trust step, select "at the first work": your folders are already trusted. When Orca runs and does not know a repository yet, the trust step also offers "add to Orca": select it to get the Orca tabs of step 6 below. Quit with `/exit`.
+4. Restart bigm. This ends the old `Monitor` tool watch of the watcher and starts the poller, the plugin monitor `bruh-poller`. In the bigm session, type:
+
+   ```text
+   update your handoff
+   ```
+
+   When bigm says that the handoff is written, quit with `/exit`. Then start bigm again in the ledger folder the same way as before (step 7 of Install), for example with the full command and your channel flags:
+
+   ```bash
+   claude --agent bruh:bigm --name bigm --permission-mode auto
+   ```
+
+   After a plain `claude` start, run `/rename bigm`. Do not start bigm with `--bg`: the poller starts only in an interactive bigm session. Do not start a `Monitor` tool watch: the poller replaces it. A new session does not load the handoff at its start, so tell bigm:
+
+   ```text
+   call handoff_read and continue from your handoff
+   ```
+
+5. Restart the background roles. Tell bigm:
+
+   ```text
+   restart each clanker and clerk-ledger so that they run 0.11.0
+   ```
+
+   New clerks start on 0.11.0. A clerk that still runs keeps 0.10.0 until it ends.
+6. Optional: local Orca tabs. The new plugin option `orca_local` is `auto` by default: when the Orca app 1.4.218 or later runs, each local clanker and clerk that bruh starts or resumes gets an Orca tab ("Local sessions in Orca" in step 1 of Install). To turn it off, set `orca_local` to `off` with `/config`.
+7. Check the upgrade. Wait one minute after the start of bigm. Then ask bigm:
+
+   ```text
+   call bruh_info and monitor_list
+   ```
+
+   `bruh_info` shows the version `0.11.0`. `monitor_list` exists only in 0.11.0, and it shows `poller_down` false. If `poller_down` is still true after two minutes, run `/reload-plugins` in bigm and ask again.
+
 ## Documentation
 
 - [Specification](docs/spec.md): what bruh does, and the tag of each decision.
