@@ -44,6 +44,7 @@ PreToolUse)
 	# A refusal never freezes bigm: deny only the exact refused call (same tool_name and
 	# tool_input), until the answer_write of its P0 removes the hold.
 	if [ "$BRUH_ROLE_KEY" = bigm ]; then
+		# shellcheck disable=SC2016 # $in is a jq variable
 		hold=$(first_hold '.tool_name == $in.tool_name and .tool_input == $in.tool_input')
 		[ -n "$hold" ] && deny "bruh refusal stop: hold $hold: the owner has not answered the refusal of this exact call. Do not run it again in any form. If its P0 is not open, open it with question_open and the field hold = $hold. Go on with your other work."
 		exit 0
