@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Changed
+
+- Init adds six deny rules to the start settings of bigm in `<ledger>/.claude/settings.json`: `Agent(claude-code-guide)`, `Agent(general-purpose)`, `Agent(Explore)`, `Agent(Plan)`, `WebFetch`, and `WebSearch`. bigm gets each fact from a clanker or its scout. Run `/bruh:init` again to add the rules.
+
 ### Fixed
 
 - The learner eval does not inherit BRUH_ROLE_KEY. Before, a learner eval that started in a role session did not stop.

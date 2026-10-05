@@ -156,8 +156,8 @@ func TestInitApplyWritesPlannedContent(t *testing.T) {
 	lenv, _ := ls["env"].(map[string]any)
 	lperms, _ := ls["permissions"].(map[string]any)
 	ldeny, _ := lperms["deny"].([]any)
-	if ls["agent"] != "bruh:bigm" || lenv["BRUH_ROLE_KEY"] != "bigm" || lenv["CLAUDE_CODE_WORKFLOW_MAX_CONCURRENT_AGENTS"] != "16" || !slices.Equal(ldeny, defaultDeny(t, env)) {
-		t.Fatalf("init_apply: ledger settings = %v, want agent bruh:bigm, BRUH_ROLE_KEY bigm, CLAUDE_CODE_WORKFLOW_MAX_CONCURRENT_AGENTS 16, deny %v", ls, defaultDeny(t, env))
+	if ls["agent"] != "bruh:bigm" || lenv["BRUH_ROLE_KEY"] != "bigm" || lenv["CLAUDE_CODE_WORKFLOW_MAX_CONCURRENT_AGENTS"] != "16" || !slices.Equal(ldeny, bigmDeny(t, env)) {
+		t.Fatalf("init_apply: ledger settings = %v, want agent bruh:bigm, BRUH_ROLE_KEY bigm, CLAUDE_CODE_WORKFLOW_MAX_CONCURRENT_AGENTS 16, deny %v", ls, bigmDeny(t, env))
 	}
 	if fi, err := os.Stat(filepath.Join(ledger, ".claude", "settings.json")); err != nil || fi.Mode().Perm() != 0o644 {
 		t.Fatalf("init_apply: ledger settings file = %v (%v), want mode 0644", fi, err)
@@ -218,6 +218,16 @@ func defaultDeny(t *testing.T, env Env) []any {
 	return d.Permissions.Deny
 }
 
+// bigmSix are the deny rules that only the bigm start settings add (owner rule R-1). The test names
+// them literally, so a change of bigmDenyRules fails it.
+var bigmSix = []any{"Agent(claude-code-guide)", "Agent(general-purpose)", "Agent(Explore)", "Agent(Plan)", "WebFetch", "WebSearch"}
+
+// bigmDeny returns the deny rules of the bigm start settings: the default rules, then bigmSix.
+func bigmDeny(t *testing.T, env Env) []any {
+	t.Helper()
+	return append(defaultDeny(t, env), bigmSix...)
+}
+
 func TestInitMergesLedgerSettings(t *testing.T) {
 	env, ledger := initEnv(t)
 	deny := defaultDeny(t, env)
@@ -226,7 +236,7 @@ func TestInitMergesLedgerSettings(t *testing.T) {
 		t.Fatal(err)
 	}
 	old, _ := json.Marshal(map[string]any{"agent": "other", "env": map[string]any{"A": "1"},
-		"permissions": map[string]any{"allow": []any{"Read(x)"}, "deny": []any{"Bash(rm:*)", deny[1]}}})
+		"permissions": map[string]any{"allow": []any{"Read(x)"}, "deny": []any{"Bash(rm:*)", "WebFetch", deny[1]}}})
 	if err := os.WriteFile(file, old, 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -236,8 +246,10 @@ func TestInitMergesLedgerSettings(t *testing.T) {
 	perms, _ := s["permissions"].(map[string]any)
 	allow, _ := perms["allow"].([]any)
 	gotDeny, _ := perms["deny"].([]any)
-	// The existing rules keep their order; a default rule that is there already is not added again.
-	want := append([]any{"Bash(rm:*)", deny[1], deny[0]}, deny[2:]...)
+	// The existing rules keep their order; a default or bigm rule that is there already (deny[1],
+	// WebFetch) is not added again.
+	want := append(append([]any{"Bash(rm:*)", "WebFetch", deny[1], deny[0]}, deny[2:]...),
+		"Agent(claude-code-guide)", "Agent(general-purpose)", "Agent(Explore)", "Agent(Plan)", "WebSearch")
 	if s["agent"] != "bruh:bigm" || lenv["A"] != "1" || lenv["BRUH_ROLE_KEY"] != "bigm" || lenv["CLAUDE_CODE_WORKFLOW_MAX_CONCURRENT_AGENTS"] != "16" ||
 		!slices.Equal(allow, []any{"Read(x)"}) || !slices.Equal(gotDeny, want) {
 		t.Fatalf("init_apply over %s: ledger settings = %v, want agent bruh:bigm, env A 1 plus the defaults, allow [Read(x)], deny %v", old, s, want)
@@ -262,8 +274,8 @@ func TestInitEmptyLedgerSettings(t *testing.T) {
 	lenv, _ := s["env"].(map[string]any)
 	perms, _ := s["permissions"].(map[string]any)
 	deny, _ := perms["deny"].([]any)
-	if s["agent"] != "bruh:bigm" || lenv["BRUH_ROLE_KEY"] != "bigm" || !slices.Equal(deny, defaultDeny(t, env)) {
-		t.Fatalf("init_apply over an empty file: ledger settings = %v, want agent bruh:bigm, BRUH_ROLE_KEY bigm, deny %v", s, defaultDeny(t, env))
+	if s["agent"] != "bruh:bigm" || lenv["BRUH_ROLE_KEY"] != "bigm" || !slices.Equal(deny, bigmDeny(t, env)) {
+		t.Fatalf("init_apply over an empty file: ledger settings = %v, want agent bruh:bigm, BRUH_ROLE_KEY bigm, deny %v", s, bigmDeny(t, env))
 	}
 }
 
