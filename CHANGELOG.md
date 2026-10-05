@@ -6,18 +6,24 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Changed
+
+- Init adds six deny rules to the start settings of bigm in `<ledger>/.claude/settings.json`: `Agent(claude-code-guide)`, `Agent(general-purpose)`, `Agent(Explore)`, `Agent(Plan)`, `WebFetch`, and `WebSearch`. bigm gets each fact from a clanker or its scout. Run `/bruh:init` again to add the rules.
+
+### Removed
+
+- The house rule "In a worktree, no compound commands with git. Data goes through tool inputs." (item 10 of `defaults/house-rules.md`). Item 10 keeps the lane text for file reads, writes, and searches.
+
 ## [0.11.1] - 2026-10-05
 
 ### Changed
 
 - A refusal does not stop bigm. After a refusal, the hook denies only the exact refused call of bigm, and bigm continues all other work. bigm must open the P0 before its turn ends. A held clanker or clerk stays blocked until bigm records the answer of the owner.
 - `ledger_edit` does not return a nudge. The waiter of `clerk-ledger` wakes the clerk when the DONE mail arrives, so bigm does not send a `SendMessage` nudge to `clerk-ledger`. This is also true after a hand commit and its `mail_post`.
-- Init adds six deny rules to the start settings of bigm in `<ledger>/.claude/settings.json`: `Agent(claude-code-guide)`, `Agent(general-purpose)`, `Agent(Explore)`, `Agent(Plan)`, `WebFetch`, and `WebSearch`. bigm gets each fact from a clanker or its scout. Run `/bruh:init` again to add the rules.
 
 ### Removed
 
 - The git-shape guard. The hook does not deny a compound Bash command with the word git in a linked worktree, and it does not write a hold for it. The Claude Code worktree guard, permission modes, and classifier stay.
-- The house rule "In a worktree, no compound commands with git. Data goes through tool inputs." (item 10 of `defaults/house-rules.md`). Item 10 keeps the lane text for file reads, writes, and searches.
 
 ### Fixed
 
