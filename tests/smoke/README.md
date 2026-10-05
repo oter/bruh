@@ -92,6 +92,16 @@ Steps:
 
 A step that needs a failed step prints `SKIP <step> - needs <step>`.
 
+### Monitor wake step (documented, not run, R-3 cut 6)
+
+This step checks that a change wakes an idle clerk, also after a resume (spec 9.5 part j). The driver does not run it, so it is not in the step table. Running it starts `claude` sessions, so it needs a P1 to the owner first.
+
+1. In the smoke home, grant a fake CLI in `grants.md`.
+2. A clerk starts a `command` monitor on the fake CLI and goes idle.
+3. Change the file that the fake CLI prints. PASS when the clerk wakes within one poll interval and calls `mail_read`.
+4. Set `SMOKE_IDLE_MINUTES=65` and let the clerk reach the real idle stop. Then resume it with `session_resume`. PASS when the next change wakes it again.
+5. Resume bigm. PASS when `monitor_list` shows `poller_down` false.
+
 Cleanup (also after a failure or Ctrl+C):
 
 1. It saves `claude logs` of each session of the run to the evidence folder.

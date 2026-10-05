@@ -94,7 +94,7 @@ With `clerk-ledger`, skip this section and go to "The ledger clerk". With `clerk
 3. Push the branch: `git push -u origin <branch>`. Never force a push.
 4. Read the source: `git ls-remote origin refs/heads/<branch>`. The value must be `head_sha`.
 5. If the delivery form is a pull request, open it with the command-line tool of the code host of the project. Mark it as rule 9 says. Record its number.
-6. Write the evidence with `report_write` (kind `result`): the branch or the pull request number, `base_sha`, `head_sha`, the test counts (ran, passed, failed, skipped), each review finding with its state, and the deviations. Put the source read of step 4 in `source`.
+6. Write the evidence with `report_write` (kind `result`): the branch or the pull request number, `base_sha`, `head_sha`, the test counts (ran, passed, failed, skipped), each review finding with its state, and the deviations. Put the source read of step 4 in `source`. Also list each of your active monitors from `monitor_list` (ID, source key, reason, until), or "monitors: none": your clanker decides for each one at the accept (owner decision 2026-10-04, M4).
 7. Send `DONE: <task> delivered` to your clanker, with the evidence in the body. Then wait for the acceptance (see "Finish"). You never merge. The merger clerk merges.
 
 ### Result `question`
@@ -163,6 +163,17 @@ A workflow agent sends you a nudge such as `P1 Q-shop-dev-mac-7: <subject>`, and
 6. If the run already returned `status: question`, relaunch as "Relaunch" says.
 7. When the answer is `ANSWER Q-<id>: reask` or `DONE: reask Q-<n> - <subject>`, do not write `reask` with `answer_write`. Open the question again under your role key as "Reask" says, with the P-level, subject, body, and `options` of the question file, and send it to your clanker as step 4 says. The workflow agent waits on the old ID. When the `ANSWER` of the new ID arrives, write its answer with `answer_write` to the new ID and also to the old ID.
 
+## Monitors
+
+A monitor wakes you when an external state that your task waits on changes (spec 9.5).
+
+1. When your next step waits on a state outside your session that can change without your action (for example the checks after your push, or a reply of a reviewer), call `monitor_start` with the source and a one-line `reason`. Never wait with `sleep`, and never ask the same source again in a loop. The result has the baseline read of the source; events then come to your mailbox as `DONE: event <project>: <subject>`, with the event line in the body. An `expired` event ends a monitor: start it again when your task still waits on its source.
+2. Sources: `{kind: codehost, repo, ref?, number?}` for a repository of your project in `repos_set` (pass the `ref` of your branch or the `number` of your pull request); `{kind: command, argv, items, id, version, title?}` for a read-only CLI that prints JSON, which needs a command grant in `grants.md` (send a P1 to your clanker when it has none); `{kind: mcp, server, tool, args?, items, id, version, title?}` for a system with only an MCP server. `items`, `id`, `version`, and `title` are JSON pointers into the JSON output.
+3. An `mcp` source: create one recurring `CronCreate` task that calls the tool with `args` and gives the result, as it is, to `monitor_report` with the monitor ID. Delete the task with `CronDelete` when you stop the monitor or when it expires.
+4. Stop a monitor with `monitor_stop` when your task no longer waits on it. Before your result, list each monitor that is still active in it (step 6 of "Result `done`"); your clanker stops it or takes it over.
+5. A workflow agent does not start a monitor, because a monitor outlives the run: it asks you, and you start it.
+6. When your start message says that you start no monitor (a clerk on a remote machine), start none.
+
 ## Usage limits and failures
 
 1. A usage limit is not a crash. Workflow agents in a background session fail at a usage limit, and the run returns `stopped` with a `FAILED:` line. A transient API error gives the same line. Do not change the model.
@@ -226,10 +237,10 @@ When a message tells you to update your handoff, call `handoff_write` at once. T
 4. State: the branch, the base SHA, the head SHA, the worktree path, the run ID, the last result status, and the pull request number.
 5. Decisions.
 6. Waiting on the owner, with each question ID.
-7. Waiting on others, with each exact ID (question ID, run ID, lease, pull request).
+7. Waiting on others, with each exact ID (question ID, run ID, lease, pull request, monitor ID).
 8. Next steps.
 9. Files to read.
 
 Write the items themselves, not pointers to files. Do not name a subagent ID or a `/tmp` path. Stay below 8,000 characters. The stored `args` stay in your report file; do not copy them into the handoff.
 
-After a pickup (the handoff appears at the start of a session), the compaction summary is not a source. Read the live source again for each pending item before you act on it: `mail_read`, `git status`, `git log`, `git ls-remote`, the answer and question files, and your report file with `report_read`.
+After a pickup (the handoff appears at the start of a session), the compaction summary is not a source. Read the live source again for each pending item before you act on it: `mail_read`, `monitor_list`, `git status`, `git log`, `git ls-remote`, the answer and question files, and your report file with `report_read`.

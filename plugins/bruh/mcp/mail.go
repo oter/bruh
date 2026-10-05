@@ -59,6 +59,12 @@ func postMail(env Env, from, to, header, body string) (Message, error) {
 	if err := mailAllowed(from, to, header); err != nil {
 		return Message{}, err
 	}
+	return writeMail(env, from, to, header, body)
+}
+
+// writeMail puts one message into the mailbox of to. postMail and the poller call it; the
+// caller checks the header and the sender policy.
+func writeMail(env Env, from, to, header, body string) (Message, error) {
 	box, err := env.Dir("mail", to)
 	if err != nil {
 		return Message{}, err

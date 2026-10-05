@@ -399,7 +399,10 @@ func TestMergeGateNeedsApprovalOfEachPull(t *testing.T) {
 func TestLaunchScripts(t *testing.T) {
 	for _, script := range []string{"merge-train.sh", "watcher.sh"} {
 		// With a bad flag, the program prints its usage, so the script found and built the module.
-		out, err := exec.Command("sh", "../scripts/"+script, "--no-such-flag").CombinedOutput()
+		// watcher.sh runs the poller only in bigm.
+		cmd := exec.Command("sh", "../scripts/"+script, "--no-such-flag")
+		cmd.Env = append(os.Environ(), "BRUH_ROLE_KEY=bigm")
+		out, err := cmd.CombinedOutput()
 		if err == nil || !strings.Contains(string(out), "flag provided but not defined: -no-such-flag") {
 			t.Fatalf("%s: %v\n%s", script, err, out)
 		}

@@ -273,10 +273,15 @@ func TestRoleSettingsWriteScout(t *testing.T) {
 		"Bash(git fetch:*)", "Bash(git -C * fetch)", "Bash(git -C * fetch *)",
 		// Writes that also have read forms, and the fetch of git remote update (spec 3.6.1).
 		"Bash(git -C * branch *)", "Bash(git -C * remote *)", "Bash(git -C * config *)",
-		"Bash(git -C * update-ref *)", "Bash(git gc:*)", "Bash(git -C * reflog expire *)"} {
+		"Bash(git -C * update-ref *)", "Bash(git gc:*)", "Bash(git -C * reflog expire *)",
+		// A monitor outlives the scout, so a scout starts, stops, and reports none (spec 9.5).
+		"mcp__plugin_bruh_bruh__monitor_start", "mcp__plugin_bruh_bruh__monitor_stop", "mcp__plugin_bruh_bruh__monitor_report"} {
 		if !slices.Contains(scoutDeny, d) {
 			t.Errorf("scoutDeny has no %q", d)
 		}
+	}
+	if slices.Contains(scoutDeny, "mcp__plugin_bruh_bruh__monitor_list") {
+		t.Error("scoutDeny has monitor_list, a read-only tool")
 	}
 	// A key is used once: the second write is refused and names the next free key.
 	if _, err := w("clanker-a", "clerk-a-scout1"); err == nil || !strings.Contains(err.Error(), "use clerk-a-scout2") {

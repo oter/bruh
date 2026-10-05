@@ -26,7 +26,7 @@ flowchart TB
     host[("Code host")]
     subgraph local["Machine of bigm"]
         bigm["bigm<br/>interactive<br/>in the ledger folder<br/>in an Orca terminal<br/>for remote work<br/>started with<br/>--channels"]
-        watcher["Watcher<br/>background Monitor"]
+        watcher["Poller<br/>plugin monitor bruh-poller"]
         ledger[("Ledger<br/>private repository")]
         cl["clerk-ledger"]
         mcp[("bruh MCP server<br/>plugin data folder:<br/>mailbox, handoffs, answers,<br/>leases, reports")]
@@ -45,7 +45,7 @@ flowchart TB
     chans <--> bigm
     bigm -->|commits| ledger
     cl -->|pushes| ledger
-    bigm -->|runs| watcher
+    bigm -->|"the plugin starts it in the session of bigm"| watcher
     watcher -->|reads events| host
     watcher -->|writes events to report files| mcp
     bigm <-->|"claude --bg, mailbox, SendMessage nudge"| c1
@@ -244,7 +244,7 @@ flowchart TD
 
 ## 7. Sweep loop
 
-bigm runs the sweep as a recurring `CronCreate` task, and a message wakes it sooner. A `Monitor` and a background command are not restored on resume, so bigm starts them again.
+bigm runs the sweep as a recurring `CronCreate` task, and a message wakes it sooner. A background command is not restored on resume, so bigm starts the Orca receive loop again. The poller is the plugin monitor `bruh-poller`, which starts with the session.
 
 ```mermaid
 flowchart TD
@@ -261,6 +261,6 @@ flowchart TD
     age -->|no| wait([Wait for the next run])
     wait --> cron
     resume([bigm resumes]) --> restore[CronCreate tasks are restored]
-    restore --> restart["Start the watcher Monitor and<br/>orca orchestration check --wait again"]
+    restore --> restart["Start orca orchestration check --wait again;<br/>the poller bruh-poller starts with the session"]
     restart --> cron
 ```

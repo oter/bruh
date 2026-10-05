@@ -1,5 +1,5 @@
 {
-  "description": "bruh hooks: the handoff message, the handoff pickup, and the lease guard. Each does nothing when BRUH_ROLE_KEY is not set.",
+  "description": "bruh hooks: the handoff message, the handoff pickup, the lease guard, and the waiter that wakes a role on new mail. Each does nothing when BRUH_ROLE_KEY is not set.",
   "hooks": {
     "PostToolUse": [
       {
@@ -13,6 +13,19 @@
         "matcher": "compact|clear|resume",
         "hooks": [
           { "type": "command", "command": "sh", "args": ["${CLAUDE_PLUGIN_ROOT}/scripts/handoff-inject.sh"] }
+        ]
+      },
+      {
+        "matcher": "startup|resume|compact",
+        "hooks": [
+          { "type": "command", "command": "sh", "args": ["${CLAUDE_PLUGIN_ROOT}/scripts/wake.sh"], "asyncRewake": true, "timeout": 3600 }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          { "type": "command", "command": "sh", "args": ["${CLAUDE_PLUGIN_ROOT}/scripts/wake.sh"], "asyncRewake": true, "timeout": 3600 }
         ]
       }
     ],

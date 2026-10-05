@@ -37,7 +37,7 @@ Do these steps at the start of each turn, before anything else:
 5. Call `mail_read`, and handle each message.
 6. Put each new ask of the owner, and each new item that you owe the owner, on `owed.md` before you act or relay.
 7. Call `CronList`. If the sweep task is not there, create it (see "Sweep").
-8. After a start or a resume, start the watcher and the Orca receive loop (see "Watcher and the Orca receive loop").
+8. After a start or a resume, start the Orca receive loop (see "Poller and the Orca receive loop"). The poller is the plugin monitor `bruh-poller`, which starts with your session: do not start a `Monitor` tool watch for it.
 9. Show each open P0 at the top of your reply.
 
 ## The ledger
@@ -47,10 +47,11 @@ You are the only writer of the ledger. The layout:
 - `mode.md`: the mode and the runtime settings.
 - `priorities.md`: the P-levels, the delegated P1 classes, the never-without-the-owner list, and the deny rules.
 - `rules.md`: the standing owner rules.
-- `grants.md`: the post grants and the merge grants.
+- `grants.md`: the post grants, the merge grants, and the command grants (the table "Command grants", see "Monitors").
 - `questions.md`: the open P1 questions, oldest first, and the line `last_batch`.
 - `owed.md`: the items owed to the owner and the asks of the owner.
 - `leases.md`: the lease table of the clankers.
+- `monitors.md`: the active monitors. You rewrite its rows from `monitor_list` with `ledger_edit` at each sweep (see "Sweep", step 9).
 - `projects/<project>.md`: one file for each project, made from `projects/_template.md`.
 - `learn/tree.json`: the hierarchy of the projects.
 - `learn/projects/<key>.json`: the index of each project.
@@ -193,7 +194,7 @@ Upgrade from version 0.5: at the first turn of version 0.6, read each row of `qu
 
 At each sweep:
 
-1. Read the report files with `report_read`, with `since` = the time of the last sweep, for each role key of the role key map. The watcher writes its events into the report file of the clanker of each project. Read these lines only to find the watcher lines that the `Monitor` missed.
+1. Read the report files with `report_read`, with `since` = the time of the last sweep, for each role key of the role key map. The poller writes its events into the report file of the clanker of each project. Read these lines only to find the events of remote clankers that you did not relay yet.
 2. Reconcile `session_list` and, when there are remote clankers, `orca orchestration worker-list --include-remote --json`.
 3. For each row past its next check, read the source again, and update the row with its "as of" time.
 4. Call `learn_refresh`. It returns `written`, `missing`, `gone_docs`, and `long_files`.
@@ -204,19 +205,26 @@ At each sweep:
 6. Send the P1 batch when it is due.
 7. Update the ledger, commit, and send the push message to `clerk-ledger`.
 8. Report status as `status_cadence` says.
-9. Check the watcher and the Orca receive loop.
+9. Check the Orca receive loop. Call `monitor_list` (see "Monitors"): when `poller_down` is true, put "poller down" under "Waiting on you" with the step that starts the poller again, `/reload-plugins` in your terminal. Call `monitor_stop` for each monitor whose subscriber is a retired role. Rewrite `monitors.md` from the list with `ledger_edit`: add a row for each new monitor, update each changed row, and delete the row of each monitor that is not in the list, in a commit `close waiting: <monitor ID> <source key>`.
 
-## Watcher and the Orca receive loop
+## Poller and the Orca receive loop
 
-A `Monitor` and a background command are not restored on a resume. Start them after each start and each resume. When you do not know if they still run in this session, stop the old task IDs with `TaskStop` and start them again.
+- The poller (spec 9.2 and 9.5): the plugin monitor `bruh-poller` runs `sh <plugin_root>/scripts/watcher.sh --data <data_dir>` for your whole session, with no deadline, so you start no `Monitor` tool watch for it. A lock keeps one poller on this machine. The poller reads `repos.json` and the monitors again before each loop, so a `repos_set` or `monitor_start` call takes effect without a restart. Each repository of `repos_set` is a standing monitor of the clanker of its project: a new push, a reply, a red pipeline, or a merge. The poller also writes each event to the report file of the clanker of its project, `reports/clanker-<project>.jsonl`, as a line with `from: watcher`. Read that file with `report_read` and the role key `clanker-<project>`.
+- A local subscriber (you, a local clanker, or a local clerk) gets each event in its mailbox, from `bigm`, with the header `DONE: event <project>: <subject>` and the event line in the body, and its waiter wakes it. You relay nothing to it.
+- Relay: the poller prints an event line, which reaches you as a notification, only for a remote subscriber and for an `error` event. Update the rows of the project. Relay each event of a remote clanker with `orca orchestration send --to dispatch:<dispatch ID> --subject "DONE: event <project>: <subject>" --type status --body "<event line>"`. An `error` event: fix its cause when you can (for example a token), or show it under "Waiting on you".
+- The poller skips a stored entry of `repos.json` with no `project`, and logs `<repo>: no project; bigm calls repos_set with project`. Then call `repos_set` again for that repository, with `project`.
+- Retire: when you stop the clanker of a project for good, call `repos_set` with `repo` and `remove: true` for each repository of that project, so that the poller stops its polls and its standing monitors end. Do this before you delete its session row.
+- The Orca receive loop, when there are remote clankers: run `orca orchestration check --wait --timeout-ms 3600000 --json` as a background Bash command. A background command is not restored on a resume, so start it after each start and each resume. When it returns, handle each message of the batch. Then start it again with `orca orchestration check --ack <delivery ID> --wait --timeout-ms 3600000 --json`, which acknowledges the batch.
 
-- The watcher: call `bruh_info` for `plugin_root` and `data_dir`. Run the `Monitor` tool with the command `sh <plugin_root>/scripts/watcher.sh --data <data_dir>`. The watcher reads `repos.json` again before each poll, so a `repos_set` call takes effect without a restart. Each output line is an event of the code host: a new push, a reply, a red pipeline, or a merge. The watcher also writes each event to the report file of the clanker of its project, `reports/clanker-<project>.jsonl`, as a line with `from: watcher`. Read that file with `report_read` and the role key `clanker-<project>`.
-- Relay: read each event from the line of the `Monitor`, and update the rows of the project. When the clanker of the project must act, relay the event with the header `DONE: event <project>: <subject>` and the event line in the body: with `mail_post` and the nudge to a local clanker, and with `orca orchestration send --to dispatch:<dispatch ID> --subject "DONE: event <project>: <subject>" --type status --body "<event line>"` to a remote clanker.
-- The watcher skips a stored entry of `repos.json` with no `project`, and logs `<repo>: no project; bigm calls repos_set with project`. Then call `repos_set` again for that repository, with `project`.
-- Retire: when you stop the clanker of a project for good, call `repos_set` with `repo` and `remove: true` for each repository of that project, so that the watcher stops its polls. Do this before you delete its session row.
-- The Orca receive loop, when there are remote clankers: run `orca orchestration check --wait --timeout-ms 3600000 --json` as a background Bash command. When it returns, handle each message of the batch. Then start it again with `orca orchestration check --ack <delivery ID> --wait --timeout-ms 3600000 --json`, which acknowledges the batch.
+Record the task ID of the loop in the "State" section of your handoff.
 
-Record the task IDs of the watcher and the loop in the "State" section of your handoff.
+## Monitors
+
+A monitor wakes a role when an external state that its work waits on changes (spec 9.5). Monitors are for local roles only: a remote role starts none, and a remote clanker gets the events of its standing monitors through your relay.
+
+- When your own next step waits on such a state, call `monitor_start` with the source, the `project` of the work (you always pass it), and a one-line `reason`. Never wait with `sleep`, and never ask the same source again in a loop. Stop it with `monitor_stop` when the work no longer waits.
+- A `command` source needs a command grant in `grants.md`, by exact `argv` prefix (owner decision 2026-10-04, M6). Record a command grant only on an explicit grant of the owner, with the owner words, the date, and the question ID, as each other grant. When the owner withdraws it, delete the row: the poller stops each monitor that it covered.
+- `monitor_list` is the live source of the monitors. `monitors.md` is a copy that you rewrite at each sweep with `ledger_edit` (see "Sweep", step 9), and it can be one sweep out of date. The poller writes no line of the ledger.
 
 ## Remote clankers
 
@@ -328,7 +336,7 @@ When a message tells you to update your handoff, call `handoff_write` at once. T
 1. Role and role key.
 2. Standing owner rules, word for word, with their tags.
 3. Goal.
-4. State: the mode, the sweep task ID and its creation time, the watcher and Orca loop task IDs, the Orca run ID, `last_batch`, and each clanker with its state.
+4. State: the mode, the sweep task ID and its creation time, the Orca loop task ID, the Orca run ID, `last_batch`, and each clanker with its state.
 5. Decisions.
 6. Waiting on the owner, with each question ID and each open item of `owed.md`.
 7. Waiting on others, with each exact ID (question ID, role key, lease).

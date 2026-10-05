@@ -19,10 +19,11 @@ This repository is the ledger of bruh. It describes all other repositories. Keep
 | `mode.md` | `human` or `autonomous`, the date and the reason of the last change, and the runtime settings |
 | `priorities.md` | P-level definitions, delegated P1 classes, and the never-without-the-owner list |
 | `rules.md` | Standing owner rules, word for word, with dates and sources |
-| `grants.md` | Post grants and merge grants |
+| `grants.md` | Post grants, merge grants, and command grants |
 | `questions.md` | Open P1 questions, oldest first, with age and what they block |
 | `owed.md` | Items owed to the owner, and asks of the owner |
 | `leases.md` | The lease table of the clankers |
+| `monitors.md` | The active monitors, a copy of `monitor_list` that bigm rewrites at each sweep |
 | `projects/<key>.md` | One file for each selected project, made from `projects/_template.md` |
 | `learn/tree.json` | The hierarchy of the projects and the scan settings. Plugin code writes it. |
 | `learn/projects/<key>.json` | The index of a project: the purpose, the repositories, the links to other projects, and the doc pointers. Plugin code writes it. |
@@ -60,7 +61,7 @@ For each file of this folder that exists already in the ledger, the init skill w
 - `README.md` and `projects/_template.md`: the template. These files hold no ledger data.
 - `priorities.md`: the existing file. A placeholder file (a file with no line `## Never without the owner`) gets the default `priorities.md` of the plugin.
 - `rules.md`: the template text before the line `## Rules`, then the existing file from its line `## Rules` to the end.
-- Each other file (`mode.md`, `questions.md`, `owed.md`, `leases.md`, `grants.md`): the template text. Each `key: value` line gets the value of the same key in the existing file. A key that the existing file does not have keeps the template value. After each table of the template (found by its header line) come the data rows of the table with the same header line in the existing file. A table of the existing file whose header line is not in the template goes at the end, unchanged.
+- Each other file (`mode.md`, `questions.md`, `owed.md`, `leases.md`, `grants.md`, `monitors.md`): the template text. Each `key: value` line gets the value of the same key in the existing file. A key that the existing file does not have keeps the template value. After each table of the template (found by its header line) come the data rows of the table with the same header line in the existing file. A table of the existing file whose header line is not in the template goes at the end, unchanged.
 - Init does not change an existing `projects/<key>.md` file.
 
 ### Index and project files

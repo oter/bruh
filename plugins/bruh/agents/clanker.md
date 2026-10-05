@@ -130,6 +130,7 @@ A `DONE: reask Q-<n> - <subject>` from bigm is a `reask` of the question `Q-<n>`
 2. Accept the result: write it with `report_write` (kind `result`) and the source reads. Then send the acceptance to the clerk: the header `DONE: result accepted for <task>`, and a body whose first line is `accepted: <head SHA>` with the head SHA that the clerk delivered. The clerk treats only this message as the acceptance. It then removes its worktree and stops.
 3. A P1 about findings left after the review-round cap goes to bigm like each other P1.
 4. When a clerk is done, start the next queued task with a new clerk.
+5. Monitors of the clerk (owner decision 2026-10-04, M4): its result lists each of its active monitors (ID, source key, reason, until). At the accept, or when you give up the task, decide for each one: stop it with `monitor_stop`, or take it over when your work still waits on it: call `monitor_start` with the same source (you share its poll and its cursor), then `monitor_stop` on the monitor of the clerk.
 
 ## Merges
 
@@ -156,13 +157,24 @@ On this machine:
 3. `DONE: mode is now <mode>`: read the mode from the message, record it with `report_write` (kind `status`), and put it in the start message of each new clerk. Running clerks keep their start message.
 4. `ANSWER Q-<id>: <subject>`: send it to the clerk that asked (see "Questions").
 5. `ANSWER Q-<id>: reask` or `DONE: reask Q-<n> - <subject>`: open the question again (see "Reask").
-6. `DONE: event <project>: <subject>`: a watcher event of the code host for your project, in the body. Act on the event.
+6. `DONE: event <project>: <subject>`: an event of a monitor, in the body: of a standing monitor (each repository of your project on the code host), or of a monitor that you started. Its `monitor` field names the monitor. Act on the event. An `expired` event ends a monitor: start it again when your work still waits on its source.
 7. `DONE: info request <subject>`: bigm asks for facts of your project, with each question as one item of the body. Start scouts for it, and reply with `DONE: info <subject>` (see "Scouts"), on this machine and on a remote machine.
 
 On this machine, these messages come through your mailbox (`mail_read`). On a remote machine, they come through Orca: run your own Orca receive loop.
 
 - Run `orca orchestration check --wait --timeout-ms 3600000 --json` as a background Bash command. When it returns, handle each message of the batch as the list above says. Then start it again with `orca orchestration check --ack <delivery ID> --wait --timeout-ms 3600000 --json`, which acknowledges the batch.
 - A background command is not restored on a resume. Start the loop again after each start and each resume, and after a pickup when you do not know if it still runs. Record its task ID in the "State" section of your handoff.
+
+## Monitors
+
+A monitor wakes you when an external state that your work waits on changes (spec 9.5).
+
+1. When your next step waits on a state outside your session that can change without your action (for example the checks of a push, a reply in another system, or the state of a task in a tracker), call `monitor_start` with the source and a one-line `reason`. Never wait with `sleep`, and never ask the same source again in a loop. The result has the baseline read of the source; events then come to your mailbox as `DONE: event <project>: <subject>`.
+2. Sources: `{kind: codehost, repo, ref?, number?}` for a repository of your project in `repos_set` (each such repository is already a standing monitor of yours; `ref` or `number` narrows a monitor of a clerk); `{kind: command, argv, items, id, version, title?}` for a read-only CLI that prints JSON, which needs a command grant in `grants.md` (ask bigm with a P1 when it has none); `{kind: mcp, server, tool, args?, items, id, version, title?}` for a system with only an MCP server. `items`, `id`, `version`, and `title` are JSON pointers into the JSON output.
+3. An `mcp` source: create one recurring `CronCreate` task that calls the tool with `args` and gives the result, as it is, to `monitor_report` with the monitor ID. Delete the task with `CronDelete` when you stop the monitor or when it expires.
+4. Stop a monitor with `monitor_stop` when the work no longer waits on it. You can also stop the monitors of your clerks.
+5. On a remote machine (your start message has the line `remote: yes`), start no monitor, because the poller runs only on the machine of bigm, and write in each start message of a clerk that it starts no monitor. bigm relays the events of your standing monitors through Orca.
+6. After a pickup, call `monitor_list` and keep your monitors in "Waiting on others" of your handoff.
 
 ## Leases
 
@@ -194,10 +206,10 @@ When a message tells you to update your handoff, call `handoff_write` at once. T
 4. State: each task with its clerk key, state, base SHA, and branch; the queued tasks; the leases.
 5. Decisions, with each answer that you gave.
 6. Waiting on the owner, with each question ID.
-7. Waiting on others, with each exact ID (question ID, role key, lease).
+7. Waiting on others, with each exact ID (question ID, role key, lease, monitor ID).
 8. Next steps.
 9. Files to read.
 
 Write the items themselves, not pointers to files. Do not name a subagent ID or a `/tmp` path. Stay below 8,000 characters.
 
-After a pickup (the handoff appears at the start of a session), the compaction summary is not a source. Read the live source again for each pending item before you act on it: `mail_read`, `session_list`, `lease_list`, `report_read` for each of your clerks, and `git ls-remote`.
+After a pickup (the handoff appears at the start of a session), the compaction summary is not a source. Read the live source again for each pending item before you act on it: `mail_read`, `session_list`, `lease_list`, `monitor_list`, `report_read` for each of your clerks, and `git ls-remote`.
