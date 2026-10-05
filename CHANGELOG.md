@@ -10,6 +10,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 - The `/bruh-board` command opens a live pane. It shows the open P0 and P1 questions and a tree of each project: the clanker, its clerks, and their workflow runs, each with a spinner, the last done, and the next check.
 
+### Changed
+
+- A refusal does not stop bigm. After a refusal, the hook denies only the exact refused call of bigm, and bigm continues all other work. bigm must open the P0 before its turn ends. A held clanker or clerk stays blocked until bigm records the answer of the owner.
+- `ledger_edit` does not return a nudge. The waiter of `clerk-ledger` wakes the clerk when the DONE mail arrives, so bigm does not send a `SendMessage` nudge to `clerk-ledger`. This is also true after a hand commit and its `mail_post`.
+
+### Removed
+
+- The git-shape guard. The hook does not deny a compound Bash command with the word git in a linked worktree, and it does not write a hold for it. The Claude Code worktree guard, permission modes, and classifier stay.
+
 ### Fixed
 
 - The learner eval does not inherit BRUH_ROLE_KEY. Before, a learner eval that started in a role session did not stop.

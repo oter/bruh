@@ -50,7 +50,7 @@ flowchart TB
     watcher -->|writes events to report files| mcp
     bigm <-->|"claude --bg, mailbox, SendMessage nudge"| c1
     c1 <-->|"claude --bg, mailbox, SendMessage nudge"| k1
-    bigm -.->|"mailbox, SendMessage nudge"| cl
+    bigm -.->|"DONE mail of ledger_edit, its waiter wakes it, no nudge"| cl
     bigm -.->|MCP tools| mcp
     c1 & k1 -.->|MCP tools| mcp
     k1 -->|Workflow tool| w1
@@ -110,7 +110,7 @@ sequenceDiagram
     end
     bigm->>MCP: Sweep reads the report files
     bigm->>MCP: ledger_edit updates the ledger and commits
-    bigm->>CL: Push the ledger
+    MCP-->>CL: DONE mail, the waiter wakes clerk-ledger, no nudge
     CL->>CL: git push
 ```
 
