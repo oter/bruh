@@ -693,6 +693,25 @@ func TestRefusalHoldSparesBigm(t *testing.T) {
 	}
 }
 
+// TestRefusalHoldLargeInput: a tool_input above the argv limits (128 KiB on Linux, about 1 MiB
+// on macOS) is still denied, for the deny-all hold of a clerk and for the exact call of bigm.
+func TestRefusalHoldLargeInput(t *testing.T) {
+	big := map[string]string{"file_path": "/tmp/x", "content": strings.Repeat("a", 2<<20)}
+	write := func(event string) map[string]any {
+		return map[string]any{"hook_event_name": event, "session_id": "S", "tool_name": "Write", "tool_input": big, "reason": "r"}
+	}
+	data := t.TempDir()
+	denyClassifier(t, data)
+	if denyReason(t, refusal(t, data, write("PreToolUse"), refusalKey)) == "" {
+		t.Fatal("large Write of a held clerk allowed")
+	}
+	data = t.TempDir()
+	refusal(t, data, write("PermissionDenied"), "BRUH_ROLE_KEY=bigm")
+	if denyReason(t, refusal(t, data, write("PreToolUse"), "BRUH_ROLE_KEY=bigm")) == "" {
+		t.Fatal("large held call of bigm allowed")
+	}
+}
+
 // TestMonitorsJSON checks the plugin monitor of M2 against the strict entry keys of the docs
 // (manifest-reference.md, "monitors"), because claude plugin validate does not read the default
 // file monitors/monitors.json.

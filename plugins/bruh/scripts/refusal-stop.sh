@@ -22,10 +22,13 @@ write_hold() {
 			> "$holds/$id.json.tmp" && mv "$holds/$id.json.tmp" "$holds/$id.json" && printf '%s' "$id"
 }
 
-# first_hold <jq filter>: the ID of the first hold of this session that matches the filter.
+# first_hold <jq filter>: the ID of the first hold of this session that matches the filter. The
+# hook input $in goes through stdin, never argv: a large tool_input (a Write of some MiB) in argv
+# makes the exec of jq fail with E2BIG, and the hook would then allow the call.
 first_hold() {
 	for f in "$holds"/H-*.json; do
-		[ -f "$f" ] && jq -r --arg s "$sid" --argjson in "$input" "select(.session_id == \$s and ($1)) | .id" "$f" 2> /dev/null
+		[ -f "$f" ] && printf '%s' "$input" | jq -r --arg s "$sid" --slurpfile h "$f" \
+			". as \$in | \$h[0] | select(.session_id == \$s and ($1)) | .id" 2> /dev/null
 	done | head -n 1
 }
 
