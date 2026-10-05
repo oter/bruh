@@ -41,16 +41,22 @@ func answerFile(env Env, qid string) (string, error) {
 // owner (spec 15.1).
 func clearHolds(env Env, qid string) error {
 	return env.WithLock("holds", func() error {
-		files, _ := filepath.Glob(filepath.Join(env.DataDir, "holds", "H-*.json"))
+		files, _ := filepath.Glob(filepath.Join(env.DataDir, "holds", "H-*.json")) // only ErrBadPattern; the pattern is constant
 		for _, f := range files {
 			data, err := os.ReadFile(f)
-			if err != nil {
+			if errors.Is(err, fs.ErrNotExist) {
 				continue
+			}
+			if err != nil {
+				return fmt.Errorf("read hold %s: %w", f, err)
 			}
 			var h struct {
 				QuestionID string `json:"question_id"`
 			}
-			if json.Unmarshal(data, &h) == nil && h.QuestionID == qid {
+			if err := json.Unmarshal(data, &h); err != nil {
+				return fmt.Errorf("parse hold %s: %w", f, err)
+			}
+			if h.QuestionID == qid {
 				if err := os.Remove(f); err != nil && !errors.Is(err, fs.ErrNotExist) {
 					return err
 				}

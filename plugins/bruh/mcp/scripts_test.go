@@ -429,7 +429,7 @@ func refusal(t *testing.T, data string, in map[string]any, env ...string) string
 	b, _ := json.Marshal(in)
 	out, code := runScript(t, "refusal-stop.sh", string(b), append([]string{"CLAUDE_PLUGIN_DATA=" + data}, env...)...)
 	if code != 0 {
-		t.Fatalf("exit %d", code)
+		t.Fatalf("refusal-stop.sh with input %s: exit %d, want 0; output %q", b, code, out)
 	}
 	return out
 }
@@ -477,7 +477,7 @@ func denyClassifier(t *testing.T, data string) string {
 	refusal(t, data, map[string]any{
 		"hook_event_name": "PermissionDenied", "session_id": "S", "agent_id": "A", "tool_name": "Bash",
 		"tool_input": map[string]string{"command": "gh pr merge 7"}, "tool_use_id": "tu-1",
-		"denial_source": "classifier", "denial_reason": "[Merge Without Review]",
+		"reason": "[Merge Without Review]",
 	}, refusalKey)
 	holds := holdFiles(t, data)
 	if len(holds) != 1 {
@@ -490,7 +490,7 @@ func TestRefusalHoldStopsTheSession(t *testing.T) {
 	data := t.TempDir()
 	id := denyClassifier(t, data)
 	h := holdFiles(t, data)[0]
-	if h["session_id"] != "S" || h["role_key"] != "clerk-a-1" || h["tool_name"] != "Bash" || h["denial_source"] != "classifier" ||
+	if h["session_id"] != "S" || h["role_key"] != "clerk-a-1" || h["tool_name"] != "Bash" || h["denial_source"] != "permission_denied" ||
 		h["denial_reason"] != "[Merge Without Review]" || h["question_id"] != "" || len(h) != 9 {
 		t.Fatalf("hold = %v", h)
 	}
@@ -554,7 +554,7 @@ func TestRefusalClearByBigm(t *testing.T) {
 
 func TestRefusalNoRoleKey(t *testing.T) {
 	data := t.TempDir()
-	in := map[string]any{"hook_event_name": "PermissionDenied", "session_id": "S", "tool_name": "Bash", "denial_source": "classifier"}
+	in := map[string]any{"hook_event_name": "PermissionDenied", "session_id": "S", "tool_name": "Bash", "reason": "[Merge Without Review]"}
 	if out := refusal(t, data, in); out != "" {
 		t.Fatalf("output = %q", out)
 	}

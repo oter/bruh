@@ -36,7 +36,7 @@ deny() {
 
 case $(field .hook_event_name) in
 PermissionDenied)
-	write_hold "$(field .denial_source)" "$(field .denial_reason)" > /dev/null
+	write_hold permission_denied "$(field .reason)" > /dev/null
 	;;
 PreToolUse)
 	tool=$(field .tool_name)

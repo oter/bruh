@@ -223,7 +223,7 @@ func writeHold(t *testing.T, data, id, roleKey, qid string, toolInput any) {
 	t.Helper()
 	b, _ := json.Marshal(map[string]any{
 		"id": id, "session_id": "S", "role_key": roleKey, "tool_name": "Bash", "tool_input": toolInput,
-		"denial_source": "classifier", "denial_reason": "[Merge Without Review]", "at": "2026-10-04T20:00:00.000Z", "question_id": qid,
+		"denial_source": "permission_denied", "denial_reason": "[Merge Without Review]", "at": "2026-10-04T20:00:00.000Z", "question_id": qid,
 	})
 	if err := os.MkdirAll(filepath.Join(data, "holds"), 0o700); err != nil {
 		t.Fatal(err)
@@ -246,7 +246,7 @@ func TestQuestionOpenWithHold(t *testing.T) {
 	q := out.(map[string]any)
 	body := q["body"].(string)
 	if !strings.HasPrefix(q["header"].(string), "P0 ") ||
-		!strings.HasSuffix(body, "\n\nCOMMAND: gh pr merge 7 --squash\nCATEGORY: classifier [Merge Without Review]") {
+		!strings.HasSuffix(body, "\n\nCOMMAND: gh pr merge 7 --squash\nCATEGORY: permission_denied [Merge Without Review]") {
 		t.Fatalf("question = %v", q)
 	}
 	var h map[string]any

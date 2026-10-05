@@ -149,11 +149,11 @@ func TestAnswerWriteClearsLinkedHold(t *testing.T) {
 		t.Fatal(err)
 	}
 	if _, err := os.Stat(filepath.Join(env.DataDir, "holds", "H-1.json")); !errors.Is(err, fs.ErrNotExist) {
-		t.Fatalf("linked hold: %v", err)
+		t.Errorf("os.Stat(H-1.json) after answer_write(Q-a-testhost-1) = %v, want fs.ErrNotExist", err)
 	}
 	for _, id := range []string{"H-2", "H-3"} {
 		if _, err := os.Stat(filepath.Join(env.DataDir, "holds", id+".json")); err != nil {
-			t.Fatalf("other hold %s: %v", id, err)
+			t.Errorf("os.Stat(%s.json) after answer_write(Q-a-testhost-1) = %v, want nil", id, err)
 		}
 	}
 }
