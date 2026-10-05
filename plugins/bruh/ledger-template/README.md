@@ -8,7 +8,7 @@ This repository is the ledger of bruh. It describes all other repositories. Keep
 - Plugin code writes the files of `learn/`: `init_apply` at init, and `learn_refresh` at each sweep of bigm.
 - The init skill writes `.claude/settings.json`.
 - bigm is the only role that commits. It also commits the files of `learn/` and `.claude/settings.json`.
-- The ledger clerk `clerk-ledger` pushes after each commit of bigm. `ledger_edit` writes the DONE mail to it, and never pushes.
+- The ledger clerk `clerk-ledger` pushes after each commit of bigm. `ledger_edit` writes the DONE mail to it, and never pushes. Its waiter wakes it; bigm sends no nudge.
 - No other role edits a file of this repository. A clanker and a clerk send reports through the bruh MCP server, and bigm moves the facts into these files.
 
 ## Layout
