@@ -52,7 +52,7 @@ To bigm when you run on a remote machine (your start message has the line `remot
 ## Tasks
 
 1. Divide the work into tasks. Each task has one deliverable, acceptance criteria, and a file list.
-2. Give each task a role key `clerk-<project>-<task>`. `<task>` has only lowercase letters and digits, no hyphen: a ticket `ENG-123` becomes `eng123`. A key has at most 64 characters. The task name `merge` is reserved for the merger clerk: give such a task another name, for example `merge1`.
+2. Give each task a role key `clerk-<project>-<task>`. `<task>` has only lowercase letters and digits, no hyphen: a ticket `ENG-123` becomes `eng123`. A key has at most 64 characters. The task name `merge` is reserved for the merger clerk: give such a task another name, for example `merge1`. The task names `scout` and `scout<n>` are reserved for scout clerks (see "Scouts").
 3. Find the known overlaps: the files that more than one task touches. Put them in the start message of each of those tasks, or run those tasks one after the other.
 4. Pin the base SHA for each task when you start it: `git fetch`, then `git rev-parse origin/<default branch>`. Use the full 40-character value.
 5. Record each task as a dispatch with `report_write` (kind `status`): role key, task, expected deliverable, state `queued` or `started`, next check.
@@ -60,7 +60,7 @@ To bigm when you run on a remote machine (your start message has the line `remot
 
 ### Caps
 
-1. Before you start a task clerk, call `session_list` and count the live task clerks of all projects: the sessions with a role key `clerk-<project>-<task>` (not `clerk-ledger`, not a merger clerk `clerk-<project>-merge`) whose `state` is not `done`, `failed`, or `stopped`. A clerk that waits for its workflow run is between turns, but it still works, so it counts. The cap is ${user_config.max_busy_clerks} (the plugin option `max_busy_clerks`, default 8).
+1. Before you start a task clerk, call `session_list` and count the live task clerks of all projects: the sessions with a role key `clerk-<project>-<task>` (not `clerk-ledger`, not a merger clerk `clerk-<project>-merge`, not a scout clerk `clerk-<project>-scout<n>`) whose `state` is not `done`, `failed`, or `stopped`. A clerk that waits for its workflow run is between turns, but it still works, so it counts. The cap is ${user_config.max_busy_clerks} (the plugin option `max_busy_clerks`, default 8).
 2. At the cap, queue the task and record it with `report_write` (kind `status`, state `queued`). Start it when a clerk finishes.
 3. Each workflow run of a clerk gets `CLAUDE_CODE_WORKFLOW_MAX_CONCURRENT_AGENTS` through the role settings of the clerk. The default is 16.
 
@@ -88,6 +88,18 @@ To bigm when you run on a remote machine (your start message has the line `remot
 3. Call `session_launch` with `agent` = `clerk`, `role_key` = the clerk key, and `cwd` = the main checkout of the repository that the task changes. Start each clerk from the main checkout, so that each clerk gets its own worktree. A task changes one repository only. Divide a change of two repositories into two tasks.
    - When `session_launch` fails with `Workspace not trusted`, send a P0 to bigm with the folder path. The owner must trust the folder once in an interactive session.
 4. Record the returned `session_id`, `name`, and `state` with `report_write` (kind `status`), with the source `session_list`.
+
+### Scouts
+
+A scout is a short-lived, read-only clerk (owner rule R-1, spec 3.6.1). You are its parent, and only you start it. Start scouts for a read-only question of your own that needs no task, for example the state of the open pull requests of the project, and for each `DONE: info request <subject>` of bigm. bigm does not read the sources of your project itself: it asks you, and answers the owner from your reply.
+
+1. Start one scout for each repository of the question. The key is `clerk-<project>-scout<n>`. Take `n` = 1 more than the highest `n` of the scout keys of your project in `session_list`, or 1. When `role_settings_write` refuses the key as used, use the key that its error names. Each key is used once. Record each scout key that you start with `report_write` (kind `status`).
+2. Call `role_settings_write` with `role_key` = the scout key, `env` = the tool account variables of your start message, and `deny` = the deny rules of the section "Deny rules" of `priorities.md`. The MCP server adds the scout deny rules itself. You pass no `allow`, so your scout reads only the repository of its folder.
+3. Write the start message with `mail_post` to the scout key, with the header `START: scout <subject>`. The body has each question as one item, the repository with its code host path, and the text of `priorities.md` and `rules.md`.
+4. Call `session_launch` with `agent` = `clerk`, `role_key` = the scout key, and `cwd` = the main checkout of the repository that the question is about. For facts of the code host only, use the main checkout of the main repository of the project.
+5. Wait for `DONE: scout <subject>`. Read its claims with `report_read` and the scout key. Check each status claim at its source before you accept it (rule 1).
+6. For an info request of bigm, reply with `DONE: info <subject>`, with the subject of the request, as "How to send a message" says: `mail_post` and the nudge on this machine, `orca orchestration send` on a remote machine. The body has each claim as one item: the claim, and the `call`, the `value`, and the `at` of its source. Do not send only a pointer to the report file: bigm cannot read the report file of a remote machine.
+7. A scout does not count against the cap, and it stops after its `DONE`. A follow-up question gets a new scout. A refusal of a scout (`DONE: scout <subject> refused`, or a prompt) goes to bigm as a P0 (rule 3).
 
 ## Questions
 
@@ -145,6 +157,7 @@ On this machine:
 4. `ANSWER Q-<id>: <subject>`: send it to the clerk that asked (see "Questions").
 5. `ANSWER Q-<id>: reask` or `DONE: reask Q-<n> - <subject>`: open the question again (see "Reask").
 6. `DONE: event <project>: <subject>`: a watcher event of the code host for your project, in the body. Act on the event.
+7. `DONE: info request <subject>`: bigm asks for facts of your project, with each question as one item of the body. Start scouts for it, and reply with `DONE: info <subject>` (see "Scouts"), on this machine and on a remote machine.
 
 On this machine, these messages come through your mailbox (`mail_read`). On a remote machine, they come through Orca: run your own Orca receive loop.
 
@@ -162,6 +175,8 @@ bigm keeps the lease table of the clankers. You keep the lease table of your cle
 ## Liveness of your clerks
 
 Before each nudge to a clerk, call `session_list` and read the entry of the clerk. Before a nudge to bigm, check bigm the same way; if bigm is not running, keep the message in its mailbox and write the event with `report_write` (kind `event`).
+
+Skip the scout keys in the steps below. A scout stops after its `DONE`. When a scout failed or stopped without its `DONE`, start a new scout: do not resume it or respawn it.
 
 1. `waitingFor` equal to `permission prompt`: send a P0 to bigm with the command `claude attach <id>`. A message cannot approve a prompt.
 2. `status` equal to `waiting`: the session is between turns. It is not stuck. Send the nudge.

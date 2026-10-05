@@ -9,6 +9,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 ### Added
 
 - When a session finds a defect of bruh itself, the owner gets the offer of a bug report with the final text of the issue. The session files the issue only after the owner says yes. A vulnerability gets a private report. A clanker or a clerk sends a notice to its parent, and bigm makes the offer.
+- Scout clerks. bigm does not read the sources of a project itself: for a status question, it sends `DONE: info request <subject>` to the clanker of the project. The clanker starts a short-lived, read-only scout clerk `clerk-<project>-scout<n>`, checks its claims, and replies with `DONE: info <subject>`. bigm answers from the reply and reads the source of each status claim again. The MCP server adds the read-only deny rules to each scout settings file, also for `git fetch` and the `git -C <path>` form, refuses a scout report line without its source read, uses each scout key once, and never resumes a scout.
 - The routing eval (`tests/eval/run.sh routing`): a run of bigm on fixed work requests that checks the commitment line and that bigm asks no question. Run it before each release.
 - The MCP tool `ledger_edit`: bigm adds, updates, or closes a table row, or sets a `key: value` line, of a ledger file in one call. The tool commits only that file, writes the DONE mail to `clerk-ledger`, and returns the nudge. It never pushes. Run `/bruh:init` again to allow the tool.
 
@@ -20,6 +21,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 ### Fixed
 
 - `session_launch` and `session_resume` find the session ID when `claude --bg` prints it with ANSI color codes. The error texts show the output without escape codes.
+- `learn_refresh` lists in `long_files` only the Markdown files at the top of the ledger folder and in `projects/`. Notes in another folder, such as `research/`, are not ledger state and no longer show up.
 
 ## [0.10.0] - 2026-10-03
 

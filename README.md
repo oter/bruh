@@ -21,7 +21,7 @@ You talk to one session, bigm. bigm keeps the status of all work in a private le
 |---|---|---|---|---|
 | bigm | Long-lived | You | All projects. Keeps the ledger and the "Owed to owner" list. | No |
 | Clanker | Long-lived | bigm | One project. Knows the full picture of that project. Divides the work into tasks. | No |
-| Clerk | One task | A clanker | One task. Starts workflows, pushes the branch, and reports with evidence. | No |
+| Clerk | One task | A clanker | One task. Starts workflows, pushes the branch, and reports with evidence. A scout clerk only reads the sources for one question and reports each fact with its source. | No |
 | Workflow | One run | A clerk | One step of a task: plan, implement, review, and fix. | Yes |
 
 Each role runs as a plugin agent (`bruh:bigm`, `bruh:clanker`, `bruh:clerk`). The work runs in the `/bruh:deliver` workflow.

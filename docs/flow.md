@@ -32,6 +32,7 @@ flowchart TB
         mcp[("bruh MCP server<br/>plugin data folder:<br/>mailbox, handoffs, answers,<br/>leases, reports")]
         c1["clanker-projectA"]
         k1["clerk-projectA-task1"]
+        s1["clerk-projectA-scout1<br/>read-only, one question"]
         w1[["deliver workflow"]]
     end
     subgraph remote["Remote machine"]
@@ -53,6 +54,10 @@ flowchart TB
     bigm -.->|MCP tools| mcp
     c1 & k1 -.->|MCP tools| mcp
     k1 -->|Workflow tool| w1
+    c1 -->|"claude --bg, START: scout"| s1
+    s1 -->|"reads"| host
+    s1 -->|"report_write with sources, DONE: scout to clanker"| mcp
+    c1 -->|"DONE: info, claims with sources"| bigm
     bigm <-->|"Orca send, ask, reply"| c2
     c2 <-->|"claude --bg, own mailbox"| k2
     k2 -->|Workflow tool| w2

@@ -204,7 +204,7 @@ func sessionTools() []Tool {
 		},
 		{
 			Name:        "session_resume",
-			Description: "Wake a stopped background session of a role with a prompt. Only the parent of role_key, or bigm. A live session gets a SendMessage nudge instead.",
+			Description: "Wake a stopped background session of a role with a prompt. Only the parent of role_key, or bigm. A live session gets a SendMessage nudge instead. A scout clerk is never resumed.",
 			InputSchema: objectSchema(map[string]any{
 				"role_key": stringSchema(),
 				"prompt":   map[string]any{"type": "string", "description": "Default: Read your mailbox with mail_read."},
@@ -222,6 +222,10 @@ func sessionTools() []Tool {
 					return nil, err
 				}
 				key := k.String()
+				// One question, one scout: a stopped scout gets a new scout, never a resume (R-1).
+				if isScout(k) {
+					return nil, fmt.Errorf("%s is a scout clerk: a scout is never resumed; start a new scout", key)
+				}
 				prompt := cmp.Or(a.Prompt, "Read your mailbox with mail_read.")
 				if err := checkPrompt(prompt); err != nil {
 					return nil, err

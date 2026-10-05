@@ -297,8 +297,9 @@ func ledgerPath(env Env) (string, error) {
 	return cfg.LedgerPath, nil
 }
 
-// longFiles returns the ledger-relative paths, sorted, of the *.md files under ledger (except
-// under .git/ and learn/) that have more lines than the cap: the value of the line
+// longFiles returns the ledger-relative paths, sorted, of the *.md files at the top of ledger and
+// in ledger/projects/ (no other folder, so .git/, learn/ and research/ are skipped) that have
+// more lines than the cap: the value of the line
 // "ledger_max_lines: <n>" of mode.md, or 300 when the line is missing or bad. The number of
 // lines is the number of "\n", plus 1 when the file does not end with "\n".
 func longFiles(ledger string) ([]string, error) {
@@ -319,38 +320,30 @@ func longFiles(ledger string) ([]string, error) {
 		break
 	}
 	long := []string{}
-	err = filepath.WalkDir(ledger, func(path string, d fs.DirEntry, err error) error {
-		if err != nil {
-			return err
+	for _, dir := range []string{"", "projects"} {
+		entries, err := os.ReadDir(filepath.Join(ledger, dir))
+		if dir != "" && errors.Is(err, fs.ErrNotExist) {
+			continue
 		}
-		if d.IsDir() {
-			if filepath.Dir(path) == ledger && (d.Name() == ".git" || d.Name() == "learn") {
-				return filepath.SkipDir
+		if err != nil {
+			return nil, err
+		}
+		for _, e := range entries {
+			if e.IsDir() || filepath.Ext(e.Name()) != ".md" {
+				continue
 			}
-			return nil
-		}
-		if filepath.Ext(path) != ".md" {
-			return nil
-		}
-		data, err := os.ReadFile(path)
-		if err != nil {
-			return err
-		}
-		lines := bytes.Count(data, []byte("\n"))
-		if !bytes.HasSuffix(data, []byte("\n")) {
-			lines++
-		}
-		if lines > limit {
-			rel, err := filepath.Rel(ledger, path)
+			data, err := os.ReadFile(filepath.Join(ledger, dir, e.Name()))
 			if err != nil {
-				return err
+				return nil, err
 			}
-			long = append(long, filepath.ToSlash(rel))
+			lines := bytes.Count(data, []byte("\n"))
+			if !bytes.HasSuffix(data, []byte("\n")) {
+				lines++
+			}
+			if lines > limit {
+				long = append(long, filepath.ToSlash(filepath.Join(dir, e.Name())))
+			}
 		}
-		return nil
-	})
-	if err != nil {
-		return nil, err
 	}
 	slices.Sort(long)
 	return long, nil
