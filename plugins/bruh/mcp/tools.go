@@ -16,6 +16,7 @@ func AllTools() []Tool {
 	tools = append(tools, resultTools()...)
 	tools = append(tools, learnRefreshTool())
 	tools = append(tools, learnScanTool())
+	tools = append(tools, ledgerEditTool())
 	tools = append(tools, monitorTools()...)
 	return tools
 }
