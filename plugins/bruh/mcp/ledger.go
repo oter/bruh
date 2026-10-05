@@ -35,15 +35,9 @@ type ledgerEditArgs struct {
 	DecisionBy string            `json:"decision_by"`
 }
 
-type ledgerNudge struct {
-	To     string `json:"to"`
-	Header string `json:"header"`
-}
-
 type ledgerEditResult struct {
-	SHA   string            `json:"sha"`
-	Row   map[string]string `json:"row"`
-	Nudge ledgerNudge       `json:"nudge"`
+	SHA string            `json:"sha"`
+	Row map[string]string `json:"row"`
 }
 
 // matchError is the error of a match count other than 1: the count, and the match-column cell
@@ -62,7 +56,7 @@ func ledgerEditTool() Tool {
 	str := map[string]any{"type": "string"}
 	return Tool{
 		Name:        "ledger_edit",
-		Description: "Change one row or one key line of a ledger file, commit only that file, and write the DONE mail to clerk-ledger. Then send nudge.header to nudge.to with SendMessage. Only bigm calls it. It never pushes.",
+		Description: "Change one row or one key line of a ledger file, commit only that file, and write the DONE mail to clerk-ledger, whose waiter wakes it: send no nudge. Only bigm calls it. It never pushes.",
 		InputSchema: map[string]any{
 			"type": "object",
 			"properties": map[string]any{
@@ -516,10 +510,11 @@ func ledgerEdit(env Env, a ledgerEditArgs) (any, error) {
 		sha, short = strings.TrimSpace(sha), strings.TrimSpace(short)
 		header := "DONE: ledger commit " + short
 		subject, _, _ := strings.Cut(msg, "\n")
+		// The waiter of clerk-ledger (spec 9.5) wakes it on this mail, so the output has no nudge.
 		if _, err := postMail(env, "bigm", "clerk-ledger", header, fmt.Sprintf("Commit: %s\nSubject: %s\nFile: %s\n", sha, subject, rel)); err != nil {
 			return fmt.Errorf("committed %s, but the DONE mail failed: %w; post %q to clerk-ledger with mail_post", sha, err, header)
 		}
-		res = ledgerEditResult{SHA: sha, Row: e.row, Nudge: ledgerNudge{To: "clerk-ledger", Header: header}}
+		res = ledgerEditResult{SHA: sha, Row: e.row}
 		return nil
 	})
 	if err != nil {

@@ -77,7 +77,8 @@ func edit(t *testing.T, env Env, args map[string]any) (map[string]any, error) {
 	return out.(map[string]any), nil
 }
 
-// checkCommit checks the commit subject, the one file of the commit, the DONE mail, and the nudge.
+// checkCommit checks the commit subject, the one file of the commit, and the DONE mail. The output
+// has no nudge: the waiter of clerk-ledger wakes it (owner, 2026-10-05: "ledger tool must be automatic").
 func checkCommit(t *testing.T, env Env, dir string, out map[string]any, subject, file string) {
 	t.Helper()
 	if got := gitT(t, dir, "log", "-1", "--format=%s"); got != subject+"\n" {
@@ -91,8 +92,8 @@ func checkCommit(t *testing.T, env Env, dir string, out map[string]any, subject,
 	if out["sha"] != sha {
 		t.Errorf("sha = %v, want %s", out["sha"], sha)
 	}
-	if n := out["nudge"].(map[string]any); n["to"] != "clerk-ledger" || n["header"] != header {
-		t.Errorf("nudge = %v, want %s", n, header)
+	if _, ok := out["nudge"]; ok {
+		t.Errorf("output has a nudge: %v", out)
 	}
 	msgs, err := call(t, as(env, "clerk-ledger"), "mail_read", map[string]any{})
 	if err != nil {

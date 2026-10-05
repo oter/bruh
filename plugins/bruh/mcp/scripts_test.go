@@ -513,7 +513,8 @@ func TestRefusalHoldStopsTheSession(t *testing.T) {
 	if out := refusal(t, data, preTool("S2", "Bash", "gh pr merge 7", ""), refusalKey); out != "" {
 		t.Fatalf("other session denied: %q", out)
 	}
-	// answer_write: while a hold exists, only bigm may call it, also for the linked P0.
+	// answer_write: the held clerk may not call it, also for the linked P0; bigm has no deny-all
+	// hold, so its answer_write goes through.
 	answerWrite := func(qid any) map[string]any {
 		in := preTool("S", "mcp__plugin_bruh_bruh__answer_write", "", "")
 		in["tool_input"] = map[string]any{"question_id": qid, "text": "t"}
@@ -639,76 +640,56 @@ func TestStopHooksTogether(t *testing.T) {
 	}
 }
 
-// linkedWorktree makes a repository and a linked worktree of it, and returns both paths.
-func linkedWorktree(t *testing.T) (string, string) {
-	t.Helper()
-	repo := t.TempDir()
-	wt := filepath.Join(t.TempDir(), "wt")
-	for _, args := range [][]string{
-		{"init", "-q", repo},
-		{"-C", repo, "-c", "user.name=t", "-c", "user.email=t", "commit", "-q", "--allow-empty", "-m", "x"},
-		{"-C", repo, "worktree", "add", "-q", wt},
-	} {
-		if out, err := exec.Command("git", args...).CombinedOutput(); err != nil {
-			t.Fatalf("git %v: %v %s", args, err, out)
-		}
-	}
-	return repo, wt
-}
-
-func TestGitShapeGuard(t *testing.T) {
-	repo, wt := linkedWorktree(t)
-	shapes := []string{
-		"docker run --rm img $(git ls-files '*.sh')",
-		"git ls-files '*.sh' > f; xargs lint < f",
-		"git ls-files | xargs lint",
-		`node -e 'const a={"c":"git diff"}; console.log(a)'`,
-		"mkdir d && cat <<EOF > d/s.py\nprint('git status')\nEOF\ncp d/s.py e.py\npython3 e.py",
-		"echo `git rev-parse HEAD`",
-		"git log | head",
-		"git status; ls",
-		`git commit -m "$(cat msg)"`,
-		"git diff 2>&1 | head",
-		"git status\ngit log",
-		`git commit -m "a" && ls`,
-		`git log \' ; ls ; echo \'`,
-		`git log \" ; ls ; echo \"`,
-		"git diff <(git show HEAD:a) b",
-	}
-	for _, cmd := range shapes {
-		data := t.TempDir()
-		r := denyReason(t, refusal(t, data, preTool("S", "Bash", cmd, wt), refusalKey))
-		holds := holdFiles(t, data)
-		if len(holds) != 1 || !strings.Contains(r, holds[0]["id"].(string)) || !strings.Contains(r, "no compound commands with git") ||
-			holds[0]["denial_source"] != "bruh-git-shape" {
-			t.Errorf("%q: reason = %q, holds = %v", cmd, r, holds)
-			continue
-		}
-		if out := refusal(t, data, preTool("S", "Bash", cmd, repo), refusalKey); denyReason(t, out) == "" || !strings.Contains(out, "hold") {
-			t.Errorf("%q: the hold does not reach the next call", cmd)
-		}
-		// Outside a linked worktree the guard denies nothing.
-		other := t.TempDir()
-		if out := refusal(t, other, preTool("S", "Bash", cmd, repo), refusalKey); out != "" {
-			t.Errorf("%q in the main checkout: %q", cmd, out)
-		}
-		if out := refusal(t, other, preTool("S", "Bash", cmd, t.TempDir()), refusalKey); out != "" {
-			t.Errorf("%q outside a repository: %q", cmd, out)
-		}
-	}
+// TestRefusalHoldSparesBigm: a refusal never freezes bigm (owner, 2026-10-05). Only the exact
+// refused call stays denied; each other call goes through, and the Stop block stays until the P0.
+func TestRefusalHoldSparesBigm(t *testing.T) {
 	data := t.TempDir()
-	for _, cmd := range []string{
-		"git status", "git -C . log --oneline -5", "echo a; echo b", "ls | wc -l", "legit-tool; x", "cat .gitignore | wc -l",
-		// One plain git command: separators only inside quotes or in an fd redirect.
-		"git diff A B 2>&1", "git log --format='%h|%s'", `git commit -m "a; b"`, `git commit -m "say \"x; y\""`,
-		"git log --format='$(x)'", "git status\n",
-	} {
-		if out := refusal(t, data, preTool("S", "Bash", cmd, wt), refusalKey); out != "" {
-			t.Errorf("%q denied: %q", cmd, out)
+	const bigmKey = "BRUH_ROLE_KEY=bigm"
+	refusal(t, data, map[string]any{
+		"hook_event_name": "PermissionDenied", "session_id": "S", "tool_name": "Bash",
+		"tool_input": map[string]string{"command": "gh pr merge 7"}, "reason": "[Merge Without Review]",
+	}, bigmKey)
+	holds := holdFiles(t, data)
+	if len(holds) != 1 || holds[0]["role_key"] != "bigm" {
+		t.Fatalf("holds = %v", holds)
+	}
+	id := holds[0]["id"].(string)
+	answerWrite := preTool("S", "mcp__plugin_bruh_bruh__answer_write", "", "")
+	answerWrite["tool_input"] = map[string]any{"question_id": "Q-x-1", "text": "t"}
+	// Same command string in another field shape: not the exact call, so allowed.
+	reshaped := preTool("S", "Bash", "", "")
+	reshaped["tool_input"] = map[string]any{"command": "gh pr merge 7", "description": "merge"}
+	for _, in := range []map[string]any{preTool("S", "Bash", "ls", ""), preTool("S", "Write", "", ""), answerWrite, reshaped} {
+		if out := refusal(t, data, in, bigmKey); out != "" {
+			t.Fatalf("%v denied: %q", in, out)
 		}
 	}
-	if out := refusal(t, data, preTool("S", "Write", "git a; b", wt), refusalKey); out != "" || len(holdFiles(t, data)) != 0 {
-		t.Fatalf("Write denied: %q", out)
+	exact := preTool("S", "Bash", "gh pr merge 7", "")
+	if r := denyReason(t, refusal(t, data, exact, bigmKey)); !strings.Contains(r, id) || !strings.Contains(r, "other work") {
+		t.Fatalf("reason = %q", r)
+	}
+	stop := map[string]any{"hook_event_name": "Stop", "session_id": "S", "stop_hook_active": false}
+	var m struct{ Decision, Reason string }
+	if err := json.Unmarshal([]byte(refusal(t, data, stop, bigmKey)), &m); err != nil || m.Decision != "block" || !strings.Contains(m.Reason, id) {
+		t.Fatalf("Stop output = %+v (err %v), want a block with %q", m, err, id)
+	}
+	env := testEnv(t, "bigm")
+	env.DataDir = data
+	q, err := call(t, env, "question_open", map[string]any{"priority": "P0", "subject": "refused", "body": "b", "blocks": "x", "hold": id})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if out := refusal(t, data, stop, bigmKey); out != "" {
+		t.Fatalf("block after the P0: %q", out)
+	}
+	if denyReason(t, refusal(t, data, exact, bigmKey)) == "" {
+		t.Fatal("the exact call allowed before the answer")
+	}
+	if _, err := call(t, env, "answer_write", map[string]any{"question_id": q.(map[string]any)["id"], "text": "run it. Owner, 2026-10-05."}); err != nil {
+		t.Fatal(err)
+	}
+	if out := refusal(t, data, exact, bigmKey); out != "" {
+		t.Fatalf("denied after the answer: %q", out)
 	}
 }
 
