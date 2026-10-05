@@ -56,6 +56,7 @@ const REQUIRED = {
     'answer_write', 'answer_wait', 'AskUserQuestion', 'OPTION <n>: <label> | <description>', '(Recommended)',
     'ANSWER Q-<id>: reask', '(attempt <n>)',
     'DONE: info request <subject>', 'DONE: info <subject>', 'R-1',
+    'DONE: report <role key>', 'R-7',
   ],
   clanker: [
     'session_launch', 'session_resume', 'session_list', 'mail_post', 'mail_read', 'role_settings_write',

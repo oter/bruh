@@ -1,6 +1,11 @@
 package main
 
 import (
+	"encoding/json"
+	"maps"
+	"os"
+	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -29,6 +34,115 @@ func TestReportWriteAndRead(t *testing.T) {
 	}
 	if _, err := call(t, env, "report_write", map[string]any{"kind": "gossip", "text": "x"}); err == nil || !strings.Contains(err.Error(), "invalid kind") {
 		t.Fatalf("err = %v", err)
+	}
+}
+
+// Task 17: a status or result line of a role other than bigm pushes a "DONE: report <role key>"
+// notice to bigm, with at most one unread notice for each role.
+func TestReportWritePushesNoticeToBigm(t *testing.T) {
+	env := testEnv(t, "clerk-a-1")
+	bigm := as(env, "bigm")
+	write := func(e Env, kind, text string) {
+		t.Helper()
+		time.Sleep(2 * time.Millisecond) // a distinct at for each line, so since separates them
+		if _, err := call(t, e, "report_write", map[string]any{"kind": kind, "text": text}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	read := func() []map[string]any {
+		t.Helper()
+		got, err := call(t, bigm, "mail_read", map[string]any{})
+		if err != nil {
+			t.Fatal(err)
+		}
+		var msgs []map[string]any
+		for _, m := range got.([]any) {
+			msgs = append(msgs, m.(map[string]any))
+		}
+		return msgs
+	}
+	bodyLine := func(m map[string]any) ReportLine {
+		t.Helper()
+		var l ReportLine
+		if err := json.Unmarshal([]byte(m["body"].(string)), &l); err != nil {
+			t.Fatalf("body %q is not a report line: %v", m["body"], err)
+		}
+		return l
+	}
+
+	// (a) One status line gives one notice; its body is the report line.
+	write(env, "status", "task 1 started")
+	msgs := read()
+	if len(msgs) != 1 || msgs[0]["header"] != "DONE: report clerk-a-1" || msgs[0]["from"] != "clerk-a-1" {
+		t.Fatalf("bigm mail = %v, want one DONE: report clerk-a-1", msgs)
+	}
+	if l := bodyLine(msgs[0]); l.Text != "task 1 started" || l.Kind != "status" || l.From != "clerk-a-1" {
+		t.Fatalf("body line = %+v", l)
+	}
+
+	// (b) The cap: three lines with no read between give one notice, and report_read with
+	// since = the at of its body line returns the two later lines.
+	write(env, "status", "plan done")
+	write(env, "result", "PR open")
+	write(env, "status", "review")
+	// (c) The cap is per role: clanker-a gets its own notice while clerk-a-1 has one pending.
+	write(as(env, "clanker-a"), "status", "wave 1")
+	msgs = read()
+	from := map[string]int{}
+	for _, m := range msgs {
+		from[m["from"].(string)]++
+	}
+	if len(msgs) != 2 || from["clerk-a-1"] != 1 || from["clanker-a"] != 1 {
+		t.Fatalf("bigm mail = %v, want one notice from clerk-a-1 and one from clanker-a", msgs)
+	}
+	var first ReportLine
+	for _, m := range msgs {
+		if m["from"] == "clerk-a-1" {
+			first = bodyLine(m)
+		}
+	}
+	if first.Text != "plan done" {
+		t.Fatalf("clerk-a-1 notice body = %+v, want the first line after the read", first)
+	}
+	later, err := call(t, bigm, "report_read", map[string]any{"role_key": "clerk-a-1", "since": first.At})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if l := later.([]any); len(l) != 2 || l[0].(map[string]any)["text"] != "PR open" || l[1].(map[string]any)["text"] != "review" {
+		t.Fatalf("report_read since %s = %v, want the 2 later lines", first.At, l)
+	}
+
+	// (d) After bigm read the notice, a new line gives a new notice.
+	write(env, "result", "merged")
+	if msgs = read(); len(msgs) != 1 || bodyLine(msgs[0]).Text != "merged" {
+		t.Fatalf("bigm mail after a read = %v, want one new notice", msgs)
+	}
+
+	// (e) No notice for an event or an answer line, for a line of bigm, or for a refused line.
+	write(env, "event", "clanker-a not running; mail pending")
+	write(env, "answer", "yes")
+	write(bigm, "status", "sweep done")
+	if _, err := call(t, as(env, "clerk-a-scout1"), "report_write", map[string]any{"kind": "status", "text": "no source"}); err == nil {
+		t.Fatal("scout line with no source: want a refusal")
+	}
+	if msgs = read(); len(msgs) != 0 {
+		t.Fatalf("bigm mail = %v, want no notice", msgs)
+	}
+
+	// (f) The report file format does not change: each line has only at, from, kind, and text.
+	data, err := os.ReadFile(filepath.Join(env.DataDir, "reports", "clerk-a-1.jsonl"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, raw := range strings.Split(strings.TrimSpace(string(data)), "\n") {
+		var m map[string]any
+		if err := json.Unmarshal([]byte(raw), &m); err != nil {
+			t.Fatal(err)
+		}
+		keys := slices.Sorted(maps.Keys(m))
+		if !slices.Equal(keys, []string{"at", "from", "kind", "text"}) {
+			t.Errorf("report line keys = %v, want at, from, kind, text: %s", keys, raw)
+		}
 	}
 }
 

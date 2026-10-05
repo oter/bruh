@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Changed
+
+- bigm gets a notice in its mailbox when a role writes a status or result report line, with a maximum of one unread notice for each role. bigm gives the owner a short update every 5 minutes while work runs.
+
 ### Fixed
 
 - The learner eval does not inherit BRUH_ROLE_KEY. Before, a learner eval that started in a role session did not stop.
