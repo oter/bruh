@@ -15,6 +15,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 ### Removed
 
 - The git-shape guard. The hook does not deny a compound Bash command with the word git in a linked worktree, and it does not write a hold for it. The Claude Code worktree guard, permission modes, and classifier stay.
+- The house rule "In a worktree, no compound commands with git. Data goes through tool inputs." (item 10 of `defaults/house-rules.md`). Item 10 keeps the lane text for file reads, writes, and searches.
 
 ### Fixed
 
