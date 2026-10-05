@@ -403,7 +403,7 @@ func (s *server) handle(ctx context.Context, req request) {
 		s.result(req.ID, map[string]any{
 			"protocolVersion": version,
 			"capabilities":    map[string]any{"experimental": exp, "tools": map[string]any{}},
-			"serverInfo":      map[string]any{"name": "bruh-slack", "version": "0.11.0"},
+			"serverInfo":      map[string]any{"name": "bruh-slack", "version": "0.11.1"},
 			"instructions":    instructions,
 		})
 	case "ping":

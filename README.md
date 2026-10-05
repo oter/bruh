@@ -277,7 +277,7 @@ Background sessions use the Claude account of the Claude Code supervisor. bruh n
 
 ### Upgrade from 0.10.0
 
-Do these steps after the release v0.11.0 is published. Let the running tasks finish first.
+Do these steps after the release v0.11.1 is published. Let the running tasks finish first.
 
 1. Update the marketplace and the plugin, in a terminal:
 
@@ -295,7 +295,7 @@ Do these steps after the release v0.11.0 is published. Let the running tasks fin
    claude plugin list
    ```
 
-   The entry of `bruh@oter` shows `Version: 0.11.0`.
+   The entry of `bruh@oter` shows `Version: 0.11.1`.
 3. Run the init skill again (step 3 of Install). It adds the allow rules of the new tools (`ledger_edit`, `monitor_start`, `monitor_stop`, `monitor_list`, `monitor_report`, and `session_tab_close`) and the new ledger parts (`monitors.md`, the table "Command grants" in `grants.md`, and the monitor keys of `mode.md`). In the ledger folder, start a session with no role key:
 
    ```bash
@@ -330,10 +330,10 @@ Do these steps after the release v0.11.0 is published. Let the running tasks fin
 5. Restart the background roles. Tell bigm:
 
    ```text
-   restart each clanker and clerk-ledger so that they run 0.11.0
+   restart each clanker and clerk-ledger so that they run 0.11.1
    ```
 
-   New clerks start on 0.11.0. A clerk that still runs keeps 0.10.0 until it ends.
+   New clerks start on 0.11.1. A clerk that still runs keeps 0.10.0 until it ends.
 6. Optional: local Orca tabs. The new plugin option `orca_local` is `auto` by default: when the Orca app 1.4.218 or later runs, each local clanker and clerk that bruh starts or resumes gets an Orca tab ("Local sessions in Orca" in step 1 of Install). To turn it off, set `orca_local` to `off` with `/config`.
 7. Check the upgrade. Wait one minute after the start of bigm. Then ask bigm:
 
@@ -341,7 +341,7 @@ Do these steps after the release v0.11.0 is published. Let the running tasks fin
    call bruh_info and monitor_list
    ```
 
-   `bruh_info` shows the version `0.11.0`. `monitor_list` exists only in 0.11.0, and it shows `poller_down` false. If `poller_down` is still true after two minutes, run `/reload-plugins` in bigm and ask again.
+   `bruh_info` shows the version `0.11.1`. `monitor_list` exists since 0.11.0, and it shows `poller_down` false. If `poller_down` is still true after two minutes, run `/reload-plugins` in bigm and ask again.
 
 ## Documentation
 
