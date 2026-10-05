@@ -1,31 +1,34 @@
 // The bruh board: /bruh-board opens a pane with the open P0 and P1 questions
-// and a tree of the role sessions by project. Read-only: it reads the bruh
-// data folder, the ledger "In progress" rows and `claude agents --json --all`.
-// It writes nothing. The data lives in module variables; a hot reload loses
-// them and the next refresh fills them again.
+// and a collapsible tree of the role sessions by project: one line per
+// clanker, its clerks under it, and a clerk's last done and next step under
+// the clerk. It reads the bruh data folder, the ledger "In progress" rows and
+// `claude agents --json --all`. Its one write is the expanded state: one
+// `open:<role key>` key per item in its own $.store, shared by the sessions.
+// The data lives in module variables; a hot reload loses them and the next
+// refresh fills them again.
 
 const PANE = 'bruh-board'
 const FRAME_MS = 500
 const REFRESH_TICKS = 20 // 20 x 500 ms = 10 s
 
 // Spinner: the role picks the glyphs, the state picks the motion and the colour.
-const FRAMES = { clanker: '⣾⣽⣻⢿⡿⣟⣯⣷', clerk: '◐◓◑◒', run: '▁▃▅▇▅▃', bigm: '◇◆' }
+const FRAMES = { clanker: '⣾⣽⣻⢿⡿⣟⣯⣷', clerk: '◐◓◑◒' }
 const COLORS = { working: 'green', owner: 'yellow', blocked: 'red', done: 'gray' }
 const WORDS = { working: 'working', owner: 'waits on you', blocked: 'blocked', idle: 'idle', done: 'done' }
+const URGENCY = ['owner', 'blocked', 'working', 'idle', 'done'] // a clanker's summary: its most urgent state
+const LETTERS = 'abcdefghijklmnopqrstuvwxyz'
 
 export function spinner(role, state, tick) {
   if (state === 'done') return { glyph: '✓', color: 'gray' }
-  const frames = [...(FRAMES[role] ?? FRAMES.bigm)]
+  const frames = [...FRAMES[role]]
   const step = state === 'working' ? tick : state === 'owner' ? Math.floor(tick / 4) : 0
   const mark = state === 'owner' ? '?' : state === 'blocked' ? '!' : ''
   return { glyph: frames[step % frames.length] + mark, color: COLORS[state], dim: state === 'idle' }
 }
 
-// Role keys as plugins/bruh/mcp/env.go ParseRoleKey reads them.
+// Role keys as plugins/bruh/mcp/env.go ParseRoleKey reads them; the board shows clankers and clerks.
 const PROJECT = /^[a-z0-9]+(-[a-z0-9]+)*$/
 export function parseKey(key) {
-  if (key === 'bigm') return { role: 'bigm' }
-  if (key === 'clerk-ledger') return { role: 'ledger' }
   if (key.startsWith('clanker-')) {
     const project = key.slice('clanker-'.length)
     return PROJECT.test(project) ? { role: 'clanker', project } : null
@@ -59,7 +62,6 @@ export function parseInProgress(md) {
       number: at('Task').match(/^task (\d+):/)?.[1],
       clerk: at('State').match(/\((clerk-[a-z0-9-]+)\)/)?.[1],
       deliverable: at('Expected deliverable'),
-      check: at('Next check (UTC)'),
     })
   }
   return rows
@@ -69,10 +71,14 @@ export function taskLabel(number, slug) {
   return [number && `task ${number}`, slug].filter(Boolean).join(' ') || undefined
 }
 
-// R-5: no commit SHA reaches the pane. A wf_ ID keeps its hex part ("_" is a word character).
-const mask = text => String(text ?? '').replace(/\b[0-9a-f]{7,40}\b/g, '…')
-const hhmm = at => (/^\d{4}-\d\d-\d\dT\d\d:\d\d/.test(at ?? '') ? `${at.slice(11, 16)}Z` : mask(at))
-const RUN_ID = /\bwf_[0-9a-f]+-[0-9a-f]+\b/
+// R-5 and the trim: no commit SHA, timestamp, run ID or question ID reaches the pane.
+const MASK = /\b\d{4}-\d\d-\d\dT[\d:.]*Z?|\b\d\d:\d\d(?::\d\d)?Z\b|\bwf_[0-9a-f-]+|\bQ-[a-z0-9-]+|\b[0-9a-f]{7,40}\b/g
+const mask = text => String(text ?? '').replace(MASK, '…')
+// One line per item: cut to the pane width, as a Button label does not wrap.
+const fit = (text, cols) => {
+  const chars = [...text]
+  return chars.length <= cols ? text : `${chars.slice(0, Math.max(cols - 1, 0)).join('')}…`
+}
 const SLUG = /\/\.claude\/worktrees\/([^/]+)\/?$/
 
 function boardState(session, askers) {
@@ -84,11 +90,12 @@ function boardState(session, askers) {
   return 'idle'
 }
 
-let board = { questions: [], groups: [], notes: ['loading…'] }
+let board = { questions: [], clankers: [], notes: ['loading…'] }
 let tick = 0
 let timer = null
 let isRefreshing = false
 const skipped = new Set() // question files that are answered or below P1 stay so
+const expanded = new Map() // role key -> true while the owner has it open; $.store keeps it
 
 async function readText($, path) {
   try { return await $.fs.read(path) } catch { return undefined }
@@ -98,6 +105,15 @@ async function readJson($, path) {
 }
 async function exists($, path) {
   try { return await $.fs.exists(path) } catch { return false }
+}
+async function readOpen($, key) {
+  try { expanded.set(key, (await $.store.get(`open:${key}`)) === true) } catch {}
+}
+async function toggle($, key) {
+  const isOpen = !expanded.get(key)
+  expanded.set(key, isOpen)
+  $.ui.invalidate('ui.render')
+  await $.store.set(`open:${key}`, isOpen)
 }
 
 async function openQuestions($, data) {
@@ -115,15 +131,11 @@ async function openQuestions($, data) {
   return open.sort((a, b) => a.priority.localeCompare(b.priority) || String(a.opened_at).localeCompare(String(b.opened_at)))
 }
 
-async function report($, data, key) {
+// The last status or result line of a role's report, else its last line.
+async function lastDone($, data, key) {
   const text = (await readText($, `${data}/reports/${key}.jsonl`)) ?? ''
   const lines = text.split('\n').flatMap(line => { try { return [JSON.parse(line)] } catch { return [] } })
-  const last = lines.findLast(line => line.kind === 'status' || line.kind === 'result') ?? lines.at(-1)
-  const runLine = lines.findLast(line => RUN_ID.test(line.text ?? ''))
-  return {
-    last: last && `last: ${hhmm(last.at)} ${mask(last.text)}`,
-    run: runLine && { id: runLine.text.match(RUN_ID)[0], isDone: runLine.kind === 'result' },
-  }
+  return (lines.findLast(line => line.kind === 'status' || line.kind === 'result') ?? lines.at(-1))?.text
 }
 
 async function refresh($) {
@@ -136,7 +148,7 @@ async function refresh($) {
     try {
       const ran = await $.process.run(['claude', 'agents', '--json', '--all'], { timeoutMs: 20000 })
       if (ran.exitCode === 0) sessions = JSON.parse(ran.stdout)
-      else notes.push(`sessions: claude agents failed (exit ${ran.exitCode})`)
+      else notes.push('sessions: claude agents failed')
     } catch {
       notes.push('sessions: claude agents failed')
     }
@@ -153,60 +165,38 @@ async function refresh($) {
     const askers = new Set(questions.map(q => q.asker))
     const repos = (await readJson($, `${data}/repos.json`))?.repos ?? []
     const ledger = (await readJson($, `${data}/init/config.json`))?.ledger_path
-    if (!ledger) notes.push(`next steps: ledger path unknown (${data}/init/config.json)`)
+    if (!ledger) notes.push('ledger path unknown')
 
-    const row = async (key, session, role, name, depth, isLastChild, nextRow) => {
-      const state = boardState(session, askers)
-      const { last, run } = await report($, data, key)
-      const next = nextRow && `next: check ${hhmm(nextRow.check)} · ${mask(nextRow.deliverable)}`
-      return { key, role, state, name, depth, isLastChild, last, next, run }
-    }
-
-    const groups = []
-    const top = []
-    for (const key of ['bigm', 'clerk-ledger']) {
-      const session = newest.get(key)
-      if (session) top.push(await row(key, session, 'bigm', key === 'bigm' ? 'bigm' : 'clerk-ledger (ledger clerk)', 0))
-    }
-    if (top.length) groups.push(top)
-
-    const projects = [...new Set(live.map(s => parseKey(s.name).project).filter(Boolean))]
+    const projects = [...new Set(live.map(s => parseKey(s.name).project))]
     projects.sort((a, b) => {
       const isLive = p => live.some(s => s.pid && parseKey(s.name).project === p)
       return isLive(b) - isLive(a) || a.localeCompare(b)
     })
+    const clankers = []
     for (const project of projects) {
       const path = repos.filter(r => r.project === project).map(r => r.repo).join(', ') || project
       const md = ledger ? await readText($, `${ledger}/projects/${project}.md`) : undefined
       const rows = md ? parseInProgress(md) : []
-      const clankerKey = `clanker-${project}`
-      const owned = rows.filter(r => r.owner === clankerKey)
-      const firstCheck = owned.filter(r => r.check).sort((a, b) => a.check.localeCompare(b.check))[0]
-      const clerks = live.filter(s => parseKey(s.name).role === 'clerk' && parseKey(s.name).project === project)
-        .map(session => {
-          const ledgerRow = rows.find(r => r.clerk === session.name)
-          return { session, ledgerRow, number: ledgerRow?.number, slug: session.cwd?.match(SLUG)?.[1] }
+      const key = `clanker-${project}`
+      const clerks = []
+      for (const session of live.filter(s => parseKey(s.name).role === 'clerk' && parseKey(s.name).project === project)) {
+        const ledgerRow = rows.find(r => r.clerk === session.name)
+        const number = ledgerRow?.number
+        const slug = session.cwd?.match(SLUG)?.[1]
+        await readOpen($, session.name)
+        clerks.push({
+          key: session.name, number, slug, state: boardState(session, askers),
+          name: taskLabel(number, slug) ?? parseKey(session.name).short,
+          last: await lastDone($, data, session.name), next: ledgerRow?.deliverable,
         })
-      // The clanker's tasks: its ledger rows plus its live clerks (number, else slug), with or without a clanker session.
-      const tasks = [...new Set([...owned.map(r => r.number), ...clerks.map(c => c.number ?? c.slug)].filter(Boolean))]
-      const label = tasks.length ? `task${tasks.length > 1 ? 's' : ''} ${tasks.join(', ')}` : 'idle'
-      const group = [await row(clankerKey, newest.get(clankerKey), 'clanker', `${path} (clanker, ${label})`, 0, false, firstCheck)]
-      for (const [i, { session: clerk, ledgerRow, number, slug }] of clerks.entries()) {
-        const task = taskLabel(number, slug) ?? clerk.name
-        const short = parseKey(clerk.name).short
-        const clerkRow = await row(clerk.name, clerk, 'clerk', `${path} ${short} (clerk, ${task})`, 1, i === clerks.length - 1, ledgerRow)
-        group.push(clerkRow)
-        if (clerkRow.run) {
-          group.push({
-            key: `${clerk.name}:run`, role: 'run', depth: 2, isLastChild: true, parentIsLast: clerkRow.isLastChild,
-            state: clerkRow.run.isDone ? 'done' : clerkRow.state,
-            name: `${path} ${short} run ${clerkRow.run.id} (workflow run, ${task})`,
-          })
-        }
       }
-      groups.push(group)
+      // The clanker's tasks: its ledger rows plus its live clerks (number, else slug), with or without a clanker session.
+      const tasks = new Set([...rows.filter(r => r.owner === key).map(r => r.number), ...clerks.map(c => c.number ?? c.slug)].filter(Boolean)).size
+      const states = [boardState(newest.get(key), askers), ...clerks.map(c => c.state)]
+      await readOpen($, key)
+      clankers.push({ key, path, tasks, state: URGENCY.find(s => states.includes(s)), clerks })
     }
-    board = { questions, groups, notes }
+    board = { questions, clankers, notes }
   } finally {
     isRefreshing = false
   }
@@ -221,7 +211,7 @@ export const register = on => {
   })
 
   on('command.run', { command: 'bruh-board' }, async $ => {
-    await $.ui.open({ id: PANE, title: 'bruh board' })
+    await $.ui.open({ id: PANE, title: 'bruh board', focus: true })
     if (!timer) {
       await refresh($)
       timer = $.clock.every(FRAME_MS, () => {
@@ -240,30 +230,45 @@ export const register = on => {
   })
 
   on('ui.render', { component: 'Pane', requestId: PANE }, ($, e) => {
-    const { Box, Text } = $.ui.resolve(e)
-    const line = (props, text) => h(Text, { wrap: 'truncate-end', ...props }, text)
+    const { Box, Text, Button } = $.ui.resolve(e)
+    const cols = e.props.bodyColumns
+    const line = (props, text) => h(Text, { wrap: 'truncate-end', ...props }, fit(text, cols))
+    // One toggle line: indent, spinner, then a plain Button "<hotkey>: ▸ <label>".
+    // ponytail: hotkeys run out after 9 clankers and 26 clerks; Tab and Enter still reach the rest.
+    const toggleLine = (item, role, indent, hotkey, label) => {
+      const spin = spinner(role, item.state, tick)
+      return h(Box, { key: item.key, flexDirection: 'row' },
+        indent ? h(Text, {}, indent) : undefined,
+        h(Box, { key: `spin-${item.key}` },
+          h(Text, { ...(spin.color && { color: spin.color }), ...(spin.dim && { dimColor: true }) }, spin.glyph)),
+        h(Text, {}, ' '),
+        h(Button, {
+          key: `toggle-${item.key}`, plain: true, ...(hotkey && { hotkey }),
+          label: fit(`${expanded.get(item.key) ? '▾' : '▸'} ${label}`, cols - indent.length - 3 - (hotkey ? 3 : 0)),
+          onPress: () => toggle($, item.key),
+        }))
+    }
+
     const out = [line({ bold: true }, 'Waits on you')]
     if (board.questions.length === 0) out.push(line({ dimColor: true }, 'nothing waits on you'))
     for (const q of board.questions) {
-      const id = String(q.id).replace(/^Q-.*-(\d+)$/, 'Q-…-$1')
-      out.push(line({ key: `q-${q.id}`, color: q.priority === 'P0' ? 'red' : 'yellow' },
-        `${q.priority} ${id} ${mask(q.subject)} · ${q.asker} · ${hhmm(q.opened_at)}`))
+      // The ID number shows only to tell two questions with one subject apart.
+      const isTwin = board.questions.some(other => other !== q && other.subject === q.subject)
+      const number = isTwin ? ` (${String(q.id).split('-').at(-1)})` : ''
+      out.push(line({ key: `q-${q.id}`, color: q.priority === 'P0' ? 'red' : 'yellow' }, `${q.priority}${number} ${mask(q.subject)}`))
     }
     for (const note of board.notes) out.push(line({ dimColor: true }, note))
-    for (const group of board.groups) {
-      out.push(line({}, ' '))
-      for (const r of group) {
-        const branch = r.depth === 0 ? '' : r.depth === 1 ? (r.isLastChild ? '└─ ' : '├─ ') : `${r.parentIsLast ? '   ' : '│  '}└─ `
-        const under = r.depth === 0 ? '  ' : r.depth === 1 ? (r.isLastChild ? '     ' : '│    ') : `${r.parentIsLast ? '   ' : '│  '}     `
-        const spin = spinner(r.role, r.state, tick)
-        out.push(h(Box, { key: r.key, flexDirection: 'column' },
-          h(Box, { flexDirection: 'row' },
-            h(Text, {}, branch),
-            h(Box, { key: `spin-${r.key}` },
-              h(Text, { ...(spin.color && { color: spin.color }), ...(spin.dim && { dimColor: true }) }, spin.glyph)),
-            line({}, ` ${r.name} · ${WORDS[r.state]}`)),
-          r.last && line({ dimColor: true }, under + r.last),
-          r.next && line({ dimColor: true }, under + r.next)))
+    if (board.clankers.length) out.push(line({}, ' '))
+    let letter = 0
+    for (const [i, clanker] of board.clankers.entries()) {
+      const count = clanker.tasks === 0 ? 'no tasks' : clanker.tasks === 1 ? '1 task' : `${clanker.tasks} tasks`
+      out.push(toggleLine(clanker, 'clanker', '', i < 9 ? String(i + 1) : undefined, `${clanker.path} · ${count}`))
+      if (!expanded.get(clanker.key)) continue
+      for (const clerk of clanker.clerks) {
+        out.push(toggleLine(clerk, 'clerk', '  ', LETTERS[letter++], `${clerk.name} · ${WORDS[clerk.state]}`))
+        if (!expanded.get(clerk.key)) continue
+        if (clerk.last) out.push(line({ dimColor: true }, `    last: ${mask(clerk.last)}`))
+        if (clerk.next) out.push(line({ dimColor: true }, `    next: ${mask(clerk.next)}`))
       }
     }
     return h(Box, { flexDirection: 'column' }, ...out)
