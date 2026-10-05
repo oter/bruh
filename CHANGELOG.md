@@ -16,6 +16,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - The waiter `scripts/wake.sh`: a `Stop` hook and a `SessionStart` hook with `asyncRewake` wake an idle role when its mailbox gets new mail.
 - The plugin monitor `bruh-poller` (`monitors/monitors.json`) runs the poller in bigm, with a lock for one poller on each machine.
 - The ledger file `monitors.md`, the table "Command grants" of `grants.md` (a `command` source runs only under a grant of its exact `argv` prefix), and the settings `monitor_default_hours`, `monitor_max_hours`, and `monitor_max_active` of `mode.md`.
+- Local sessions in Orca: when the Orca app runs, `session_launch` and `session_resume` open an Orca tab titled with the role key that runs `claude attach <short ID>`. The new tool `session_tab_close` closes the tab of a retired role. The plugin option `orca_local` (`auto` or `off`, default `auto`) turns it off, and the init trust step offers to add the repositories to Orca. Without Orca nothing changes (spec 4.3).
 
 ### Changed
 

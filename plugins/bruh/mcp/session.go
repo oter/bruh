@@ -10,7 +10,9 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -90,6 +92,204 @@ func launchBackground(env Env, key, dir string, args []string, wantID string, ch
 		time.Sleep(env.PollInterval)
 	}
 	return nil, fmt.Errorf("session %s is not in claude agents --json --all", id)
+}
+
+// orcaMinVersion is the oldest Orca app that the viewer tab is tested with (spec 4.3, O2).
+const orcaMinVersion = "1.4.218"
+
+// Tests replace these.
+var (
+	goos         = runtime.GOOS
+	orcaLookPath = exec.LookPath
+	orcaTimeout  = 10 * time.Second
+)
+
+// orcaBin returns the Orca CLI to use, or "" when bruh must run no orca command (spec 4.3): the
+// plugin option orca_local is "off", the CLI is not on PATH, or the name is orca-dev. On Linux a
+// bare orca is the GNOME screen reader, so bruh never runs it there.
+func orcaBin(env Env) string {
+	var s struct {
+		PluginConfigs map[string]struct {
+			Options struct {
+				OrcaLocal string `json:"orca_local"`
+			} `json:"options"`
+		} `json:"pluginConfigs"`
+	}
+	// Read at each call, so a change in /config applies at once. No value means auto.
+	if data, err := os.ReadFile(env.SettingsFile); err == nil && json.Unmarshal(data, &s) == nil && s.PluginConfigs[pluginID].Options.OrcaLocal == "off" {
+		return ""
+	}
+	name := os.Getenv("ORCA_CLI_COMMAND")
+	if name == "" {
+		name = "orca"
+		if goos == "linux" {
+			name = "orca-ide"
+		}
+	}
+	if base := filepath.Base(name); base == "orca-dev" || goos == "linux" && base == "orca" {
+		return ""
+	}
+	p, err := orcaLookPath(name)
+	if err != nil {
+		return ""
+	}
+	return p
+}
+
+// orcaRun runs one orca command with --json and returns its result field.
+func orcaRun(bin string, args ...string) (json.RawMessage, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), orcaTimeout)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, bin, append(args, "--json")...)
+	cmd.WaitDelay = time.Second
+	out, err := cmd.Output()
+	var r struct {
+		OK     bool            `json:"ok"`
+		Result json.RawMessage `json:"result"`
+	}
+	if err == nil {
+		err = json.Unmarshal(out, &r)
+	}
+	if err == nil && !r.OK {
+		err = errors.New("ok is not true")
+	}
+	if err != nil {
+		return nil, fmt.Errorf("orca %s: %w: %.300s", strings.Join(args, " "), err, strings.TrimSpace(string(out)))
+	}
+	return r.Result, nil
+}
+
+// parseVersion parses "x.y.z" into three numbers, or returns nil.
+func parseVersion(v string) []int {
+	parts := strings.Split(v, ".")
+	if len(parts) != 3 {
+		return nil
+	}
+	out := make([]int, 3)
+	for i, p := range parts {
+		n, err := strconv.Atoi(p)
+		if err != nil || n < 0 {
+			return nil
+		}
+		out[i] = n
+	}
+	return out
+}
+
+// orcaReady checks that the Orca app runs, that its runtime is ready, and its version.
+func orcaReady(bin string) error {
+	res, err := orcaRun(bin, "status")
+	if err != nil {
+		return err
+	}
+	var s struct {
+		App struct {
+			Running bool `json:"running"`
+		} `json:"app"`
+		Runtime struct {
+			Reachable  bool   `json:"reachable"`
+			State      string `json:"state"`
+			AppVersion string `json:"appVersion"`
+		} `json:"runtime"`
+	}
+	if err := json.Unmarshal(res, &s); err != nil {
+		return fmt.Errorf("orca status: %w", err)
+	}
+	switch v := parseVersion(s.Runtime.AppVersion); {
+	case !s.App.Running:
+		return errors.New("orca status: result.app.running is not true")
+	case !s.Runtime.Reachable:
+		return errors.New("orca status: result.runtime.reachable is not true")
+	case s.Runtime.State != "ready":
+		return fmt.Errorf("orca status: result.runtime.state is %q, not ready", s.Runtime.State)
+	case v == nil || slices.Compare(v, parseVersion(orcaMinVersion)) < 0:
+		return fmt.Errorf("orca status: result.runtime.appVersion %q is not %s or later", s.Runtime.AppVersion, orcaMinVersion)
+	}
+	return nil
+}
+
+// orcaTabs returns the handles of the Orca terminals whose title is exactly title.
+func orcaTabs(bin, title string) ([]string, error) {
+	res, err := orcaRun(bin, "terminal", "list")
+	if err != nil {
+		return nil, err
+	}
+	var l struct {
+		Terminals []struct {
+			Handle string `json:"handle"`
+			Title  string `json:"title"`
+		} `json:"terminals"`
+	}
+	if err := json.Unmarshal(res, &l); err != nil {
+		return nil, fmt.Errorf("orca terminal list: %w", err)
+	}
+	var out []string
+	for _, t := range l.Terminals {
+		if t.Title == title {
+			out = append(out, t.Handle)
+		}
+	}
+	return out, nil
+}
+
+// orcaClose closes the whole tab of each handle, and returns how many it closed before an error.
+func orcaClose(bin string, handles []string) (int, error) {
+	for i, h := range handles {
+		if _, err := orcaRun(bin, "terminal", "close", "--terminal", h, "--tab"); err != nil {
+			return i, err
+		}
+	}
+	return len(handles), nil
+}
+
+// orcaView shows the background session id in an Orca tab titled key, which runs claude attach
+// (spec 4.3). replace closes an old tab of key first; else an existing tab is kept. It sets
+// res["orca"] to the handle, or res["orca_error"]: an Orca failure never fails the session call.
+func orcaView(env Env, res map[string]string, key, cwd, id string, replace bool) {
+	bin := orcaBin(env)
+	if bin == "" {
+		return
+	}
+	handle, err := func() (string, error) {
+		if err := orcaReady(bin); err != nil {
+			return "", err
+		}
+		handles, err := orcaTabs(bin, key)
+		if err != nil {
+			return "", err
+		}
+		if !replace && len(handles) > 0 {
+			return handles[0], nil
+		}
+		if _, err := orcaClose(bin, handles); err != nil {
+			return "", err
+		}
+		// The tab goes to the start folder, not to the worktree that a clerk moved into.
+		folder, _, _ := strings.Cut(cwd, string(filepath.Separator)+filepath.Join(".claude", "worktrees")+string(filepath.Separator))
+		// id is hex (shortIDRE), so the command text needs no quoting.
+		out, err := orcaRun(bin, "terminal", "create", "--worktree", "path:"+folder, "--title", key, "--command", "claude attach "+id)
+		if err != nil {
+			return "", err
+		}
+		var c struct {
+			Handle   string `json:"handle"`
+			Terminal struct {
+				Handle string `json:"handle"`
+			} `json:"terminal"`
+		}
+		if err := json.Unmarshal(out, &c); err != nil {
+			return "", fmt.Errorf("orca terminal create: %w", err)
+		}
+		if h := cmp.Or(c.Terminal.Handle, c.Handle); h != "" {
+			return h, nil
+		}
+		return "", fmt.Errorf("orca terminal create: no handle in result: %.300s", out)
+	}()
+	if err != nil {
+		res["orca_error"] = err.Error()
+		return
+	}
+	res["orca"] = handle
 }
 
 func sessionResult(key string, e map[string]any) map[string]string {
@@ -199,7 +399,9 @@ func sessionTools() []Tool {
 				if err != nil {
 					return nil, err
 				}
-				return sessionResult(key, e), nil
+				res := sessionResult(key, e)
+				orcaView(c.Env, res, key, a.Cwd, str(e, "id"), true)
+				return res, nil
 			},
 		},
 		{
@@ -252,7 +454,40 @@ func sessionTools() []Tool {
 				if err != nil {
 					return nil, err
 				}
-				return sessionResult(key, e), nil
+				res := sessionResult(key, e)
+				orcaView(c.Env, res, key, str(last, "cwd"), str(e, "id"), false)
+				return res, nil
+			},
+		},
+		{
+			Name:        "session_tab_close",
+			Description: "Close the Orca tab of a retired role (its title is role_key). The session keeps running. Only the parent of role_key, or bigm. Call it after you accept a clerk's result or give up its task, after you stop a merger clerk, and after you stop a clanker for good. Without Orca it does nothing.",
+			InputSchema: objectSchema(map[string]any{"role_key": stringSchema()}, "role_key"),
+			Handler: func(c *Call, raw json.RawMessage) (any, error) {
+				a, err := decode[struct {
+					RoleKey string `json:"role_key"`
+				}](raw)
+				if err != nil {
+					return nil, err
+				}
+				k, _, err := childKey(c.Env, a.RoleKey)
+				if err != nil {
+					return nil, err
+				}
+				key := k.String()
+				res := map[string]any{"role_key": key, "closed": 0}
+				bin := orcaBin(c.Env)
+				if bin == "" {
+					return res, nil
+				}
+				handles, err := orcaTabs(bin, key)
+				if err == nil {
+					res["closed"], err = orcaClose(bin, handles)
+				}
+				if err != nil {
+					res["orca_error"] = err.Error()
+				}
+				return res, nil
 			},
 		},
 		{

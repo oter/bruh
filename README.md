@@ -75,6 +75,8 @@ Install at user scope, so that all your projects get the plugin.
 
 The install dialog asks the plugin options, among them your name (how bruh addresses you), the handoff threshold, and the busy clerk cap. The title of each option starts with "bruh: ". To change an option later, use `/config`. The init skill does not ask these options.
 
+Local sessions in Orca: with the option `orca_local` at `auto` (the default) and the Orca app running, each local clanker and clerk gets an Orca tab with its role key as the title. The tab runs `claude attach <short ID>`, so it shows the background session, and the session keeps running when you close the tab. The tab opens only in a repository that Orca knows: the trust step of the init skill offers to add your repositories to Orca. bruh finds the Orca CLI through `ORCA_CLI_COMMAND`, else `orca-ide` on Linux, else `orca`. On Linux it never runs a bare `orca`, which is the screen reader. With `off`, or without Orca, bruh runs no `orca` command, and the sessions run with `claude --bg` only. Details are in [spec section 4.3](docs/spec.md#43-local-sessions-in-orca).
+
 ### 2. Create the ledger
 
 The ledger is Markdown in a separate private repository. It describes all your other repositories. Create it before you run the init skill:
@@ -264,7 +266,7 @@ bigm starts a clanker for each project that has work. Tell bigm what to do. For 
 | `gh` | GitHub repositories |
 | `tea` or a `BRUH_GITEA_TOKEN_<HOST>` variable | Gitea repositories |
 | `ssh` | Remotes with an SSH host alias (`ssh -G` finds the host) |
-| Orca | Remote machines only |
+| Orca | Remote machines; optional for local viewer tabs (app 1.4.218 or later) |
 | Bun | The Telegram channel plugin only |
 | macOS or Linux | Native Windows is not supported |
 

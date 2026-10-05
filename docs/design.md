@@ -467,3 +467,25 @@ Status: built. The tool `ledger_edit` and its rules are in spec section 8.7. The
     - The design of the on-demand monitors names `ledger_edit` for the rows of `monitors.md` in its own pull request. Agent-derived, needs owner decision.
     - The allow rules: the owner runs `/bruh:init` again, because `mcpAllowRules` makes them from the tool list. Agent-derived, needs owner decision.
     - `agents/clerk.md`, "The ledger clerk": no change. The clerk checks, pushes, and reads `git ls-remote` as today. Agent-derived, needs owner decision.
+
+## Local sessions in Orca (owner, 2026-10-04)
+
+The owner looked for the running bruh sessions (bigm, its clankers, and their clerks) in Orca and found no trace of them, because `session_launch` starts each local role with `claude --bg`, and bruh used Orca only for remote clankers (spec 4.2). The built design is in spec section 4.3. The facts are in knowledge.md, sections "Orca" and "Background sessions (agent view)", with the date 2026-10-04.
+
+- L57: local role sessions in Orca. The owner said in the terminal on 2026-10-04 (2026-10-04T11:39:24Z): "yo, bruh yes, for local case - see if orca installed and make sure running sessions are visible in orca. but you also should support claude --bg". Owner decision 2026-10-04: when Orca is on the machine and runs, the running local role sessions are visible in Orca, and bruh also supports `claude --bg`.
+  - The owner answered the six open choices in the terminal on 2026-10-04 (2026-10-04T20:01:30Z): "go ahead. BUT MAKE SURE YOU ARE NOT OVERCOMPLICATING THINGS. the setup we develop must have some free choices fro agents, not too hard framing - this limits the prformance". Each choice below is an owner decision 2026-10-04:
+    - O1: the plugin option `orca_local`, a string option with the values `auto` and `off`, default `auto`.
+    - O2: the code constant `orcaMinVersion = "1.4.218"`.
+    - O3: `claude --bg` as today, plus an Orca viewer tab that runs `claude attach <short ID>`.
+    - O4: a viewer opens at each launch and each resume. The parent closes the tab of a retired role.
+    - O5: `.claude/worktrees/` with `EnterWorktree`, as today.
+    - O6: the trust step of the init skill runs `orca repo add` for each repository after a yes of the owner.
+  - The build choices below are each agent-derived, needs owner decision. The clanker cut the design to one path under its rule R-3:
+    - Without Orca, or with `orca_local` `off`, bruh runs no `orca` command, and the launch, `session_list`, `session_resume`, the P0 with `claude attach <id>`, the idle stop, the reboot check, the failure handling, the worktrees, and the flags stay as they are. Orca is optional, and nothing of the setup of one user goes into the plugin.
+    - The MCP server detects Orca in code at each call: `orca_local` from the user settings file, the executable (`ORCA_CLI_COMMAND`, else `orca-ide` on Linux, else `orca`; never `orca-dev`, and never a bare `orca` on Linux), a lookup on `PATH`, and `status --json` with a ready runtime and an app version of at least `orcaMinVersion`. bruh never runs `orca open`.
+    - A tab is found by its exact title, the role key. bruh keeps no handle file, and `session_list` has no tab field. `session_launch` closes an old tab with the title and opens a new one. `session_resume` opens one only when no tab has the title.
+    - An Orca failure only sets `orca_error` in the tool result. It never fails the call, and the MCP server does not try again.
+    - The new tool `session_tab_close` closes the tab of a retired role. The clanker calls it after it accepts a clerk's result and after a merge, and bigm calls it after it stops a clanker for good. An `orca_error` blocks no retirement.
+    - No P0 line names the tab: `claude attach <id>` still works, and the tab has the role key as its title.
+    - An open viewer keeps the session process alive (accepted cost).
+    - Tests: Go unit tests with a fake `orca`. The smoke test does not change. The probes P1 (the viewer) and P6 (a repository that Orca does not know) had a go of the owner (2026-10-04T20:05:11Z). The worktree guard refused the command that makes their scratch worktree, and bigm decided on 2026-10-04 (Q-bruh-maksyms-macbook-pro-58, under R-4) to skip them. P1 stays a Verify line in spec 4.3 with the risk of the tab title: if `claude attach` replaces the title that `--title` set, the exact-title match breaks.

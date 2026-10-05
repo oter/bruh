@@ -4,11 +4,18 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
+	"time"
 )
+
+// No test reaches a real Orca: a test that wants Orca calls fakeOrca.
+func init() {
+	orcaLookPath = func(string) (string, error) { return "", exec.ErrNotFound }
+}
 
 // fakeClaude writes a fake claude script. It logs each call (folder, two variables, one argument
 // for each line), prints the agents fixture for "agents", and prints a --bg result with id.
@@ -211,6 +218,305 @@ func TestSessionLaunchAndResumeByBigm(t *testing.T) {
 		mustErr(t, err, "only its parent")
 		_, err = call(t, as(env, caller), "session_resume", map[string]any{"role_key": "clerk-remote-app-merge"})
 		mustErr(t, err, "only its parent")
+	}
+}
+
+// orcaStatus is the output of orca status --json; the arguments replace the ready values.
+func orcaStatus(ok, running, reachable bool, state, version string) string {
+	return fmt.Sprintf(`{"ok":%t,"result":{"app":{"running":%t,"pid":1},"runtime":{"state":%q,"reachable":%t,"appVersion":%q}}}`, ok, running, state, reachable, version)
+}
+
+var orcaReadyStatus = orcaStatus(true, true, true, "ready", orcaMinVersion)
+
+// orcaList is the output of orca terminal list --json with one terminal for each title; the
+// handle of the terminal at index n is term_<n>.
+func orcaList(titles ...string) string {
+	rows := []map[string]any{}
+	for i, title := range titles {
+		rows = append(rows, map[string]any{"handle": fmt.Sprintf("term_%d", i), "title": title, "worktreePath": "/x"})
+	}
+	data, _ := json.Marshal(map[string]any{"ok": true, "result": map[string]any{"terminals": rows, "totalCount": len(rows)}})
+	return string(data)
+}
+
+// printJSON is sh code that prints s.
+func printJSON(s string) string { return "printf '%s\\n' " + shq(s) }
+
+// fakeOrca makes orcaLookPath find a fake orca for each name. status is sh code for the status
+// command; terminal list prints list; terminal create prints the handle term_new, or fails
+// when failCreate is set, or prints $ORCA_CREATE when it is set; terminal close fails for the
+// handle $ORCA_CLOSE_FAIL. The log has one line for each call.
+func fakeOrca(t *testing.T, status, list string, failCreate bool) (bin, logFile string) {
+	t.Helper()
+	t.Setenv("ORCA_CLI_COMMAND", "")
+	t.Setenv("ORCA_CREATE", "")
+	t.Setenv("ORCA_CLOSE_FAIL", "")
+	create := printJSON(`{"ok":true,"result":{"terminal":{"handle":"term_new","title":"x"}}}`)
+	if failCreate {
+		create = printJSON(`{"ok":false,"error":{"code":"selector_not_found"}}`) + "; exit 1"
+	}
+	logFile = fakeCLI(t, &bin, `case "$1 $2" in
+status*) `+status+` ;;
+"terminal list") `+printJSON(list)+` ;;
+"terminal create") [ -n "$ORCA_CREATE" ] && { printf '%s\n' "$ORCA_CREATE"; exit 0; }; `+create+` ;;
+"terminal close") [ "$4" = "$ORCA_CLOSE_FAIL" ] && exit 1; `+printJSON(`{"ok":true,"result":{"closed":true}}`)+` ;;
+*) exit 9 ;;
+esac`)
+	old := orcaLookPath
+	orcaLookPath = func(string) (string, error) { return bin, nil }
+	t.Cleanup(func() { orcaLookPath = old })
+	return bin, logFile
+}
+
+// orcaLog returns the logged orca calls, one line for each.
+func orcaLog(t *testing.T, logFile string) []string {
+	t.Helper()
+	data, err := os.ReadFile(logFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return slices.DeleteFunc(strings.Split(string(data), "\n"), func(s string) bool { return s == "" })
+}
+
+// launchClanker starts clanker-my-app in a new folder through a fake claude, checks that the
+// claude argv is the one of TestSessionLaunchArgv, and returns the result and the folder.
+func launchClanker(t *testing.T, env Env) (map[string]any, string) {
+	t.Helper()
+	settings := writeRoleSettings(t, env, "clanker-my-app")
+	cwd, _ := filepath.EvalSymlinks(t.TempDir())
+	log := fakeClaude(t, &env, "7c5dcf5d", []map[string]any{
+		{"id": "7c5dcf5d", "kind": "background", "name": "clanker-my-app", "sessionId": "7c5dcf5d-aaaa", "state": "working", "startedAt": 1},
+	})
+	out, err := call(t, env, "session_launch", map[string]any{"agent": "clanker", "role_key": "clanker-my-app", "cwd": cwd})
+	if err != nil {
+		t.Fatal(err)
+	}
+	res := out.(map[string]any)
+	if res["session_id"] != "7c5dcf5d-aaaa" || res["state"] != "working" {
+		t.Fatalf("result = %v", res)
+	}
+	var launch []string
+	for _, c := range calls(t, log) {
+		if c[3] == "--bg" {
+			launch = c
+		}
+	}
+	root, _ := filepath.Abs("..")
+	want := []string{cwd, "FORCE=1", "ROLE=", "--bg", "--agent", "bruh:clanker", "--name", "clanker-my-app", "--permission-mode", "auto",
+		"--settings", settings, "--plugin-dir", root, "Read your start message with mail_read."}
+	if !slices.Equal(launch, want) {
+		t.Fatalf("launch =\n%q\nwant\n%q", launch, want)
+	}
+	return res, cwd
+}
+
+func TestOrcaOff(t *testing.T) {
+	_, log := fakeOrca(t, printJSON(orcaReadyStatus), orcaList("clanker-my-app"), false)
+	env := testEnv(t, "bigm")
+	writeSettings(t, env, `{"pluginConfigs":{"bruh@oter":{"options":{"orca_local":"off"}}}}`)
+	res, _ := launchClanker(t, env)
+	if _, ok := res["orca"]; ok || res["orca_error"] != nil {
+		t.Fatalf("off: result = %v, want no orca fields", res)
+	}
+	out, err := call(t, env, "session_tab_close", map[string]any{"role_key": "clanker-my-app"})
+	if err != nil || out.(map[string]any)["closed"] != 0.0 {
+		t.Fatalf("off: session_tab_close = %v, %v", out, err)
+	}
+	if got := orcaLog(t, log); len(got) != 0 {
+		t.Fatalf("off: orca calls = %q, want none", got)
+	}
+}
+
+func TestOrcaNotFound(t *testing.T) {
+	res, _ := launchClanker(t, testEnv(t, "bigm"))
+	if _, ok := res["orca"]; ok || res["orca_error"] != nil {
+		t.Fatalf("no orca: result = %v, want no orca fields", res)
+	}
+}
+
+func TestOrcaViewerAtLaunch(t *testing.T) {
+	_, log := fakeOrca(t, printJSON(orcaReadyStatus), orcaList("clanker-my-app-2", "clanker-my-app", "Clanker-my-app"), false)
+	res, cwd := launchClanker(t, testEnv(t, "bigm"))
+	if res["orca"] != "term_new" || res["orca_error"] != nil {
+		t.Fatalf("result = %v", res)
+	}
+	want := []string{
+		"status --json",
+		"terminal list --json",
+		"terminal close --terminal term_1 --tab --json",
+		"terminal create --worktree path:" + cwd + " --title clanker-my-app --command claude attach 7c5dcf5d --json",
+	}
+	if got := orcaLog(t, log); !slices.Equal(got, want) {
+		t.Fatalf("orca calls =\n%q\nwant\n%q", got, want)
+	}
+}
+
+// Each readiness condition of the detection fails alone, with the ready values in the other fields.
+func TestOrcaNotReady(t *testing.T) {
+	old := orcaTimeout
+	t.Cleanup(func() { orcaTimeout = old })
+	for _, c := range []struct{ name, status, want string }{
+		{"ok false", printJSON(orcaStatus(false, true, true, "ready", orcaMinVersion)), "ok is not true"},
+		{"app not running", printJSON(orcaStatus(true, false, true, "ready", orcaMinVersion)), "result.app.running"},
+		{"unreachable", printJSON(orcaStatus(true, true, false, "ready", orcaMinVersion)), "result.runtime.reachable"},
+		{"starting", printJSON(orcaStatus(true, true, true, "starting", orcaMinVersion)), `"starting"`},
+		{"old version", printJSON(orcaStatus(true, true, true, "ready", "1.4.217")), `"1.4.217" is not 1.4.218`},
+		{"bad version", printJSON(orcaStatus(true, true, true, "ready", "1.4")), `"1.4" is not`},
+		{"not JSON", "echo hello", "orca status: invalid character"},
+		{"exit 1", "echo '{}'; exit 1", "exit status 1"},
+		{"timeout", "exec sleep 5", "orca status: signal: killed"},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			// Only the timeout row gets a short timeout: a loaded machine can take longer to run sh.
+			orcaTimeout = old
+			if c.name == "timeout" {
+				orcaTimeout = 300 * time.Millisecond
+			}
+			_, log := fakeOrca(t, c.status, orcaList(), false)
+			res, _ := launchClanker(t, testEnv(t, "bigm"))
+			if e, _ := res["orca_error"].(string); !strings.Contains(e, c.want) || res["orca"] != nil {
+				t.Fatalf("result = %v, want orca_error with %q", res, c.want)
+			}
+			if got := orcaLog(t, log); !slices.Equal(got, []string{"status --json"}) {
+				t.Fatalf("orca calls = %q, want only status", got)
+			}
+		})
+	}
+	if v := parseVersion("1.10.0"); slices.Compare(v, parseVersion(orcaMinVersion)) <= 0 {
+		t.Fatalf("1.10.0 = %v is not newer than %s", v, orcaMinVersion)
+	}
+}
+
+func TestOrcaCreateFails(t *testing.T) {
+	fakeOrca(t, printJSON(orcaReadyStatus), orcaList(), true)
+	res, _ := launchClanker(t, testEnv(t, "bigm"))
+	if e, _ := res["orca_error"].(string); !strings.Contains(e, "orca terminal create") || !strings.Contains(e, "selector_not_found") || res["orca"] != nil {
+		t.Fatalf("result = %v, want orca_error of the create", res)
+	}
+}
+
+// A create that answers ok without a handle is an orca_error, not a tab.
+func TestOrcaCreateNoHandle(t *testing.T) {
+	for _, out := range []string{`{"ok":true,"result":{}}`, `{"ok":true,"result":"term_new"}`, `{"ok":true}`} {
+		fakeOrca(t, printJSON(orcaReadyStatus), orcaList(), false)
+		t.Setenv("ORCA_CREATE", out)
+		res, _ := launchClanker(t, testEnv(t, "bigm"))
+		if e, _ := res["orca_error"].(string); !strings.Contains(e, "orca terminal create") || res["orca"] != nil {
+			t.Errorf("create %s: result = %v, want orca_error of the create", out, res)
+		}
+	}
+}
+
+// session_resume keeps an open tab with the exact title, and else opens one in the start folder
+// of the clerk, not in the worktree that it moved into.
+func TestOrcaViewerAtResume(t *testing.T) {
+	cwd, _ := filepath.EvalSymlinks(t.TempDir())
+	clerkDir := filepath.Join(cwd, ".claude", "worktrees", "t1")
+	if err := os.MkdirAll(clerkDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range []struct {
+		name, list, handle string
+		want               []string
+	}{
+		{"tab open", orcaList("clerk-a-1"), "term_0", []string{"status --json", "terminal list --json"}},
+		{"no tab", orcaList("clerk-a-1x", "clerk-a-10"), "term_new", []string{"status --json", "terminal list --json",
+			"terminal create --worktree path:" + cwd + " --title clerk-a-1 --command claude attach 5e55a000 --json"}},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			_, log := fakeOrca(t, printJSON(orcaReadyStatus), c.list, false)
+			env := testEnv(t, "clanker-a")
+			claudeLog := fakeClaude(t, &env, "5e55a000", []map[string]any{
+				{"id": "5e55a000", "kind": "background", "name": "clerk-a-1", "sessionId": "5e55a000-full", "state": "stopped", "cwd": clerkDir, "startedAt": 5},
+			})
+			out, err := call(t, env, "session_resume", map[string]any{"role_key": "clerk-a-1"})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if res := out.(map[string]any); res["orca"] != c.handle || res["orca_error"] != nil {
+				t.Fatalf("result = %v", res)
+			}
+			if got := orcaLog(t, log); !slices.Equal(got, c.want) {
+				t.Fatalf("orca calls =\n%q\nwant\n%q", got, c.want)
+			}
+			for _, cl := range calls(t, claudeLog) {
+				if cl[3] == "--resume" && !slices.Equal(cl[3:], []string{"--resume", "5e55a000-full", "--bg", "Read your mailbox with mail_read."}) {
+					t.Fatalf("resume = %q", cl)
+				}
+			}
+		})
+	}
+}
+
+// On Linux a bare orca is the screen reader: the detection never looks it up or runs it.
+func TestOrcaLinux(t *testing.T) {
+	bin, log := fakeOrca(t, printJSON(orcaReadyStatus), orcaList(), false)
+	old := goos
+	t.Cleanup(func() { goos = old })
+	var looked []string
+	orcaLookPath = func(name string) (string, error) {
+		looked = append(looked, name)
+		return bin, nil
+	}
+	env := testEnv(t, "bigm")
+	for _, c := range []struct{ goos, cli, want string }{
+		{"linux", "", "orca-ide"},
+		{"linux", "/opt/orca/bin/orca-ide", "/opt/orca/bin/orca-ide"},
+		{"linux", "/usr/bin/orca", ""},
+		{"linux", "orca", ""},
+		{"linux", "orca-dev", ""},
+		{"darwin", "", "orca"},
+		{"darwin", "/usr/local/bin/orca-dev", ""},
+	} {
+		goos, looked = c.goos, nil
+		t.Setenv("ORCA_CLI_COMMAND", c.cli)
+		got := orcaBin(env)
+		if c.want == "" && (got != "" || looked != nil) {
+			t.Errorf("%s, ORCA_CLI_COMMAND=%q: bin = %q, looked up %q, want none", c.goos, c.cli, got, looked)
+		}
+		if c.want != "" && (got != bin || !slices.Equal(looked, []string{c.want})) {
+			t.Errorf("%s, ORCA_CLI_COMMAND=%q: bin = %q, looked up %q, want %q", c.goos, c.cli, got, looked, c.want)
+		}
+	}
+	if got := orcaLog(t, log); len(got) != 0 {
+		t.Fatalf("orca calls = %q", got)
+	}
+}
+
+func TestSessionTabClose(t *testing.T) {
+	_, log := fakeOrca(t, printJSON(orcaReadyStatus), orcaList("clerk-a-1", "clerk-a-10", "clerk-a-1"), false)
+	env := testEnv(t, "clanker-a")
+	_, err := call(t, as(env, "clanker-b"), "session_tab_close", map[string]any{"role_key": "clerk-a-1"})
+	mustErr(t, err, "only its parent")
+	if got := orcaLog(t, log); len(got) != 0 {
+		t.Fatalf("refused call: orca calls = %q", got)
+	}
+	out, err := call(t, env, "session_tab_close", map[string]any{"role_key": "clerk-a-1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res := out.(map[string]any); res["closed"] != 2.0 || res["role_key"] != "clerk-a-1" || res["orca_error"] != nil {
+		t.Fatalf("result = %v", res)
+	}
+	want := []string{"terminal list --json", "terminal close --terminal term_0 --tab --json", "terminal close --terminal term_2 --tab --json"}
+	if got := orcaLog(t, log); !slices.Equal(got, want) {
+		t.Fatalf("orca calls =\n%q\nwant\n%q", got, want)
+	}
+}
+
+// A close that fails partway reports the tabs that it closed before the error.
+func TestSessionTabClosePartial(t *testing.T) {
+	_, log := fakeOrca(t, printJSON(orcaReadyStatus), orcaList("clerk-a-1", "clerk-a-10", "clerk-a-1"), false)
+	t.Setenv("ORCA_CLOSE_FAIL", "term_2")
+	out, err := call(t, testEnv(t, "clanker-a"), "session_tab_close", map[string]any{"role_key": "clerk-a-1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res := out.(map[string]any); res["closed"] != 1.0 || res["orca_error"] == nil {
+		t.Fatalf("result = %v, want closed 1 and orca_error", res)
+	}
+	if got := orcaLog(t, log); len(got) != 3 {
+		t.Fatalf("orca calls = %q, want list and two closes", got)
 	}
 }
 

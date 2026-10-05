@@ -200,6 +200,78 @@ Owner decision 2026-09-27: remote sessions talk through the Orca remote runtime.
 - Questions: the remote clanker sends P0 and P1 with `orca orchestration ask --timeout-ms <n>` and asks again with the same message ID after a timeout. Verify: the `--timeout-ms` option and the retry with the same message ID.
 - The remote clanker starts its clerks on its own machine with the local mechanism of section 4.1, and uses the local mailbox of its own machine for them.
 
+### 4.3 Local sessions in Orca
+
+Status: built (CHANGELOG, Unreleased). The probes P1 and P6 did not run (see "Probes").
+
+The owner said in the terminal on 2026-10-04 (2026-10-04T11:39:24Z): "yo, bruh yes, for local case - see if orca installed and make sure running sessions are visible in orca. but you also should support claude --bg". The owner looked for the running local roles in Orca and found no trace of them.
+
+- When Orca is on the machine and runs, the running local role sessions are visible in Orca. bruh also supports `claude --bg`. Owner decision 2026-10-04.
+- The local roles are the clankers, the task clerks, `clerk-ledger`, and the merger clerks. Without Orca, the local mechanism of section 4.1 stays exactly as it is today. Agent-derived, needs owner decision.
+- Orca is optional. The plugin works for each user who installs it, with or without Orca. Nothing of the setup of one user goes into the plugin: no repository, no Orca setting, and no Orca launcher configuration. Agent-derived, needs owner decision.
+
+The facts below explain why Orca showed no local role before this build. Each fact is in knowledge.md, sections "Orca" and "Background sessions (agent view)".
+
+1. `session_launch` starts each local role with `claude --bg`, as section 4.1 says.
+2. The Claude hook of Orca exits at once when `CLAUDE_JOB_DIR` is set. So Orca gets no event of a background session.
+3. `orca terminal list` lists only the terminals that Orca manages. A background session has no Orca terminal.
+4. An Orca terminal is in a worktree of a repository that Orca knows. Verify (probe P6): what `terminal create --worktree path:<folder>` does for a folder of a repository that Orca does not know.
+5. A background session can have the `ORCA_*` variables of another Orca terminal, for example of the terminal of bigm. So an `ORCA_*` variable does not prove that a session runs in its own Orca terminal.
+
+#### Owner decisions
+
+The owner answered the questions Q-bruh-maksyms-macbook-pro-41, -42, -46, -48, -50, and -51 in the terminal on 2026-10-04 (2026-10-04T20:01:30Z): "go ahead. BUT MAKE SURE YOU ARE NOT OVERCOMPLICATING THINGS. the setup we develop must have some free choices fro agents, not too hard framing - this limits the prformance".
+
+- O1 (Q-bruh-maksyms-macbook-pro-41): the plugin option `orca_local` is a string option with the values `auto` and `off`, default `auto`. Owner decision 2026-10-04.
+- O2 (-42): the minimum version of the Orca app is the code constant `orcaMinVersion = "1.4.218"`. Owner decision 2026-10-04.
+- O3 (-46): a local role starts with `claude --bg` as today, plus an Orca viewer tab that runs `claude attach <short ID>`. Owner decision 2026-10-04.
+- O4 (-48): a viewer opens at each launch and each resume. The parent closes the tab of a retired role. Owner decision 2026-10-04.
+- O5 (-50): a task clerk makes its worktree under `.claude/worktrees/` with `EnterWorktree`, as today. Owner decision 2026-10-04.
+- O6 (-51): the trust step of the init skill runs `orca repo add` for each repository after a yes of the owner. Owner decision 2026-10-04.
+
+#### Detection
+
+- The MCP server detects Orca in code at each `session_launch`, `session_resume`, and `session_tab_close`, and keeps no cached result. No agent text runs it. Agent-derived, needs owner decision.
+- It reads `orca_local` at each call from `pluginConfigs["bruh@oter"].options` of the user settings file (`BRUH_SETTINGS_FILE`, default `~/.claude/settings.json`), so a change in `/config` applies at once. Only `off` turns Orca off. No value, no file, or a file that does not parse counts as `auto`. Agent-derived, needs owner decision.
+- It selects the executable: the value of `ORCA_CLI_COMMAND` when it is set, else `orca-ide` on Linux, else `orca`. It never runs a name whose last path part is `orca-dev`. On Linux it never runs a name whose last path part is `orca`, also from `ORCA_CLI_COMMAND`, because a bare `orca` is the GNOME screen reader. Then it looks the name up on `PATH`. Agent-derived, needs owner decision.
+- With `orca_local` `off`, or with no executable, bruh runs no `orca` command, the `claude` arguments do not change, and the result has no field `orca` and no field `orca_error`. Agent-derived, needs owner decision.
+- Orca is ready when `<orca> status --json` ends within 10 seconds with `ok` `true`, `result.app.running` `true`, `result.runtime.reachable` `true`, `result.runtime.state` `ready`, and `result.runtime.appVersion` at least `orcaMinVersion`. The version has three numbers, compared in order, and a version that does not parse fails. When a check fails, `orca_error` names the failed field, and no tab opens. Agent-derived, needs owner decision.
+- bruh never runs `orca open`. The start of a desktop app is not part of the start of a session. Agent-derived, needs owner decision.
+
+#### Viewer tab
+
+- The launch of section 4.1 does not change: the same command, the same flags, the same lock of the role key, and the same check for a live session of the same name. Agent-derived, needs owner decision.
+- After `claude agents --json --all` shows the new session, `session_launch` lists the Orca terminals and closes the whole tab of each one whose `title` is exactly the role key (`<orca> terminal close --terminal <handle> --tab --json`), because the old tab attaches to the short ID of an older session. Then it runs `<orca> terminal create --worktree path:<folder> --title <role key> --command "claude attach <short ID>" --json`. The folder is the `cwd` of the launch, cut before `/.claude/worktrees/`, so the tab of a role that starts in a worktree goes to its main checkout. Agent-derived, needs owner decision.
+- `session_resume` opens a viewer in the same way when no Orca terminal has the role key as its exact `title`. It keeps a tab that exists. Its folder is the `cwd` of the last session, cut before `/.claude/worktrees/` in the same way, so the tab of a clerk goes to the main checkout, not to the worktree that the clerk moved into. Agent-derived, needs owner decision.
+- The result of `session_launch` and `session_resume` gets the field `orca` with the handle of the tab, or the field `orca_error` with the reason. An Orca failure never fails the call and is never a P0, because the session runs. The MCP server does not try again. Agent-derived, needs owner decision.
+- The command text of a tab is only `claude attach` and the short ID, which is hex (`shortIDRE`). A message body never goes into it (section 4.1). Agent-derived, needs owner decision.
+- bruh keeps no handle file. A tab is found by its exact title in `<orca> terminal list --json`. `session_list` does not change and has no tab field. Agent-derived, needs owner decision.
+- `session_tab_close` (`role_key`) closes the tab of a retired role: the whole tab of each Orca terminal whose title is exactly the role key. Only the parent of the key, or bigm, can call it. It never stops the session. Without Orca it runs nothing. It returns `role_key` and `closed` (the number of closed tabs), plus `orca_error` when an Orca call fails; `closed` then counts the tabs closed before the failure. Its tool description tells the parent when to call it: after it accepts the result of a clerk or gives up its task, after it stops a merger clerk, and after it stops a clanker for good. The agent files name it in three steps: the clanker calls it after it accepts the result of a clerk and after a merge, and bigm calls it after it stops a clanker for good. No agent step gives up a clerk's task, so only the tool description covers that case. An `orca_error` never blocks the retirement. Agent-derived, needs owner decision.
+
+#### What stays as today
+
+- The P0 of a permission prompt carries `claude attach <id>` (section 14.2). It names no tab: the tab has the role key as its title. Agent-derived, needs owner decision.
+- An attached session keeps its process, so the supervisor does not stop a session while its viewer is open. This costs one live process for each role with an open tab. When the owner closes the tab, the attach ends, the session keeps running, and the idle stop applies again. Agent-derived, needs owner decision.
+- The reboot check and the failure handling of section 15, `claude respawn`, and `claude stop` do not change. Verify (probe P4): whether Orca runs the command of a tab again when it restores the tab after an Orca restart or a reboot. A restored `claude attach <short ID>` would restart a `failed` session before the reboot check of bigm. Until the probe runs, the design assumes that Orca does not run the command again. Agent-derived, needs owner decision.
+- The worktrees do not change (O5). Orca shows a worktree under `.claude/worktrees/` only when the user set the visibility of external worktrees to "show" for the repository. bruh does not change that setting. Agent-derived, needs owner decision.
+- The user sees one tab for each running role in the Orca worktree of its start folder, with the role key as its title. The tab shows the live session in full screen. It shows no Orca agent state (fact 2). Agent view still lists each role. Agent-derived, needs owner decision.
+
+#### Init
+
+- The trust step (init skill, step 12) runs only when `orca_local` is not `off` and the Orca executable is found, with the same order and the same Linux rule as the detection. It runs `<orca> repo list --json`, shows each folder of the trust list that Orca does not know, and asks one select. Only after "add to Orca" does it run `<orca> repo add --path <folder> --json` for each folder. Without Orca it skips the step silently. Agent-derived, needs owner decision.
+
+#### Probes
+
+The owner gave a go for P1 and P6 in the terminal on 2026-10-04 (2026-10-04T20:05:11Z): "ok". The worktree guard of the build session refused the command that makes the scratch worktree, and bigm decided on 2026-10-04 (question Q-bruh-maksyms-macbook-pro-58, under R-4) to skip both probes. Each probe runs in a scratch linked worktree of a trusted repository, and the cleanup stops each session and closes each tab that the probe made.
+
+- Verify, probe P1 (the viewer): `claude --bg --name probe-o1 "Reply ok, then wait."`, then `orca terminal create --worktree path:<folder that Orca knows> --title probe-o1 --command "claude attach <short ID>" --json`. Pass when `orca terminal list --json` has the tab with the exact title `probe-o1` after the attach starts, and after `orca terminal close --terminal <handle> --tab --json` the session still has a `pid` in `claude agents --json`. Risk until it runs: Orca shows the tabs of Claude Code sessions with titles such as `✳ bruh:bigm`. If `claude attach` replaces the title that `--title` set, the exact-title match breaks: `session_launch` does not close the old tab, `session_resume` opens a second tab, and `session_tab_close` closes nothing. Not run.
+- Verify, probe P6 (the folder selector): `orca terminal create --worktree path:<folder> --title probe-o6 --command "true" --json` for a folder of a repository that Orca does not know. Record the result. Not run.
+
+#### Tests
+
+- Go unit tests of the MCP server with a fake `orca` executable that logs each call (`session_test.go`): the option `off` (no call), no executable, the viewer at launch with the exact arguments and the close of an old tab, each readiness condition alone (`ok`, the app, the runtime, the state, the version, output that is not JSON, an exit code, a timeout), a failed `terminal create`, the viewer at resume (an open tab, no tab, a near title), the executable order on Linux and macOS, and `session_tab_close`. The existing session tests run with no Orca and do not change. Agent-derived, needs owner decision.
+- The smoke test of section 20 does not change. Agent-derived, needs owner decision.
+
 ## 5. Messages
 
 Agent-derived, accepted 2026-09-30.
@@ -1114,6 +1186,8 @@ All numbered questions of version 0.3 are decided. Their answers are in design.m
 5. The routing rule of 2026-10-04 (design.md, L50). The rule is an owner decision. Its details are tagged "Agent-derived, needs owner decision": the commitment form and the task number (section 3.4), the routing of a defect fix (section 3.4), the commitment of a clanker (section 3.5), the ranked stops (section 14.2), and the routing eval (section 20).
 6. Ledger tools (section 8.7, built; design.md L55). The owner asked on 2026-10-04 for bruh MCP tools that change the tables of the ledger in one call, answered the open choices OC1 to OC5, and approved the fix plan of the review findings on the same day. The items of section 8.7 and of design.md L55 tagged "Agent-derived, needs owner decision" stay open for the owner, with the cuts of the clanker under rule R-3.
 7. Monitors ([section 9.5](#95-monitors)), built 2026-10-04. The owner request of 2026-10-04 is in design.md, L56. The owner decided the choices M1 to M9 on 2026-10-04 (section 9.5, part k). The limit to local roles is a bigm decision (Q-bruh-maksyms-macbook-pro-56), and the cuts of the build are clanker decisions under RULE R-3 (section 9.5, part k); neither is an owner decision. Each other item of section 9.5, and the dependent items of sections 8, 9.1, 9.2, and 16, are tagged "Agent-derived, needs owner decision".
+8. The six Orca choices O1 to O6 of section 4.3 are decided. Owner decision 2026-10-04 (section 4.3, "Owner decisions").
+9. Each item of section 4.3 tagged "Agent-derived, needs owner decision": the detection, the viewer tab of `session_launch` and `session_resume`, the tool `session_tab_close` and the agent lines that call it, the option read from the user settings file at each call, the trust step of the init skill, and the tests. They are new on 2026-10-04 (design.md, L57).
 
 ## 23. Changes from version 0.3
 
