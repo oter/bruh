@@ -28,8 +28,9 @@ func TestReportWriteAndRead(t *testing.T) {
 	if len(lines) != 2 || lines[1].(map[string]any)["source"].(map[string]any)["value"] != "MERGED" {
 		t.Fatalf("lines = %v", lines)
 	}
+	// since is inclusive: the line at since and the later line.
 	later, _ := call(t, as(env, "bigm"), "report_read", map[string]any{"role_key": "clanker-a", "since": at})
-	if len(later.([]any)) != 1 {
+	if len(later.([]any)) != 2 {
 		t.Fatalf("later = %v", later)
 	}
 	if _, err := call(t, env, "report_write", map[string]any{"kind": "gossip", "text": "x"}); err == nil || !strings.Contains(err.Error(), "invalid kind") {
@@ -41,10 +42,12 @@ func TestReportWriteAndRead(t *testing.T) {
 // notice to bigm, with at most one unread notice for each role.
 func TestReportWritePushesNoticeToBigm(t *testing.T) {
 	env := testEnv(t, "clerk-a-1")
+	// A fixed clock: the lines of one step have the same millisecond at, the worst case of since.
+	now := time.Date(2026, 10, 5, 17, 0, 0, 0, time.UTC)
+	env.Now = func() time.Time { return now }
 	bigm := as(env, "bigm")
 	write := func(e Env, kind, text string) {
 		t.Helper()
-		time.Sleep(2 * time.Millisecond) // a distinct at for each line, so since separates them
 		if _, err := call(t, e, "report_write", map[string]any{"kind": kind, "text": text}); err != nil {
 			t.Fatal(err)
 		}
@@ -80,8 +83,10 @@ func TestReportWritePushesNoticeToBigm(t *testing.T) {
 		t.Fatalf("body line = %+v", l)
 	}
 
-	// (b) The cap: three lines with no read between give one notice, and report_read with
-	// since = the at of its body line returns the two later lines.
+	// (b) The cap: three lines in one millisecond with no read between give one notice, and
+	// report_read with since = the at of its body line returns the body line and the two later
+	// lines, which have the same at.
+	now = now.Add(time.Millisecond)
 	write(env, "status", "plan done")
 	write(env, "result", "PR open")
 	write(env, "status", "review")
@@ -108,8 +113,12 @@ func TestReportWritePushesNoticeToBigm(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if l := later.([]any); len(l) != 2 || l[0].(map[string]any)["text"] != "PR open" || l[1].(map[string]any)["text"] != "review" {
-		t.Fatalf("report_read since %s = %v, want the 2 later lines", first.At, l)
+	var texts []string
+	for _, l := range later.([]any) {
+		texts = append(texts, l.(map[string]any)["text"].(string))
+	}
+	if want := []string{"plan done", "PR open", "review"}; !slices.Equal(texts, want) {
+		t.Fatalf("report_read since %s = %v, want %v", first.At, texts, want)
 	}
 
 	// (d) After bigm read the notice, a new line gives a new notice.

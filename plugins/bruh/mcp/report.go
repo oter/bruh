@@ -46,8 +46,9 @@ type ReportLine struct {
 // notifyBigm pushes a status or result line of me to bigm as the mail "DONE: report <me>", with
 // the line as body, so the wake.sh waiter of bigm wakes it (task 17). It writes no notice while
 // one from me is still unread in the mailbox of bigm: at most one pending notice per role. bigm
-// then reads the later lines with report_read and since = the at of the body line. The lock
-// keeps two parallel calls of one role from writing two notices.
+// then reads the later lines with report_read and since = the at of the body line. since is
+// inclusive, because a later line can have the same millisecond at; bigm skips the lines that it
+// already has. The lock keeps two parallel calls of one role from writing two notices.
 func notifyBigm(env Env, me string, line []byte) error {
 	header := "DONE: report " + me
 	return env.WithLock("report-notice-"+me, func() error {
@@ -153,7 +154,7 @@ func reportTools() []Tool {
 		},
 		{
 			Name:        "report_read",
-			Description: "Read the report lines of a role, optionally only after a UTC time.",
+			Description: "Read the report lines of a role, optionally only the lines at or after a UTC time (since is inclusive: two lines can have the same millisecond at).",
 			InputSchema: map[string]any{
 				"type": "object",
 				"properties": map[string]any{
@@ -196,7 +197,7 @@ func reportTools() []Tool {
 					if err := json.Unmarshal(sc.Bytes(), &l); err != nil {
 						return nil, err
 					}
-					if a.Since == "" || l.At > a.Since {
+					if a.Since == "" || l.At >= a.Since {
 						lines = append(lines, l)
 					}
 				}
