@@ -504,7 +504,8 @@ func TestRefusalHoldStopsTheSession(t *testing.T) {
 			t.Fatalf("reason = %q", r)
 		}
 	}
-	for _, tool := range []string{"mcp__plugin_bruh_bruh__question_open", "mcp__plugin_bruh_bruh__answer_wait", "SendMessage", "StructuredOutput"} {
+	for _, tool := range []string{"mcp__plugin_bruh_bruh__question_open", "mcp__plugin_bruh_bruh__answer_wait", "mcp__plugin_bruh_bruh__mail_post",
+		"mcp__plugin_bruh_bruh__mail_read", "SendMessage", "ToolSearch", "StructuredOutput"} {
 		if out := refusal(t, data, preTool("S", tool, "", ""), refusalKey); out != "" {
 			t.Fatalf("%s denied: %q", tool, out)
 		}
