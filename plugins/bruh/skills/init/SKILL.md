@@ -180,6 +180,8 @@ Show the `trust` list of the `init_plan` result: the ledger, then each selected 
 - "Now": for each folder, with a counter (`3 of 12`), tell the owner to run `claude` in that folder, accept the trust dialog, and quit with `/exit`. A folder that is already trusted opens with no dialog. In the ledger folder, the session starts as bigm: accept the dialog, then always quit with `/exit`.
 - "At the first work": bigm sends a P0 with the folder when a clanker cannot start there, and a clanker does the same for a clerk.
 
+Orca (spec 4.3): a local role session gets an Orca tab only in a repository that Orca knows. Skip this paragraph silently when the plugin option `orca_local` in `~/.claude/settings.json` is `off`, or when no Orca CLI is found. The CLI is the value of `ORCA_CLI_COMMAND` when it is set, else `orca-ide` on Linux, else `orca`. Never run `orca-dev`, and on Linux never run a bare `orca`: it is the screen reader. Run `<orca> repo list --json`, and show each folder of the `trust` list whose path is not the `path` of a repository in it. When there is one, select "add to Orca" (default), "skip". Only after "add to Orca", run `<orca> repo add --path <folder> --json` for each shown folder, and tell the owner each result.
+
 Never read or write the trust flags of `~/.claude.json`.
 
 ## Second run

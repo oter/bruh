@@ -747,5 +747,53 @@ check "a finding of a later round is a general comment" contains "$out" "1 inlin
 check "review-and-fix gets a note of the fixes" contains "$(jq -r .body "$tmp/pf8/posted.jsonl")" "1 of 2 findings fixed"
 check "the note of the fixes is marked" marked "$tmp/pf8" '<!-- bruh:owner -->'
 
+# The waiter of spec 9.5 (M1): scripts/wake.sh, in a temporary data folder.
+wake="$here/../plugins/bruh/scripts/wake.sh"
+wd="$tmp/wake"
+mkdir -p "$wd"
+out=$(unset BRUH_ROLE_KEY; CLAUDE_PLUGIN_DATA="$wd" sh "$wake" </dev/null 2>&1; echo "exit $?")
+check "the waiter without BRUH_ROLE_KEY exits 0" eq "$out" "exit 0"
+check "the waiter without BRUH_ROLE_KEY writes no pid file" not test -e "$wd/wake"
+# wake_bg <key> <name>: starts a waiter in the background; its exit code goes to $tmp/<name>.code.
+wake_bg() {
+	(
+		BRUH_ROLE_KEY=$1 CLAUDE_PLUGIN_DATA="$wd" BRUH_WAKE_POLL=1 BRUH_WAKE_SECONDS=30 sh "$wake" </dev/null 2>"$tmp/$2.err"
+		echo $? >"$tmp/$2.code"
+	) &
+}
+# wait_code <name>: waits up to 10 seconds for the exit code of a waiter.
+wait_code() {
+	i=0
+	while [ ! -s "$tmp/$1.code" ] && [ "$i" -lt 100 ]; do
+		sleep 0.1
+		i=$((i + 1))
+	done
+	cat "$tmp/$1.code" 2>/dev/null
+}
+wake_bg clerk-app-t1 w1
+sleep 1
+wake_bg clerk-app-t1 w2
+wake_bg clerk-app-t2 w3
+check "a second waiter of the same role key replaces the first, which exits 0" eq "$(wait_code w1)" 0
+sleep 1
+mkdir -p "$wd/mail/clerk-app-t1"
+echo '{}' >"$wd/mail/clerk-app-t1/0001-a.json"
+check "the waiter exits 2 on new mail" eq "$(wait_code w2)" 2
+check "the waiter tells the session to read its mail" contains "$(cat "$tmp/w2.err")" "new mail for clerk-app-t1. Call mail_read."
+sleep 2
+check "mail for another role key does not wake the waiter" not test -s "$tmp/w3.code"
+echo '{}' >"$wd/mail/clerk-app-t2/0002-b.json"
+check "the waiter of the other role key wakes on its own mail" eq "$(wait_code w3)" 2
+out=$(BRUH_ROLE_KEY=clerk-app-t1 CLAUDE_PLUGIN_DATA="$wd" BRUH_WAKE_POLL=1 BRUH_WAKE_SECONDS=1 sh "$wake" </dev/null 2>&1; echo "exit $?")
+check "mail that a waiter already reported does not wake the next one" not contains "$out" "Call mail_read"
+check "the waiter exits 2 with no new mail at its limit" contains "$out" "bruh: no new mail for clerk-app-t1.
+exit 2"
+# The poller runs only in bigm.
+out=$(unset BRUH_ROLE_KEY; sh "$here/../plugins/bruh/scripts/watcher.sh" --data "$tmp/nowatch" 2>&1; echo "exit $?")
+check "watcher.sh with no role key exits 0 with no output" eq "$out" "exit 0"
+out=$(BRUH_ROLE_KEY=clanker-app sh "$here/../plugins/bruh/scripts/watcher.sh" --data "$tmp/nowatch" 2>&1; echo "exit $?")
+check "watcher.sh in a clanker exits 0 with no output" eq "$out" "exit 0"
+check "watcher.sh outside bigm polls nothing" not test -e "$tmp/nowatch"
+
 echo "$n tests, $fails failed"
 [ "$fails" -eq 0 ]

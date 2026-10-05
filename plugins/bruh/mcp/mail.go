@@ -28,13 +28,15 @@ type Message struct {
 
 // mailAllowed is the sender policy of mail_post, by structure only (principle 2). A message
 // follows an edge of the role tree: to the parent of the sender, to a child of the sender, or
-// from bigm to anyone. A clerk may also raise a P0 straight to bigm. RULE comes only from
+// from bigm to anyone. A clerk may also raise a P0 straight to bigm, except a scout: a scout
+// cannot open a question (question_open is in scoutDeny), so it reaches bigm only through its
+// clanker (spec 3.6.1). RULE comes only from
 // bigm; START and ANSWER come only from the parent of the receiver or from bigm. Like a deny
 // rule, it is a speed bump: a Bash command can set BRUH_ROLE_KEY (SECURITY.md).
 func mailAllowed(from, to, header string) error {
 	f, _ := ParseRoleKey(from)
 	t, _ := ParseRoleKey(to)
-	if from != "bigm" && t.Parent() != from && f.Parent() != to && !(f.Role == "clerk" && to == "bigm" && strings.HasPrefix(header, "P0 ")) {
+	if from != "bigm" && t.Parent() != from && f.Parent() != to && !(f.Role == "clerk" && !isScout(f) && to == "bigm" && strings.HasPrefix(header, "P0 ")) {
 		return fmt.Errorf("%s cannot post to %s: a message goes only to the parent or a child of the sender, or from bigm", from, to)
 	}
 	switch {
@@ -44,6 +46,42 @@ func mailAllowed(from, to, header string) error {
 		return fmt.Errorf("only bigm or the parent %q of %s posts START and ANSWER, not %s", t.Parent(), to, from)
 	}
 	return nil
+}
+
+// postMail checks a message and writes it to the mailbox of to. mail_post and ledger_edit use it.
+func postMail(env Env, from, to, header, body string) (Message, error) {
+	if _, err := checkKey(to, "role key"); err != nil {
+		return Message{}, err
+	}
+	if !headerRE.MatchString(header) {
+		return Message{}, fmt.Errorf("invalid header: %q", header)
+	}
+	if err := mailAllowed(from, to, header); err != nil {
+		return Message{}, err
+	}
+	return writeMail(env, from, to, header, body)
+}
+
+// writeMail puts one message into the mailbox of to. postMail and the poller call it; the
+// caller checks the header and the sender policy.
+func writeMail(env Env, from, to, header, body string) (Message, error) {
+	box, err := env.Dir("mail", to)
+	if err != nil {
+		return Message{}, err
+	}
+	msg := Message{
+		ID:     fmt.Sprintf("%015d-%06d-%s", time.Now().UnixMilli(), mailSeq.Add(1), strings.ToLower(rand.Text()[:8])),
+		From:   from,
+		To:     to,
+		Header: header,
+		Body:   body,
+		At:     env.Stamp(),
+	}
+	data, _ := json.Marshal(msg)
+	if err := atomicWrite(filepath.Join(box, msg.ID+".json"), data); err != nil {
+		return Message{}, err
+	}
+	return msg, nil
 }
 
 func mailTools() []Tool {
@@ -69,29 +107,8 @@ func mailTools() []Tool {
 				if err != nil {
 					return nil, err
 				}
-				if _, err := checkKey(a.To, "role key"); err != nil {
-					return nil, err
-				}
-				if !headerRE.MatchString(a.Header) {
-					return nil, fmt.Errorf("invalid header: %q", a.Header)
-				}
-				if err := mailAllowed(from, a.To, a.Header); err != nil {
-					return nil, err
-				}
-				box, err := c.Env.Dir("mail", a.To)
+				msg, err := postMail(c.Env, from, a.To, a.Header, a.Body)
 				if err != nil {
-					return nil, err
-				}
-				msg := Message{
-					ID:     fmt.Sprintf("%015d-%06d-%s", time.Now().UnixMilli(), mailSeq.Add(1), strings.ToLower(rand.Text()[:8])),
-					From:   from,
-					To:     a.To,
-					Header: a.Header,
-					Body:   a.Body,
-					At:     c.Env.Stamp(),
-				}
-				data, _ := json.Marshal(msg)
-				if err := atomicWrite(filepath.Join(box, msg.ID+".json"), data); err != nil {
 					return nil, err
 				}
 				return map[string]string{"id": msg.ID, "at": msg.At}, nil

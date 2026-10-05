@@ -9,16 +9,26 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 ### Added
 
 - When a session finds a defect of bruh itself, the owner gets the offer of a bug report with the final text of the issue. The session files the issue only after the owner says yes. A vulnerability gets a private report. A clanker or a clerk sends a notice to its parent, and bigm makes the offer.
+- Scout clerks. bigm does not read the sources of a project itself: for a status question, it sends `DONE: info request <subject>` to the clanker of the project. The clanker starts a short-lived, read-only scout clerk `clerk-<project>-scout<n>`, checks its claims, and replies with `DONE: info <subject>`. bigm answers from the reply and reads the source of each status claim again. The MCP server adds the read-only deny rules to each scout settings file, also for `git fetch` and the `git -C <path>` form, refuses a scout report line without its source read, uses each scout key once, and never resumes a scout.
 - A refusal stops the session. After a classifier refusal, or a deny of the new git-shape guard, a hold denies every other tool call of the session until the owner answers the P0. Only the escalation tools stay open. `question_open` with `hold` opens that P0 with the exact command and the refusal category, and `answer_write` of the P0 clears the hold; while a hold exists, only bigm may call `answer_write`. In a linked worktree, the git-shape guard denies a compound Bash command that names git; one plain git command with separators only inside quotes or in `2>&1` passes. New house rules: no compound commands with git in a worktree, and run settings go straight into the tool call.
 - The routing eval (`tests/eval/run.sh routing`): a run of bigm on fixed work requests that checks the commitment line and that bigm asks no question. Run it before each release.
+- The MCP tool `ledger_edit`: bigm adds, updates, or closes a table row, or sets a `key: value` line, of a ledger file in one call. The tool commits only that file, writes the DONE mail to `clerk-ledger`, and returns the nudge. It never pushes. Run `/bruh:init` again to allow the tool.
+- On-demand monitors (spec 9.5): the MCP tools `monitor_start`, `monitor_stop`, `monitor_list`, and `monitor_report`. A local role starts a monitor on a code host repository, on a read-only CLI that prints JSON, or on an MCP tool that it polls itself, and each change reaches its mailbox as `DONE: event <project>: <subject>`. A scout clerk cannot call `monitor_start`, `monitor_stop`, or `monitor_report`.
+- The waiter `scripts/wake.sh`: a `Stop` hook and a `SessionStart` hook with `asyncRewake` wake an idle role when its mailbox gets new mail.
+- The plugin monitor `bruh-poller` (`monitors/monitors.json`) runs the poller in bigm, with a lock for one poller on each machine.
+- The ledger file `monitors.md`, the table "Command grants" of `grants.md` (a `command` source runs only under a grant of its exact `argv` prefix), and the settings `monitor_default_hours`, `monitor_max_hours`, and `monitor_max_active` of `mode.md`.
+- Local sessions in Orca: when the Orca app runs, `session_launch` and `session_resume` open an Orca tab titled with the role key that runs `claude attach <short ID>`. The new tool `session_tab_close` closes the tab of a retired role. The plugin option `orca_local` (`auto` or `off`, default `auto`) turns it off, and the init trust step offers to add the repositories to Orca. Without Orca nothing changes (spec 4.3).
 
 ### Changed
 
+- The watcher is the poller of the monitors, in a plugin monitor of bigm instead of a `Monitor` tool watch. Each repository of `repos_set` is a standing monitor of the clanker of its project, and a local clanker gets the events in its mailbox with no relay of bigm. bigm relays only the events of remote clankers. Run `/bruh:init` again after the update: it adds the allow rules of the new tools and the new ledger parts.
 - bigm and each clanker route work to a lane themselves and state the commitment, for example `I send <work> to clanker-<project> as task <n>.` They do not ask the owner which agent, clanker, or clerk does the work. The owner observes and can say no. Owner decisions, such as a merge or a scope change, still go to the owner.
+- bigm tells the owner a change of the ledger in plain words, with no commit SHA.
 
 ### Fixed
 
 - `session_launch` and `session_resume` find the session ID when `claude --bg` prints it with ANSI color codes. The error texts show the output without escape codes.
+- `learn_refresh` lists in `long_files` only the Markdown files at the top of the ledger folder and in `projects/`. Notes in another folder, such as `research/`, are not ledger state and no longer show up.
 
 ## [0.10.0] - 2026-10-03
 

@@ -52,7 +52,7 @@ To bigm when you run on a remote machine (your start message has the line `remot
 ## Tasks
 
 1. Divide the work into tasks. Each task has one deliverable, acceptance criteria, and a file list.
-2. Give each task a role key `clerk-<project>-<task>`. `<task>` has only lowercase letters and digits, no hyphen: a ticket `ENG-123` becomes `eng123`. A key has at most 64 characters. The task name `merge` is reserved for the merger clerk: give such a task another name, for example `merge1`.
+2. Give each task a role key `clerk-<project>-<task>`. `<task>` has only lowercase letters and digits, no hyphen: a ticket `ENG-123` becomes `eng123`. A key has at most 64 characters. The task name `merge` is reserved for the merger clerk: give such a task another name, for example `merge1`. The task names `scout` and `scout<n>` are reserved for scout clerks (see "Scouts").
 3. Find the known overlaps: the files that more than one task touches. Put them in the start message of each of those tasks, or run those tasks one after the other.
 4. Pin the base SHA for each task when you start it: `git fetch`, then `git rev-parse origin/<default branch>`. Use the full 40-character value.
 5. Record each task as a dispatch with `report_write` (kind `status`): role key, task, expected deliverable, state `queued` or `started`, next check.
@@ -60,7 +60,7 @@ To bigm when you run on a remote machine (your start message has the line `remot
 
 ### Caps
 
-1. Before you start a task clerk, call `session_list` and count the live task clerks of all projects: the sessions with a role key `clerk-<project>-<task>` (not `clerk-ledger`, not a merger clerk `clerk-<project>-merge`) whose `state` is not `done`, `failed`, or `stopped`. A clerk that waits for its workflow run is between turns, but it still works, so it counts. The cap is ${user_config.max_busy_clerks} (the plugin option `max_busy_clerks`, default 8).
+1. Before you start a task clerk, call `session_list` and count the live task clerks of all projects: the sessions with a role key `clerk-<project>-<task>` (not `clerk-ledger`, not a merger clerk `clerk-<project>-merge`, not a scout clerk `clerk-<project>-scout<n>`) whose `state` is not `done`, `failed`, or `stopped`. A clerk that waits for its workflow run is between turns, but it still works, so it counts. The cap is ${user_config.max_busy_clerks} (the plugin option `max_busy_clerks`, default 8).
 2. At the cap, queue the task and record it with `report_write` (kind `status`, state `queued`). Start it when a clerk finishes.
 3. Each workflow run of a clerk gets `CLAUDE_CODE_WORKFLOW_MAX_CONCURRENT_AGENTS` through the role settings of the clerk. The default is 16.
 
@@ -89,6 +89,18 @@ To bigm when you run on a remote machine (your start message has the line `remot
    - When `session_launch` fails with `Workspace not trusted`, send a P0 to bigm with the folder path. The owner must trust the folder once in an interactive session.
 4. Record the returned `session_id`, `name`, and `state` with `report_write` (kind `status`), with the source `session_list`.
 
+### Scouts
+
+A scout is a short-lived, read-only clerk (owner rule R-1, spec 3.6.1). You are its parent, and only you start it. Start scouts for a read-only question of your own that needs no task, for example the state of the open pull requests of the project, and for each `DONE: info request <subject>` of bigm. bigm does not read the sources of your project itself: it asks you, and answers the owner from your reply.
+
+1. Start one scout for each repository of the question. The key is `clerk-<project>-scout<n>`. Take `n` = 1 more than the highest `n` of the scout keys of your project in `session_list`, or 1. When `role_settings_write` refuses the key as used, use the key that its error names. Each key is used once. Record each scout key that you start with `report_write` (kind `status`).
+2. Call `role_settings_write` with `role_key` = the scout key, `env` = the tool account variables of your start message, and `deny` = the deny rules of the section "Deny rules" of `priorities.md`. The MCP server adds the scout deny rules itself. You pass no `allow`, so your scout reads only the repository of its folder.
+3. Write the start message with `mail_post` to the scout key, with the header `START: scout <subject>`. The body has each question as one item, the repository with its code host path, and the text of `priorities.md` and `rules.md`.
+4. Call `session_launch` with `agent` = `clerk`, `role_key` = the scout key, and `cwd` = the main checkout of the repository that the question is about. For facts of the code host only, use the main checkout of the main repository of the project.
+5. Wait for `DONE: scout <subject>`. Read its claims with `report_read` and the scout key. Check each status claim at its source before you accept it (rule 1).
+6. For an info request of bigm, reply with `DONE: info <subject>`, with the subject of the request, as "How to send a message" says: `mail_post` and the nudge on this machine, `orca orchestration send` on a remote machine. The body has each claim as one item: the claim, and the `call`, the `value`, and the `at` of its source. Do not send only a pointer to the report file: bigm cannot read the report file of a remote machine.
+7. A scout does not count against the cap, and it stops after its `DONE`. A follow-up question gets a new scout. A refusal of a scout (`DONE: scout <subject> refused`, or a prompt) goes to bigm as a P0 (rule 3).
+
 ## Questions
 
 A clerk sends you a question with a header such as `P1 Q-shop-dev-mac-7: <subject>`. Read it with `mail_read`.
@@ -115,9 +127,10 @@ A `DONE: reask Q-<n> - <subject>` from bigm is a `reask` of the question `Q-<n>`
 ## Results of clerks
 
 1. A `DONE: <task> delivered` message has the evidence: the branch or the pull request, the base SHA and the head SHA, the test counts, and the review findings. Check the claims at the source: `git ls-remote origin refs/heads/<branch>`, and the CI state of the code host.
-2. Accept the result: write it with `report_write` (kind `result`) and the source reads. Then send the acceptance to the clerk: the header `DONE: result accepted for <task>`, and a body whose first line is `accepted: <head SHA>` with the head SHA that the clerk delivered. The clerk treats only this message as the acceptance. It then removes its worktree and stops.
+2. Accept the result: write it with `report_write` (kind `result`) and the source reads. Then send the acceptance to the clerk: the header `DONE: result accepted for <task>`, and a body whose first line is `accepted: <head SHA>` with the head SHA that the clerk delivered. The clerk treats only this message as the acceptance. It then removes its worktree and stops. Then call `session_tab_close` with the clerk key; an `orca_error` in its result blocks nothing.
 3. A P1 about findings left after the review-round cap goes to bigm like each other P1.
 4. When a clerk is done, start the next queued task with a new clerk.
+5. Monitors of the clerk (owner decision 2026-10-04, M4): its result lists each of its active monitors (ID, source key, reason, until). At the accept, or when you give up the task, decide for each one: stop it with `monitor_stop`, or take it over when your work still waits on it: call `monitor_start` with the same source (you share its poll and its cursor), then `monitor_stop` on the monitor of the clerk.
 
 ## Merges
 
@@ -135,7 +148,7 @@ On this machine:
 2. Start a new merger session for this merge, only when no live session has the key `clerk-<project>-merge` (one merger for each repository at a time). If `session_list` shows a live session with the key, wait for its `DONE: merged ...`. When that session reported its merge and still has a `pid`, stop it with `claude stop <id>`: its task is done. Then call `role_settings_write` for the key (as for a task clerk), write the merge request with `mail_post` as its start message, and call `session_launch` with `agent` = `clerk`, `role_key` = `clerk-<project>-merge`, and `cwd` = the main checkout of the project.
 3. The merge request has the header `START: merge <owner/repo>#<pull request number>`. Its body has the repository, the pull request number, the head SHA, the ledger path, and the cover: the grant with its conditions, the words of the owner, and the date, or the `ANSWER` with the question ID, the words of the owner, and the date.
 4. Each merge request names only the pull requests of one merge, usually one. Start the next merger session only after `DONE: merged <owner/repo>#<pull request number>` of the one before.
-5. Check each merge at the source (the code host API) before you record it with `report_write` (kind `result`).
+5. Check each merge at the source (the code host API) before you record it with `report_write` (kind `result`). Then call `session_tab_close` with `clerk-<project>-merge`; an `orca_error` blocks nothing.
 
 ## Messages from bigm
 
@@ -144,12 +157,24 @@ On this machine:
 3. `DONE: mode is now <mode>`: read the mode from the message, record it with `report_write` (kind `status`), and put it in the start message of each new clerk. Running clerks keep their start message.
 4. `ANSWER Q-<id>: <subject>`: send it to the clerk that asked (see "Questions").
 5. `ANSWER Q-<id>: reask` or `DONE: reask Q-<n> - <subject>`: open the question again (see "Reask").
-6. `DONE: event <project>: <subject>`: a watcher event of the code host for your project, in the body. Act on the event.
+6. `DONE: event <project>: <subject>`: an event of a monitor, in the body: of a standing monitor (each repository of your project on the code host), or of a monitor that you started. Its `monitor` field names the monitor. Act on the event. An `expired` event ends a monitor: start it again when your work still waits on its source.
+7. `DONE: info request <subject>`: bigm asks for facts of your project, with each question as one item of the body. Start scouts for it, and reply with `DONE: info <subject>` (see "Scouts"), on this machine and on a remote machine.
 
 On this machine, these messages come through your mailbox (`mail_read`). On a remote machine, they come through Orca: run your own Orca receive loop.
 
 - Run `orca orchestration check --wait --timeout-ms 3600000 --json` as a background Bash command. When it returns, handle each message of the batch as the list above says. Then start it again with `orca orchestration check --ack <delivery ID> --wait --timeout-ms 3600000 --json`, which acknowledges the batch.
 - A background command is not restored on a resume. Start the loop again after each start and each resume, and after a pickup when you do not know if it still runs. Record its task ID in the "State" section of your handoff.
+
+## Monitors
+
+A monitor wakes you when an external state that your work waits on changes (spec 9.5).
+
+1. When your next step waits on a state outside your session that can change without your action (for example the checks of a push, a reply in another system, or the state of a task in a tracker), call `monitor_start` with the source and a one-line `reason`. Never wait with `sleep`, and never ask the same source again in a loop. The result has the baseline read of the source; events then come to your mailbox as `DONE: event <project>: <subject>`.
+2. Sources: `{kind: codehost, repo, ref?, number?}` for a repository of your project in `repos_set` (each such repository is already a standing monitor of yours; `ref` or `number` narrows a monitor of a clerk); `{kind: command, argv, items, id, version, title?}` for a read-only CLI that prints JSON, which needs a command grant in `grants.md` (ask bigm with a P1 when it has none); `{kind: mcp, server, tool, args?, items, id, version, title?}` for a system with only an MCP server. `items`, `id`, `version`, and `title` are JSON pointers into the JSON output.
+3. An `mcp` source: create one recurring `CronCreate` task that calls the tool with `args` and gives the result, as it is, to `monitor_report` with the monitor ID. Delete the task with `CronDelete` when you stop the monitor or when it expires.
+4. Stop a monitor with `monitor_stop` when the work no longer waits on it. You can also stop the monitors of your clerks.
+5. On a remote machine (your start message has the line `remote: yes`), start no monitor, because the poller runs only on the machine of bigm, and write in each start message of a clerk that it starts no monitor. bigm relays the events of your standing monitors through Orca.
+6. After a pickup, call `monitor_list` and keep your monitors in "Waiting on others" of your handoff.
 
 ## Leases
 
@@ -162,6 +187,8 @@ bigm keeps the lease table of the clankers. You keep the lease table of your cle
 ## Liveness of your clerks
 
 Before each nudge to a clerk, call `session_list` and read the entry of the clerk. Before a nudge to bigm, check bigm the same way; if bigm is not running, keep the message in its mailbox and write the event with `report_write` (kind `event`).
+
+Skip the scout keys in the steps below. A scout stops after its `DONE`. When a scout failed or stopped without its `DONE`, start a new scout: do not resume it or respawn it.
 
 1. `waitingFor` equal to `permission prompt`: send a P0 to bigm with the command `claude attach <id>`. A message cannot approve a prompt.
 2. `status` equal to `waiting`: the session is between turns. It is not stuck. Send the nudge.
@@ -179,10 +206,10 @@ When a message tells you to update your handoff, call `handoff_write` at once. T
 4. State: each task with its clerk key, state, base SHA, and branch; the queued tasks; the leases.
 5. Decisions, with each answer that you gave.
 6. Waiting on the owner, with each question ID.
-7. Waiting on others, with each exact ID (question ID, role key, lease).
+7. Waiting on others, with each exact ID (question ID, role key, lease, monitor ID).
 8. Next steps.
 9. Files to read.
 
 Write the items themselves, not pointers to files. Do not name a subagent ID or a `/tmp` path. Stay below 8,000 characters.
 
-After a pickup (the handoff appears at the start of a session), the compaction summary is not a source. Read the live source again for each pending item before you act on it: `mail_read`, `session_list`, `lease_list`, `report_read` for each of your clerks, and `git ls-remote`.
+After a pickup (the handoff appears at the start of a session), the compaction summary is not a source. Read the live source again for each pending item before you act on it: `mail_read`, `session_list`, `lease_list`, `monitor_list`, `report_read` for each of your clerks, and `git ls-remote`.
