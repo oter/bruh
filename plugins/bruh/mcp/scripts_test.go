@@ -594,6 +594,50 @@ func TestRefusalStopBlock(t *testing.T) {
 	}
 }
 
+// TestStopHooksTogether runs both Stop groups of hooks.json on one data folder: the hold Stop
+// block of refusal-stop.sh and the waiter wake.sh (spec 9.5, M1). Each does its own job with
+// and without a hold.
+func TestStopHooksTogether(t *testing.T) {
+	stop := map[string]any{"hook_event_name": "Stop", "session_id": "S", "stop_hook_active": false}
+	in, _ := json.Marshal(stop)
+	for _, held := range []bool{true, false} {
+		data := t.TempDir()
+		id := ""
+		if held {
+			id = denyClassifier(t, data)
+		}
+		wake := func() (int, string) {
+			_, code := runScript(t, "wake.sh", string(in), "CLAUDE_PLUGIN_DATA="+data, refusalKey, "BRUH_WAKE_POLL=1", "BRUH_WAKE_SECONDS=0")
+			seen, _ := os.ReadFile(filepath.Join(data, "wake", "clerk-a-1.seen"))
+			return code, string(seen)
+		}
+		box := filepath.Join(data, "mail", "clerk-a-1")
+		if err := os.MkdirAll(box, 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(box, "1.json"), []byte("{}"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if code, seen := wake(); code != 2 || seen != "1.json\n" {
+			t.Fatalf("held=%v: new mail: exit %d, seen %q", held, code, seen)
+		}
+		if code, seen := wake(); code != 2 || seen != "1.json\n" {
+			t.Fatalf("held=%v: no new mail: exit %d, seen %q", held, code, seen)
+		}
+		out := refusal(t, data, stop, refusalKey)
+		if !held {
+			if out != "" {
+				t.Fatalf("block without a hold: %q", out)
+			}
+			continue
+		}
+		var m struct{ Decision, Reason string }
+		if err := json.Unmarshal([]byte(out), &m); err != nil || m.Decision != "block" || !strings.Contains(m.Reason, id) {
+			t.Fatalf("stop = %+v, %v", m, err)
+		}
+	}
+}
+
 // linkedWorktree makes a repository and a linked worktree of it, and returns both paths.
 func linkedWorktree(t *testing.T) (string, string) {
 	t.Helper()
