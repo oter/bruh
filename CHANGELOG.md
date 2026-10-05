@@ -31,6 +31,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 - `session_launch` and `session_resume` find the session ID when `claude --bg` prints it with ANSI color codes. The error texts show the output without escape codes.
 - `learn_refresh` lists in `long_files` only the Markdown files at the top of the ledger folder and in `projects/`. Notes in another folder, such as `research/`, are not ledger state and no longer show up.
+- The test row `TestOrcaNotReady/timeout` uses a 2 s timeout, so that it is stable under `go test -race`.
 
 ## [0.10.0] - 2026-10-03
 

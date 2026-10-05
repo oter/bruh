@@ -364,13 +364,13 @@ func TestOrcaNotReady(t *testing.T) {
 		{"bad version", printJSON(orcaStatus(true, true, true, "ready", "1.4")), `"1.4" is not`},
 		{"not JSON", "echo hello", "orca status: invalid character"},
 		{"exit 1", "echo '{}'; exit 1", "exit status 1"},
-		{"timeout", "exec sleep 5", "orca status: signal: killed"},
+		{"timeout", "exec sleep 60", "orca status: signal: killed"},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			// Only the timeout row gets a short timeout: a loaded machine can take longer to run sh.
 			orcaTimeout = old
 			if c.name == "timeout" {
-				orcaTimeout = 300 * time.Millisecond
+				orcaTimeout = 2 * time.Second
 			}
 			_, log := fakeOrca(t, c.status, orcaList(), false)
 			res, _ := launchClanker(t, testEnv(t, "bigm"))
