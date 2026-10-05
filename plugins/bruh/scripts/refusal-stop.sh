@@ -1,11 +1,10 @@
 #!/bin/sh
 # Hook for PermissionDenied, PreToolUse (all tools), and Stop: a refusal stops the session
-# (spec 15.1). PermissionDenied writes a hold record. PreToolUse denies every call of a session
-# with a hold, except the escalation tools, and denies a compound Bash command with the word
-# git in a linked worktree (the git-shape guard), which writes a hold too. Stop blocks the end
-# of the turn while a hold of the session has no P0. It reads only the event name and fields of
-# the hook input, never the meaning of a text. While a hold exists, only bigm may call
-# answer_write; bigm's answer_write of the linked P0 removes the hold.
+# (spec 15.1). PermissionDenied writes a hold record. For a role other than bigm, PreToolUse
+# denies every call of a session with a hold, except the escalation tools. For bigm, it denies
+# only the exact refused call, so bigm keeps working. Stop blocks the end of the turn while a
+# hold of the session has no P0. It reads only the event name and fields of the hook input,
+# never the meaning of a text. bigm's answer_write of the linked P0 removes the hold.
 [ -n "${BRUH_ROLE_KEY:-}" ] && [ -n "${CLAUDE_PLUGIN_DATA:-}" ] || exit 0
 holds="$CLAUDE_PLUGIN_DATA/holds"
 input=$(cat)
@@ -23,10 +22,13 @@ write_hold() {
 			> "$holds/$id.json.tmp" && mv "$holds/$id.json.tmp" "$holds/$id.json" && printf '%s' "$id"
 }
 
-# first_hold <jq filter>: the ID of the first hold of this session that matches the filter.
+# first_hold <jq filter>: the ID of the first hold of this session that matches the filter. The
+# hook input $in goes through stdin, never argv: a large tool_input (a Write of some MiB) in argv
+# makes the exec of jq fail with E2BIG, and the hook would then allow the call.
 first_hold() {
 	for f in "$holds"/H-*.json; do
-		[ -f "$f" ] && jq -r --arg s "$sid" "select(.session_id == \$s and ($1)) | .id" "$f" 2> /dev/null
+		[ -f "$f" ] && printf '%s' "$input" | jq -r --arg s "$sid" --slurpfile h "$f" \
+			". as \$in | \$h[0] | select(.session_id == \$s and ($1)) | .id" 2> /dev/null
 	done | head -n 1
 }
 
@@ -39,36 +41,21 @@ PermissionDenied)
 	write_hold permission_denied "$(field .reason)" > /dev/null
 	;;
 PreToolUse)
-	tool=$(field .tool_name)
-	hold=$(first_hold true)
-	if [ -n "$hold" ]; then
-		case $tool in
-		mcp__plugin_bruh_bruh__question_open | mcp__plugin_bruh_bruh__answer_wait | mcp__plugin_bruh_bruh__mail_post | \
-			mcp__plugin_bruh_bruh__mail_read | SendMessage | ToolSearch | StructuredOutput) exit 0 ;;
-		# While a hold exists, only bigm may call answer_write; bigm's answer_write of the
-		# linked P0 clears the hold, also the hold of a clerk or a local clanker.
-		mcp__plugin_bruh_bruh__answer_write) [ "$BRUH_ROLE_KEY" = bigm ] && exit 0 ;;
-		esac
-		deny "bruh refusal stop: hold $hold holds this session after a refusal. Open a P0 with question_open and the field hold = $hold, then wait for the answer: a subagent or a workflow agent waits with answer_wait; the main session waits for the ANSWER with mail_read. Do not run another form of the refused command."
+	# A refusal never freezes bigm: deny only the exact refused call (same tool_name and
+	# tool_input), until the answer_write of its P0 removes the hold.
+	if [ "$BRUH_ROLE_KEY" = bigm ]; then
+		# shellcheck disable=SC2016 # $in is a jq variable
+		hold=$(first_hold '.tool_name == $in.tool_name and .tool_input == $in.tool_input')
+		[ -n "$hold" ] && deny "bruh refusal stop: hold $hold: the owner has not answered the refusal of this exact call. Do not run it again in any form. If its P0 is not open, open it with question_open and the field hold = $hold. Go on with your other work."
 		exit 0
 	fi
-	[ "$tool" = Bash ] || exit 0
-	# Closed token check: the word git (also inside quotes) plus a separator, a substitution
-	# ($(, a backtick, <(, or >(), or a heredoc. One plain git command passes: it starts with git
-	# and, with its quoted strings and its fd redirects (2>&1) removed, has no such token. A $( or
-	# a backtick inside double quotes still counts, because the shell runs it.
-	printf '%s' "$input" | jq -e '([39] | implode) as $sq | "[;&|\n`]|\\$\\(|<<|[<>]\\(" as $sep
-		| (.tool_input.command // "") as $c
-		| ($c | gsub("(?<d>\"([^\"\\\\]|\\\\.)*\")|" + $sq + "[^" + $sq + "]*" + $sq + "|\\\\."; "Q" + ((.d // "") | [scan("\\$\\(|`")] | join("")))
-			| gsub("[0-9]*[<>]&[0-9-]+"; "") | sub("\\s+$"; "")) as $bare
-		| ($c | test("(^|[^A-Za-z0-9_-])git($|[^A-Za-z0-9_-])")) and ($c | test($sep))
-			and ((($bare | test("^\\s*git(\\s|$)")) and ($bare | test($sep) | not)) | not)' > /dev/null 2>&1 || exit 0
-	cwd=$(field .cwd)
-	dirs=$(git -C "${cwd:-.}" rev-parse --path-format=absolute --git-dir --git-common-dir 2> /dev/null) || exit 0
-	[ "$(printf '%s\n' "$dirs" | sed -n 1p)" != "$(printf '%s\n' "$dirs" | sed -n 2p)" ] || exit 0
-	rule="In a worktree, no compound commands with git. Data goes through tool inputs."
-	hold=$(write_hold bruh-git-shape "bruh git-shape guard: $rule")
-	deny "bruh git-shape guard: $rule This command has the word git and a separator, a substitution, or a heredoc. Hold $hold now holds this session: open a P0 with question_open and the field hold = $hold, then wait for the answer: a subagent or a workflow agent waits with answer_wait; the main session waits for the ANSWER with mail_read. Do not run another form."
+	hold=$(first_hold true)
+	[ -n "$hold" ] || exit 0
+	case $(field .tool_name) in
+	mcp__plugin_bruh_bruh__question_open | mcp__plugin_bruh_bruh__answer_wait | mcp__plugin_bruh_bruh__mail_post | \
+		mcp__plugin_bruh_bruh__mail_read | SendMessage | ToolSearch | StructuredOutput) exit 0 ;;
+	esac
+	deny "bruh refusal stop: hold $hold holds this session after a refusal. Open a P0 with question_open and the field hold = $hold, then wait for the answer: a subagent or a workflow agent waits with answer_wait; the main session waits for the ANSWER with mail_read. Do not run another form of the refused command."
 	;;
 Stop)
 	[ "$(field .stop_hook_active)" = true ] && exit 0
