@@ -510,6 +510,13 @@ func TestLongFiles(t *testing.T) {
 		want  []string
 	}{
 		{name: "cap from mode.md", files: capFive, want: []string{"open-end.md", "projects/shop.md", "six.md"}},
+		{name: "only top-level files and projects/*.md", files: map[string]string{
+			"mode.md":              "ledger_max_lines: 5\n",
+			"six.md":               lines(6),
+			"projects/shop.md":     lines(6),
+			"research/notes.md":    lines(6),
+			"projects/old/deep.md": lines(6),
+		}, want: []string{"projects/shop.md", "six.md"}},
 		{name: "no ledger_max_lines line", files: defaultCap("mode: supervised\n"), want: []string{"long.md"}},
 		{name: "ledger_max_lines abc", files: defaultCap("ledger_max_lines: abc\n"), want: []string{"long.md"}},
 		{name: "ledger_max_lines 0", files: defaultCap("ledger_max_lines: 0\n"), want: []string{"long.md"}},
