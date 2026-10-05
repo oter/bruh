@@ -126,7 +126,7 @@ for c in "$here/$kind"/*/; do
 				"$name" "$secs" "$plugin" "$(cat "$c/input.txt")"
 		else
 			input=$(sed 's|<root>|<tmp>|g' "$c/input.txt")
-			printf '%s: cd <tmp> && timeout %s claude -p --agent bruh:learner --plugin-dir %s "%s"\n' \
+			printf '%s: cd <tmp> && env -u BRUH_ROLE_KEY timeout %s claude -p --agent bruh:learner --plugin-dir %s "%s"\n' \
 				"$name" "$secs" "$plugin" "$input"
 		fi
 		continue
@@ -149,7 +149,7 @@ for c in "$here/$kind"/*/; do
 	else
 		cp -R "$c/root/." "$dir/"
 		input=$(sed "s|<root>|$(printf '%s' "$dir" | sed 's/[&|\\]/\\&/g')|g" "$c/input.txt")
-		if (cd "$dir" && timeout "$secs" claude -p --agent bruh:learner --plugin-dir "$plugin" "$input") >"$out" 2>"$work/$name.err"; then
+		if (cd "$dir" && env -u BRUH_ROLE_KEY timeout "$secs" claude -p --agent bruh:learner --plugin-dir "$plugin" "$input") >"$out" 2>"$work/$name.err"; then
 			rc=0
 		else
 			rc=$?

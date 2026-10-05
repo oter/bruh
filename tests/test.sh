@@ -287,7 +287,7 @@ check "load refuses an odd --sessions" not sh "$here/load/run.sh" --dry-run --se
 # Learner eval driver: dry run and the compare rule of spec 20
 eout=$(sh "$here/eval/run.sh" --dry-run 2>&1)
 check "learner eval dry run exits 0" eq "$(sh "$here/eval/run.sh" --dry-run >/dev/null 2>&1; echo $?)" 0
-check "learner eval dry run prints one learner command for each case" eq "$(printf '%s\n' "$eout" | grep -c 'claude -p --agent bruh:learner')" "$(find "$here/eval/learner" -mindepth 1 -maxdepth 1 -type d | wc -l | tr -d ' ')"
+check "learner eval dry run prints one learner command for each case" eq "$(printf '%s\n' "$eout" | grep -c 'env -u BRUH_ROLE_KEY timeout [0-9]* claude -p --agent bruh:learner')" "$(find "$here/eval/learner" -mindepth 1 -maxdepth 1 -type d | wc -l | tr -d ' ')"
 check "learner eval dry run loads the plugin of the checkout" contains "$eout" "--plugin-dir $(cd "$here/.." && pwd)/plugins/bruh"
 mkdir -p "$tmp/eval"
 printf 'LINK auth: shop/go.mod:5\nDOC: shop/README.md\n' >"$tmp/eval/expected.txt"
