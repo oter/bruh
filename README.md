@@ -343,6 +343,33 @@ Do these steps after the release v0.11.0 is published. Let the running tasks fin
 
    `bruh_info` shows the version `0.11.0`. `monitor_list` exists only in 0.11.0, and it shows `poller_down` false. If `poller_down` is still true after two minutes, run `/reload-plugins` in bigm and ask again.
 
+## Watch bruh work
+
+Run `/bruh-board` in a session with bruh, usually bigm. It opens a live pane that refreshes about every 10 seconds. The board needs Claude Code 2.1.287 or later, because it is a mod (a hooks module, `plugins/bruh/hooks/register.js`). It opens only on the command.
+
+The pane shows:
+
+- **Waits on you**: the open P0 and P1 questions, P0 first. A question is open while no answer file exists for it.
+- **The tree**: bigm and `clerk-ledger` first, then one group for each project. Each group has the clanker, under it its clerks, and under each clerk its workflow run. A clerk belongs to `clanker-<project>` by its role key `clerk-<project>-<name>`.
+- **Last done**: the time and text of the last status or result line of the report file of the role.
+- **Next**: the "Next check (UTC)" time and the expected deliverable of the ledger "In progress" row. If `init/config.json` has no ledger path, the pane says so and shows no next steps.
+
+The spinner shows who works and how. The glyphs show the role: `⣾⣽⣻⢿` for a clanker, `◐◓◑◒` for a clerk, `▁▃▅▇` for a workflow run, and `◇◆` for bigm and `clerk-ledger`. The motion and the colour show the state:
+
+| State | Spinner |
+|---|---|
+| working | turns, green |
+| waits on you | turns slowly, yellow, with `?` |
+| blocked or held | stops, red, with `!` |
+| idle | stops, dim |
+| done | `✓`, gray |
+
+Each row has a name with the project path, the role, and the task, for example `oter/bruh (clanker, tasks 12, 13)`, `oter/bruh lessceremony (clerk, task 13 less-ceremony)`, and `oter/bruh liveui run wf_712df188-d86 (workflow run, task 14 bruh-board)`. The project path comes from `repos.json` (the MCP tool `repos_set` writes it), else the project key. The task number comes from the ledger "In progress" row that names the clerk in its State column. The slug comes from the worktree folder of the clerk session. With neither, the row shows the role key. A clanker without task rows shows `idle`.
+
+The board does not show the agents inside a workflow run. Claude Code does not list the agents of a workflow (`$.agent.list()` leaves them out), so the board shows the run line with its state: `done` after the result line of the run, else the state of the clerk.
+
+The board only reads: `claude agents --json --all` and the bruh data and ledger files. To turn it off, close the pane with its close mark. That stops the refresh, and the board reads nothing until the next `/bruh-board`. There is no setting.
+
 ## Documentation
 
 - [Specification](docs/spec.md): what bruh does, and the tag of each decision.

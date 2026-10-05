@@ -754,6 +754,8 @@ Agent-derived, accepted 2026-09-30.
 - bigm reports status in three parts: "Ready for you", "Waiting on you", "In progress". Commands that the owner must run are in code blocks, never "see above". The setup of the owner used this form.
 - The status cadence is a runtime setting in `mode.md`: report only on change, or always.
 
+The bruh board is a live pane beside the status report. Only the command `/bruh-board` opens it. It reads and never writes: `claude agents --json --all`, the open P0 and P1 questions, the report files, `repos.json`, and the "In progress" rows of the ledger. It refreshes every 10 seconds and stops when the pane closes. It shows each project as a tree (clanker, clerks, workflow runs). Claude Code does not list the agents of a workflow, so the board shows the run line with its state in their place. Agent-derived, needs owner decision.
+
 ### 9.5 Monitors
 
 Status: Built 2026-10-04.

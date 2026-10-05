@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Added
+
+- The `/bruh-board` command opens a live pane. It shows the open P0 and P1 questions and a tree of each project: the clanker, its clerks, and their workflow runs, each with a spinner, the last done, and the next check.
+
 ### Fixed
 
 - The learner eval does not inherit BRUH_ROLE_KEY. Before, a learner eval that started in a role session did not stop.
