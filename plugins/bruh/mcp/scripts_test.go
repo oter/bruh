@@ -576,7 +576,7 @@ func TestRefusalStopBlock(t *testing.T) {
 	id := denyClassifier(t, data)
 	var m struct{ Decision, Reason string }
 	if err := json.Unmarshal([]byte(refusal(t, data, stop, refusalKey)), &m); err != nil || m.Decision != "block" || !strings.Contains(m.Reason, id) {
-		t.Fatalf("stop = %+v, %v", m, err)
+		t.Fatalf("refusal-stop.sh Stop output = %+v (unmarshal err %v), want decision \"block\" with reason containing %q", m, err, id)
 	}
 	if out := refusal(t, data, map[string]any{"hook_event_name": "Stop", "session_id": "S", "stop_hook_active": true}, refusalKey); out != "" {
 		t.Fatalf("block with stop_hook_active: %q", out)
@@ -633,7 +633,7 @@ func TestStopHooksTogether(t *testing.T) {
 		}
 		var m struct{ Decision, Reason string }
 		if err := json.Unmarshal([]byte(out), &m); err != nil || m.Decision != "block" || !strings.Contains(m.Reason, id) {
-			t.Fatalf("stop = %+v, %v", m, err)
+			t.Fatalf("refusal-stop.sh Stop output = %+v (unmarshal err %v), want decision \"block\" with reason containing %q", m, err, id)
 		}
 	}
 }
@@ -670,6 +670,9 @@ func TestGitShapeGuard(t *testing.T) {
 		"git diff 2>&1 | head",
 		"git status\ngit log",
 		`git commit -m "a" && ls`,
+		`git log \' ; ls ; echo \'`,
+		`git log \" ; ls ; echo \"`,
+		"git diff <(git show HEAD:a) b",
 	}
 	for _, cmd := range shapes {
 		data := t.TempDir()
@@ -677,18 +680,19 @@ func TestGitShapeGuard(t *testing.T) {
 		holds := holdFiles(t, data)
 		if len(holds) != 1 || !strings.Contains(r, holds[0]["id"].(string)) || !strings.Contains(r, "no compound commands with git") ||
 			holds[0]["denial_source"] != "bruh-git-shape" {
-			t.Fatalf("%q: reason = %q, holds = %v", cmd, r, holds)
+			t.Errorf("%q: reason = %q, holds = %v", cmd, r, holds)
+			continue
 		}
 		if out := refusal(t, data, preTool("S", "Bash", cmd, repo), refusalKey); denyReason(t, out) == "" || !strings.Contains(out, "hold") {
-			t.Fatalf("%q: the hold does not reach the next call", cmd)
+			t.Errorf("%q: the hold does not reach the next call", cmd)
 		}
 		// Outside a linked worktree the guard denies nothing.
 		other := t.TempDir()
 		if out := refusal(t, other, preTool("S", "Bash", cmd, repo), refusalKey); out != "" {
-			t.Fatalf("%q in the main checkout: %q", cmd, out)
+			t.Errorf("%q in the main checkout: %q", cmd, out)
 		}
 		if out := refusal(t, other, preTool("S", "Bash", cmd, t.TempDir()), refusalKey); out != "" {
-			t.Fatalf("%q outside a repository: %q", cmd, out)
+			t.Errorf("%q outside a repository: %q", cmd, out)
 		}
 	}
 	data := t.TempDir()
@@ -699,7 +703,7 @@ func TestGitShapeGuard(t *testing.T) {
 		"git log --format='$(x)'", "git status\n",
 	} {
 		if out := refusal(t, data, preTool("S", "Bash", cmd, wt), refusalKey); out != "" {
-			t.Fatalf("%q denied: %q", cmd, out)
+			t.Errorf("%q denied: %q", cmd, out)
 		}
 	}
 	if out := refusal(t, data, preTool("S", "Write", "git a; b", wt), refusalKey); out != "" || len(holdFiles(t, data)) != 0 {

@@ -49,17 +49,17 @@ PreToolUse)
 		# linked P0 clears the hold, also the hold of a clerk or a local clanker.
 		mcp__plugin_bruh_bruh__answer_write) [ "$BRUH_ROLE_KEY" = bigm ] && exit 0 ;;
 		esac
-		deny "bruh refusal stop: hold $hold holds this session after a refusal. Open a P0 with question_open and the field hold = $hold, then wait for the answer with answer_wait. Do not run another form of the refused command."
+		deny "bruh refusal stop: hold $hold holds this session after a refusal. Open a P0 with question_open and the field hold = $hold, then wait for the answer: a subagent or a workflow agent waits with answer_wait; the main session waits for the ANSWER with mail_read. Do not run another form of the refused command."
 		exit 0
 	fi
 	[ "$tool" = Bash ] || exit 0
-	# Closed token check: the word git (also inside quotes) plus a separator, a substitution, or
-	# a heredoc. One plain git command passes: it starts with git and, with its quoted strings
-	# and its fd redirects (2>&1) removed, has no separator. A $( or a backtick inside double
-	# quotes still counts, because the shell runs it.
-	printf '%s' "$input" | jq -e '([39] | implode) as $sq | "[;&|\n`]|\\$\\(|<<" as $sep
+	# Closed token check: the word git (also inside quotes) plus a separator, a substitution
+	# ($(, a backtick, <(, or >(), or a heredoc. One plain git command passes: it starts with git
+	# and, with its quoted strings and its fd redirects (2>&1) removed, has no such token. A $( or
+	# a backtick inside double quotes still counts, because the shell runs it.
+	printf '%s' "$input" | jq -e '([39] | implode) as $sq | "[;&|\n`]|\\$\\(|<<|[<>]\\(" as $sep
 		| (.tool_input.command // "") as $c
-		| ($c | gsub("(?<d>\"([^\"\\\\]|\\\\.)*\")|" + $sq + "[^" + $sq + "]*" + $sq; "Q" + ((.d // "") | [scan("\\$\\(|`")] | join("")))
+		| ($c | gsub("(?<d>\"([^\"\\\\]|\\\\.)*\")|" + $sq + "[^" + $sq + "]*" + $sq + "|\\\\."; "Q" + ((.d // "") | [scan("\\$\\(|`")] | join("")))
 			| gsub("[0-9]*[<>]&[0-9-]+"; "") | sub("\\s+$"; "")) as $bare
 		| ($c | test("(^|[^A-Za-z0-9_-])git($|[^A-Za-z0-9_-])")) and ($c | test($sep))
 			and ((($bare | test("^\\s*git(\\s|$)")) and ($bare | test($sep) | not)) | not)' > /dev/null 2>&1 || exit 0
@@ -68,7 +68,7 @@ PreToolUse)
 	[ "$(printf '%s\n' "$dirs" | sed -n 1p)" != "$(printf '%s\n' "$dirs" | sed -n 2p)" ] || exit 0
 	rule="In a worktree, no compound commands with git. Data goes through tool inputs."
 	hold=$(write_hold bruh-git-shape "bruh git-shape guard: $rule")
-	deny "bruh git-shape guard: $rule This command has the word git and a separator, a substitution, or a heredoc. Hold $hold now holds this session: open a P0 with question_open and the field hold = $hold, then wait for the answer with answer_wait. Do not run another form."
+	deny "bruh git-shape guard: $rule This command has the word git and a separator, a substitution, or a heredoc. Hold $hold now holds this session: open a P0 with question_open and the field hold = $hold, then wait for the answer: a subagent or a workflow agent waits with answer_wait; the main session waits for the ANSWER with mail_read. Do not run another form."
 	;;
 Stop)
 	[ "$(field .stop_hook_active)" = true ] && exit 0

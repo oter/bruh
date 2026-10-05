@@ -245,23 +245,23 @@ func TestQuestionOpenWithHold(t *testing.T) {
 	}
 	q := out.(map[string]any)
 	body := q["body"].(string)
-	if !strings.HasPrefix(q["header"].(string), "P0 ") ||
-		!strings.HasSuffix(body, "\n\nCOMMAND: gh pr merge 7 --squash\nCATEGORY: permission_denied [Merge Without Review]") {
-		t.Fatalf("question = %v", q)
+	suffix := "\n\nCOMMAND: gh pr merge 7 --squash\nCATEGORY: permission_denied [Merge Without Review]"
+	if !strings.HasPrefix(q["header"].(string), "P0 ") || !strings.HasSuffix(body, suffix) {
+		t.Fatalf("question_open(hold H-1) = %v, want header prefix \"P0 \" and body suffix %q", q, suffix)
 	}
 	var h map[string]any
 	readJSON(t, filepath.Join(env.DataDir, "holds", "H-1.json"), &h)
 	if h["question_id"] != q["id"] || h["session_id"] != "S" {
-		t.Fatalf("hold = %v", h)
+		t.Fatalf("hold H-1 = %v, want question_id %v and session_id S", h, q["id"])
 	}
 	var stored Question
 	readJSON(t, filepath.Join(env.DataDir, "questions", q["id"].(string)+".json"), &stored)
 	if stored.Priority != "P0" || stored.Body != body {
-		t.Fatalf("stored = %+v", stored)
+		t.Fatalf("stored question = %+v, want Priority P0 and Body %q", stored, body)
 	}
 	// One P0 for each hold.
 	if _, err := call(t, env, "question_open", map[string]any{"priority": "P0", "subject": "again", "body": "b", "blocks": "x", "hold": "H-1"}); err == nil || !strings.Contains(err.Error(), q["id"].(string)) {
-		t.Fatalf("second open: %v", err)
+		t.Fatalf("second question_open(hold H-1) err = %v, want an error naming %s", err, q["id"])
 	}
 }
 
@@ -272,8 +272,9 @@ func TestQuestionOpenHoldOtherTool(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if body := out.(map[string]any)["body"].(string); !strings.Contains(body, "\nCOMMAND: {\"file_path\":\"/x/y.sh\"}\n") {
-		t.Fatalf("body = %q", body)
+	want := "\nCOMMAND: {\"file_path\":\"/x/y.sh\"}\n"
+	if body := out.(map[string]any)["body"].(string); !strings.Contains(body, want) {
+		t.Fatalf("question_open(hold H-2) body = %q, want it to contain %q", body, want)
 	}
 }
 
@@ -282,10 +283,10 @@ func TestQuestionOpenHoldRefusals(t *testing.T) {
 	writeHold(t, env.DataDir, "H-3", "clerk-b-1", "", map[string]string{"command": "x"})
 	for _, hold := range []string{"H-3", "../H-3", "H-missing", "X-1"} {
 		if _, err := call(t, env, "question_open", map[string]any{"priority": "P0", "subject": "s", "body": "b", "blocks": "x", "hold": hold}); err == nil {
-			t.Errorf("hold %q: no error", hold)
+			t.Errorf("question_open(hold %q) err = nil, want error", hold)
 		}
 	}
 	if entries, _ := os.ReadDir(filepath.Join(env.DataDir, "questions")); len(entries) != 0 {
-		t.Fatalf("questions written: %v", entries)
+		t.Fatalf("questions/ entries after refused holds = %v, want none", entries)
 	}
 }
