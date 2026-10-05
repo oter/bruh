@@ -214,6 +214,31 @@ func TestSessionLaunchAndResumeByBigm(t *testing.T) {
 	}
 }
 
+// R-1: the clanker of the project starts its scout clerk, as it starts any clerk. bigm is not
+// the parent of a scout, so it neither starts nor resumes one, and no one resumes a scout: a
+// stopped scout gets a new one.
+func TestSessionLaunchScoutByClanker(t *testing.T) {
+	env := testEnv(t, "clanker-app")
+	cwd, _ := filepath.EvalSymlinks(t.TempDir())
+	fakeClaude(t, &env, "5c0a7000", []map[string]any{
+		{"id": "5c0a7000", "kind": "background", "name": "clerk-app-scout1", "sessionId": "5c0a7000-full", "state": "done", "cwd": cwd, "startedAt": 1},
+	})
+	if _, err := call(t, env, "role_settings_write", map[string]any{"role_key": "clerk-app-scout1"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := call(t, env, "session_launch", map[string]any{"agent": "clerk", "role_key": "clerk-app-scout1", "cwd": cwd}); err != nil {
+		t.Errorf("clanker-app launches clerk-app-scout1: %v", err)
+	}
+	_, err := call(t, env, "session_resume", map[string]any{"role_key": "clerk-app-scout1"})
+	mustErr(t, err, "a scout is never resumed")
+	for _, caller := range []string{"bigm", "clanker-other", "clerk-app-x", "clerk-app-scout2", "clerk-ledger"} {
+		_, err := call(t, as(env, caller), "session_launch", map[string]any{"agent": "clerk", "role_key": "clerk-app-scout1", "cwd": cwd})
+		mustErr(t, err, "only its parent")
+		_, err = call(t, as(env, caller), "session_resume", map[string]any{"role_key": "clerk-app-scout1"})
+		mustErr(t, err, "only its parent")
+	}
+}
+
 // colorClaude is fakeClaude with the output of Claude Code 2.1.284: the short ID in SGR color codes
 // and dim hint lines after it.
 func colorClaude(t *testing.T, env *Env, id string, agents []map[string]any) {

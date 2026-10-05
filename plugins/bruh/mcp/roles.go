@@ -6,14 +6,96 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"slices"
+	"strconv"
+	"strings"
 )
+
+// scoutTaskRE matches the task part of a scout clerk key clerk-<project>-scout<n>. A bare
+// "scout" is a scout too, so that no task clerk gets a scout name without the scout stops.
+var scoutTaskRE = regexp.MustCompile(`^scout[0-9]*$`)
+
+// isScout reports whether k is a scout clerk: a short-lived, read-only clerk that the clanker
+// of the project starts to gather facts (owner rule R-1, spec 3.6.1).
+func isScout(k RoleKey) bool { return k.Role == "clerk" && scoutTaskRE.MatchString(k.Task) }
+
+const bruhTool = "mcp__plugin_bruh_bruh__"
+
+// scoutGitWrites are the git subcommands that write a repository (its objects, refs, index,
+// config, or work tree), a remote, or new files. fetch and remote update write the
+// remote-tracking refs of the checkout, so a scout uses git ls-remote instead. branch, remote,
+// config, and symbolic-ref also have read forms; a scout uses git rev-parse, git for-each-ref,
+// git ls-remote --get-url, and Read of .git/config instead (spec 3.6.1).
+var scoutGitWrites = []string{
+	"push", "commit", "add", "rm", "mv", "merge", "rebase", "reset", "checkout", "switch",
+	"restore", "stash", "tag", "worktree", "clean", "pull", "fetch", "apply", "cherry-pick", "revert",
+	"branch", "remote", "config", "update-ref", "symbolic-ref", "update-index", "read-tree",
+	"submodule", "sparse-checkout", "bisect", "notes", "replace", "am", "init", "clone",
+	"gc", "prune", "repack", "pack-refs", "maintenance", "filter-branch", "format-patch",
+	"reflog expire", "reflog delete",
+}
+
+// scoutGitDeny returns three deny rules for each subcommand of scoutGitWrites: git <sub>, and
+// git -C <path> <sub> with and without arguments, the form that the scout procedure prescribes
+// (clerk.md, spec 3.6.1). A trailing " *" matches the bare command only when it is the only
+// wildcard of the rule, so the -C form needs both rules.
+// ponytail: a glob, so "git -C <path> log --grep push x" is denied too; a PreToolUse hook that
+// parses the git options is the upgrade if a scout needs such a read.
+func scoutGitDeny() []string {
+	var out []string
+	for _, sub := range scoutGitWrites {
+		out = append(out, "Bash(git "+sub+":*)", "Bash(git -C * "+sub+")", "Bash(git -C * "+sub+" *)")
+	}
+	return out
+}
+
+// scoutDeny are the deny rules that role_settings_write adds to each scout settings file, so
+// that its starter cannot leave them out (spec principle 2). The tool rules remove the tools;
+// the Bash rules match only the command text, so they are speed bumps (spec 3.6.1).
+var scoutDeny = append(scoutGitDeny(), []string{
+	"Edit", "Write", "NotebookEdit", "Workflow", "EnterWorktree",
+	bruhTool + "session_launch", bruhTool + "session_resume", bruhTool + "role_settings_write",
+	bruhTool + "lease_define", bruhTool + "lease_request", bruhTool + "lease_grant", bruhTool + "lease_release",
+	bruhTool + "answer_write", bruhTool + "question_open", bruhTool + "repos_set", bruhTool + "result_save",
+	bruhTool + "init_plan", bruhTool + "init_apply", bruhTool + "learn_refresh", bruhTool + "learn_scan",
+	"Bash(rm:*)", "Bash(mv:*)", "Bash(cp:*)", "Bash(mkdir:*)", "Bash(touch:*)", "Bash(tee:*)", "Bash(chmod:*)", "Bash(ln:*)",
+	"Bash(claude:*)", "Bash(go run:*)", "Bash(sh:*)", "Bash(bash:*)",
+	"Bash(gh pr merge:*)", "Bash(gh pr create:*)", "Bash(gh pr comment:*)", "Bash(gh pr review:*)",
+	"Bash(gh pr close:*)", "Bash(gh pr edit:*)", "Bash(gh pr ready:*)",
+	"Bash(gh issue create:*)", "Bash(gh issue comment:*)", "Bash(gh issue close:*)", "Bash(gh issue edit:*)",
+	"Bash(gh release create:*)",
+	"Bash(gh api * -X *)", "Bash(gh api * --method *)", "Bash(gh api * -f *)", "Bash(gh api * -F *)",
+	"Bash(gh api * --field *)", "Bash(gh api * --raw-field *)", "Bash(gh api * --input *)",
+	"Bash(glab mr merge:*)", "Bash(glab mr create:*)", "Bash(glab mr note:*)", "Bash(glab mr close:*)",
+	"Bash(glab issue create:*)", "Bash(glab issue note:*)", "Bash(glab api * -X *)", "Bash(glab api * --method *)",
+	"Bash(tea pr merge:*)", "Bash(tea pr create:*)", "Bash(tea comment:*)",
+}...)
+
+// nextScoutKey returns the scout key of project whose n is one more than the highest n of the
+// scout settings files in dir (a bare "scout" counts as 0).
+func nextScoutKey(dir, project string) string {
+	prefix := "clerk-" + project + "-scout"
+	high := 0
+	entries, _ := os.ReadDir(dir)
+	for _, e := range entries {
+		rest, ok := strings.CutPrefix(e.Name(), prefix)
+		if !ok {
+			continue
+		}
+		digits, ok := strings.CutSuffix(rest, ".json")
+		if n, err := strconv.Atoi(digits); ok && err == nil && n > high {
+			high = n
+		}
+	}
+	return prefix + strconv.Itoa(high+1)
+}
 
 func rolesTools() []Tool {
 	return []Tool{
 		{
 			Name:        "role_settings_write",
-			Description: "Write the --settings file of a role: BRUH_ROLE_KEY, extra env values (tool accounts), deny rules, and allow rules. Only bigm passes allow, and only for a clanker key: each rule is Read(//<path>/**) for a repository of the project in learn/projects/<project>.json. Returns the absolute path.",
+			Description: "Write the --settings file of a role: BRUH_ROLE_KEY, extra env values (tool accounts), deny rules, and allow rules. Only bigm passes allow, and only for a clanker key: each rule is Read(//<path>/**) for a repository of the project in learn/projects/<project>.json. A scout key clerk-<project>-scout<n> always gets the scout deny rules and is written once. Returns the absolute path.",
 			InputSchema: map[string]any{
 				"type": "object",
 				"properties": map[string]any{
@@ -62,7 +144,11 @@ func rolesTools() []Tool {
 						return nil, err
 					}
 				}
-				out, err := roleSettings(c.Env.PluginRoot, key, a.Env, a.Deny, a.Allow)
+				deny := a.Deny
+				if isScout(target) {
+					deny = append(slices.Clone(a.Deny), scoutDeny...)
+				}
+				out, err := roleSettings(c.Env.PluginRoot, key, a.Env, deny, a.Allow)
 				if err != nil {
 					return nil, err
 				}
@@ -71,7 +157,15 @@ func rolesTools() []Tool {
 					return nil, err
 				}
 				file := filepath.Join(dir, key+".json")
-				if err := atomicWrite(file, out); err != nil {
+				if isScout(target) {
+					// One question, one scout: a used key keeps its old mailbox and report lines, so a
+					// new scout gets a new key and reads no old mail.
+					if err := writeNew(file, out); errors.Is(err, os.ErrExist) {
+						return nil, fmt.Errorf("the role settings of %s exist: a scout key is used once; use %s", key, nextScoutKey(dir, target.Project))
+					} else if err != nil {
+						return nil, err
+					}
+				} else if err := atomicWrite(file, out); err != nil {
 					return nil, err
 				}
 				abs, err := filepath.Abs(file)
@@ -177,4 +271,14 @@ func readLearn(path string, v any) error {
 		return fmt.Errorf("%s: %w", path, err)
 	}
 	return nil
+}
+
+// writeNew writes data to a new file, and fails with os.ErrExist when file exists.
+func writeNew(file string, data []byte) error {
+	f, err := os.OpenFile(file, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+	if err != nil {
+		return err
+	}
+	_, werr := f.Write(data)
+	return errors.Join(werr, f.Close())
 }
