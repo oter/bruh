@@ -478,8 +478,13 @@ func (w *watcher) stopMonitors(grants [][]string, grantsRead bool) ([]monitor, e
 	return kept, nil
 }
 
-// lockPoller takes the poller lock for the life of the process, with no wait: one poller for
-// each machine (M2, M3). The kernel releases it when the process exits.
+// pollerRetry is how often a waiting poller tries the poller lock again; a variable only so
+// that a test can make it short.
+var pollerRetry = 5 * time.Second
+
+// lockPoller tries once, with no wait, to take the poller lock for the life of the process:
+// one poller for each machine (M2, M3). runWatch tries again. The kernel releases the lock
+// when the process exits.
 func lockPoller(env Env) (release func(), ok bool, err error) {
 	locks, err := env.Dir("locks")
 	if err != nil {
@@ -499,16 +504,30 @@ func lockPoller(env Env) (release func(), ok bool, err error) {
 	return func() { f.Close() }, true, nil
 }
 
-// runWatch polls every interval_seconds until ctx ends, or once. Another poller on the same
-// data folder makes it return at once.
+// runWatch polls every interval_seconds until ctx ends, or once. When another poller on the
+// same data folder holds the lock, the loop waits and tries the lock again every pollerRetry
+// until it gets the lock or ctx ends; with once, it returns at once.
 func runWatch(ctx context.Context, env Env, out io.Writer, once bool) error {
 	release, ok, err := lockPoller(env)
 	if err != nil {
 		return err
 	}
-	if !ok {
+	if !ok && once {
 		fmt.Fprintln(os.Stderr, "bruh: another poller runs for", env.DataDir)
 		return nil
+	}
+	if !ok {
+		fmt.Fprintln(os.Stderr, "bruh: another poller runs for", env.DataDir+"; waiting for its lock")
+	}
+	for !ok {
+		select {
+		case <-ctx.Done():
+			return nil
+		case <-time.After(pollerRetry):
+		}
+		if release, ok, err = lockPoller(env); err != nil {
+			return err
+		}
 	}
 	defer release()
 	w := &watcher{env: env, out: out, errOut: os.Stderr}
