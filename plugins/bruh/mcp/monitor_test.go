@@ -5,6 +5,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -521,5 +523,69 @@ func TestMonitorStandingAndCodehostFilter(t *testing.T) {
 	mustErr(t, err, "only clerk-repo-t1")
 	if _, err := call(t, as(f.env, "clanker-repo"), "monitor_stop", map[string]any{"id": m["id"]}); err != nil {
 		t.Fatalf("the parent stops the monitor of its clerk: %v", err)
+	}
+}
+
+// Task 35: a codehost monitor with number gets one checks event when the checks of the head of its
+// pull request are done (success or failure), once for each head; the standing monitor gets none.
+func TestMonitorPullChecksEvent(t *testing.T) {
+	fg, r := newFakeForge(t, "github")
+	head := "p1"
+	// The fake has no GET /pulls/{n}: a second server answers it and sends every other path to the fake.
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		if req.Method == "GET" && req.URL.Path == "/repos/owner/repo/pulls/7" {
+			_ = json.NewEncoder(w).Encode(map[string]any{"number": 7, "head": map[string]any{"sha": head}})
+			return
+		}
+		fg.ServeHTTP(w, req)
+	}))
+	t.Cleanup(srv.Close)
+	r.APIURL, r.Project = srv.URL, "repo"
+	f := newMonFixture(t, "")
+	raw, _ := json.Marshal(reposConfig{Repos: []repoConfig{r}})
+	writeFile(t, filepath.Join(f.env.DataDir, "repos.json"), string(raw))
+	f.local(t, "clanker-repo")
+	f.local(t, "clerk-repo-t1")
+	fg.branches["main"] = "a1"
+	f.loop(t) // the standing baseline
+	m := f.start(t, "clerk-repo-t1", map[string]any{"source": map[string]any{"kind": "codehost", "repo": "owner/repo", "number": 7}, "reason": "checks of my pull request"})
+	checks := func(key string) (out []watchEvent) {
+		t.Helper()
+		for _, msg := range f.mail(t, key) {
+			if _, ev := eventOf(t, msg.Body); ev.Type == "checks" {
+				out = append(out, ev)
+			}
+		}
+		return out
+	}
+	for _, runs := range [][]fakeRun{
+		{{Status: "in_progress"}, {Status: "queued"}},
+		{{Status: "completed", Conclusion: "failure"}, {Status: "in_progress"}}, // one failed, one still runs
+	} {
+		fg.runs["p1"] = runs
+		f.loop(t)
+		if got := checks("clerk-repo-t1"); len(got) != 0 {
+			t.Fatalf("checks events while a check runs (%v) = %+v, want none", runs, got)
+		}
+	}
+	fg.runs["p1"] = []fakeRun{{Status: "completed", Conclusion: "success"}, {Status: "completed", Conclusion: "failure"}}
+	f.loop(t)
+	got := checks("clerk-repo-t1")
+	if len(got) != 1 || got[0].Monitor != m["id"] || got[0].Number != 7 || got[0].SHA != "p1" || got[0].Checks != "failure" ||
+		got[0].Summary != "2 checks: 1 failure, 1 success" || got[0].Repo != "owner/repo" || got[0].Project != "repo" {
+		t.Fatalf("checks events after the checks of p1 are done = %+v, want one failure event of p1", got)
+	}
+	f.loop(t)
+	if got := checks("clerk-repo-t1"); len(got) != 0 {
+		t.Fatalf("checks events of the same head again = %+v, want none", got)
+	}
+	head = "p2"
+	fg.runs["p2"] = []fakeRun{{Status: "completed", Conclusion: "success"}}
+	f.loop(t)
+	if got := checks("clerk-repo-t1"); len(got) != 1 || got[0].SHA != "p2" || got[0].Checks != "success" || got[0].Summary != "1 checks: 1 success" {
+		t.Fatalf("checks events after a push to the pull request = %+v, want one success event of p2", got)
+	}
+	if got := checks("clanker-repo"); len(got) != 0 {
+		t.Errorf("checks events of the standing monitor = %+v, want none", got)
 	}
 }

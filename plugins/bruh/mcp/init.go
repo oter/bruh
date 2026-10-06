@@ -393,17 +393,25 @@ func planSettings(old []byte, a InitAnswers, tap string) ([]byte, error) {
 // rule R-1, bigm gets each fact through a clanker or a scout.
 var bigmDenyRules = []string{"Agent(claude-code-guide)", "Agent(general-purpose)", "Agent(Explore)", "Agent(Plan)", "WebFetch", "WebSearch"}
 
-// bigmSkillHook is the PreToolUse command of the bigm start settings that blocks each skill except
-// bruh:* (task 27): bigm sends an ask that needs a skill to a clanker. No permission rule can do it,
-// because a deny rule wins over each allow rule and a Skill rule has no negation. Exit 2 blocks the
-// call; without jq or without a skill field, the hook blocks too.
-const bigmSkillHook = `jq -e '.tool_input.skill | startswith("bruh:")' >/dev/null || { echo 'bigm runs no skill: send the ask to a clanker' >&2; exit 2; }`
+// bigmSkillHook is the PreToolUse command of the bigm start settings (task 27, task 34). It passes
+// bruh:* and each global skill of the owner: a name with no "/" and no leading "." whose
+// $HOME/.claude/skills/<name>/SKILL.md exists, read at run time (bruh never sets CLAUDE_CONFIG_DIR).
+// It blocks every other skill: bigm sends an ask that needs one to a clanker. No permission rule
+// can do it, because a deny rule wins over each allow rule and a Skill rule has no negation. Exit 2
+// blocks the call; without jq or without a skill field, the hook blocks too.
+const bigmSkillHook = `s=$(jq -r '.tool_input.skill // ""') || s=; case $s in bruh:*) exit 0;; ''|.*|*/*) ;; *) [ -f "$HOME/.claude/skills/$s/SKILL.md" ] && exit 0;; esac; echo 'bigm runs only bruh skills and the global skills of the owner: send the ask to a clanker' >&2; exit 2`
 
-// bigmSkillGroup returns the PreToolUse hook group of bigmSkillHook.
-func bigmSkillGroup() *object {
+// oldBigmSkillHooks are the earlier commands of bigmSkillHook, an exact-value list. Init replaces
+// a hook group of one of them with the group of bigmSkillHook.
+var oldBigmSkillHooks = []string{
+	`jq -e '.tool_input.skill | startswith("bruh:")' >/dev/null || { echo 'bigm runs no skill: send the ask to a clanker' >&2; exit 2; }`,
+}
+
+// bigmSkillGroup returns the PreToolUse hook group of the Skill hook command cmd.
+func bigmSkillGroup(cmd string) *object {
 	h := newObject()
 	h.set("type", "command")
-	h.set("command", bigmSkillHook)
+	h.set("command", cmd)
 	g := newObject()
 	g.set("matcher", "Skill")
 	g.set("hooks", []any{h})
@@ -414,8 +422,8 @@ func bigmSkillGroup() *object {
 // existing file (an empty file is {}), or from the bigm role settings when there is no file. It sets
 // agent to bruh:bigm and each env key of the role settings, so it replaces the old values of these
 // keys. It adds each deny rule of the role settings that the file does not have yet, and the Skill
-// hook group (bigmSkillGroup) to hooks.PreToolUse when the file does not have it yet, and keeps every
-// other key. A file whose env, permissions, permissions.deny, hooks, or hooks.PreToolUse has another
+// hook group (bigmSkillGroup) to hooks.PreToolUse when the file does not have it yet, after it removes
+// each group that equals the group of an old command (oldBigmSkillHooks), and keeps every other key. A file whose env, permissions, permissions.deny, hooks, or hooks.PreToolUse has another
 // JSON type is an error, so init does not drop such a value.
 func planLedgerSettings(exists bool, old, role []byte) ([]byte, error) {
 	r, err := parseOrdered(role)
@@ -468,7 +476,15 @@ func planLedgerSettings(exists bool, old, role []byte) ([]byte, error) {
 	if _, has := hooks.vals["PreToolUse"]; has && !ok {
 		return nil, errors.New("ledger settings file: hooks.PreToolUse is not a JSON array")
 	}
-	group := bigmSkillGroup()
+	var stale [][]byte
+	for _, c := range oldBigmSkillHooks {
+		stale = append(stale, encodeOrdered(bigmSkillGroup(c), ""))
+	}
+	pre = slices.DeleteFunc(pre, func(v any) bool {
+		e := encodeOrdered(v, "")
+		return slices.ContainsFunc(stale, func(o []byte) bool { return bytes.Equal(e, o) })
+	})
+	group := bigmSkillGroup(bigmSkillHook)
 	want := encodeOrdered(group, "")
 	if !slices.ContainsFunc(pre, func(v any) bool { return bytes.Equal(encodeOrdered(v, ""), want) }) {
 		pre = append(pre, group)

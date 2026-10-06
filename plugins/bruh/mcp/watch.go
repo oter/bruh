@@ -67,10 +67,13 @@ type repoState struct {
 	LastCall  string `json:"last_call,omitempty"`
 	LastValue string `json:"last_value,omitempty"`
 	LastAt    string `json:"last_at,omitempty"`
+	// PullChecks: monitor ID -> the pull request head SHA whose finished checks were sent to it.
+	PullChecks map[string]string `json:"pull_checks,omitempty"`
 }
 
 type watchEvent struct {
-	// push, red, comment, review, merge (codehost); new, changed, gone (command, mcp); error; expired
+	// push, red, comment, review, merge (codehost); checks (codehost monitor with number, GitHub);
+	// new, changed, gone (command, mcp); error; expired
 	Type    string `json:"type"`
 	Monitor string `json:"monitor,omitempty"` // the monitor ID of the subscriber
 	Key     string `json:"key,omitempty"`     // the source key
@@ -88,6 +91,8 @@ type watchEvent struct {
 	By      string `json:"by,omitempty"` // agent or human, for comments
 	RoleKey string `json:"role_key,omitempty"`
 	State   string `json:"review_state,omitempty"` // reviews
+	Checks  string `json:"checks,omitempty"`       // checks: success or failure
+	Summary string `json:"summary,omitempty"`      // checks: the count of each check result
 }
 
 type watcher struct {
@@ -259,6 +264,44 @@ func (w *watcher) pollRepo(ctx context.Context, r repoConfig, h codeHost, st *re
 		st.Merged = append(st.Merged, p.Number)
 	}
 	st.Merged = st.Merged[max(0, len(st.Merged)-500):]
+	if pc, ok := h.(pullChecker); ok {
+		return w.emitPullChecks(ctx, r, h, pc, st, base)
+	}
+	return nil
+}
+
+// emitPullChecks sends one checks event to each monitor with number when the checks of the head
+// of its pull request are done, once for each head: a new push gets a new event. It runs last in
+// pollRepo, so an error of a pull request read does not hold back the other events of the key.
+func (w *watcher) emitPullChecks(ctx context.Context, r repoConfig, h codeHost, pc pullChecker, st *repoState, base watchEvent) error {
+	subs := w.subs
+	defer func() { w.subs = subs }()
+	if st.PullChecks == nil {
+		st.PullChecks = map[string]string{}
+	}
+	ids := map[string]bool{}
+	for _, m := range slices.SortedFunc(slices.Values(subs), func(a, b monitor) int { return cmp.Compare(a.ID, b.ID) }) {
+		n := m.Source.Number
+		if n == 0 {
+			continue
+		}
+		ids[m.ID] = true
+		sha, state, summary, err := pc.PullChecks(ctx, n)
+		if err != nil {
+			return err
+		}
+		if sha == st.PullChecks[m.ID] || state == "pending" || state == "none" {
+			continue
+		}
+		ev := base
+		ev.Type, ev.Number, ev.SHA, ev.Checks, ev.Summary = "checks", n, sha, state, summary
+		w.subs = []monitor{m} // only this monitor: the standing and the ref monitors get no checks event
+		if err := w.emit(ev, fmt.Sprintf("checks %s %s #%d %s: %s", state, r.Repo, n, short(sha), summary), h.LastCall(), state); err != nil {
+			return err
+		}
+		st.PullChecks[m.ID] = sha
+	}
+	maps.DeleteFunc(st.PullChecks, func(id, _ string) bool { return !ids[id] })
 	return nil
 }
 

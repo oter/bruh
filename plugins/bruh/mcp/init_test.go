@@ -381,6 +381,7 @@ func TestInitBigmSkillHook(t *testing.T) {
 	} {
 		cmd := exec.Command("sh", "-c", h["command"].(string))
 		cmd.Stdin = strings.NewReader(c.input)
+		cmd.Env = append(os.Environ(), "HOME="+t.TempDir()) // no global skills, so bro is blocked
 		out, err := cmd.CombinedOutput()
 		code := 0
 		if err != nil {
@@ -393,6 +394,96 @@ func TestInitBigmSkillHook(t *testing.T) {
 		if code != c.code || (code == 2) != strings.Contains(string(out), "send the ask to a clanker") {
 			t.Errorf("Skill hook with %s: exit %d, output %q, want exit %d", c.input, code, out, c.code)
 		}
+	}
+}
+
+// runSkillHook runs the Skill hook command with HOME set to home and returns its exit code and output.
+func runSkillHook(t *testing.T, command, home, input string) (int, string) {
+	t.Helper()
+	cmd := exec.Command("sh", "-c", command)
+	cmd.Stdin = strings.NewReader(input)
+	cmd.Env = append(os.Environ(), "HOME="+home)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		ee, ok := err.(*exec.ExitError)
+		if !ok {
+			t.Fatal(err)
+		}
+		return ee.ExitCode(), string(out)
+	}
+	return 0, string(out)
+}
+
+// Task 34: the Skill hook of bigm also passes the global skills of the owner, the names under
+// $HOME/.claude/skills with a SKILL.md, read at run time; every other skill stays blocked.
+func TestInitBigmSkillHookAllowsOwnerSkills(t *testing.T) {
+	if _, err := exec.LookPath("jq"); err != nil {
+		t.Fatal("jq is not on PATH: the Skill hook of bigm needs it")
+	}
+	env, ledger := initEnv(t)
+	apply(t, env, plan(t, env, answers(ledger, nil)))
+	groups := skillGroups(t, ledger)
+	if len(groups) != 1 {
+		t.Fatalf("Skill hook groups = %v, want one", groups)
+	}
+	command := groups[0]["hooks"].([]any)[0].(map[string]any)["command"].(string)
+	home := t.TempDir()
+	writeFile(t, filepath.Join(home, ".claude", "skills", "bro", "SKILL.md"), "---\nname: bro\n---\n")
+	// A folder with no SKILL.md is not a skill.
+	if err := os.MkdirAll(filepath.Join(home, ".claude", "skills", "empty"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range []struct {
+		input string
+		code  int
+	}{
+		{`{"tool_name":"Skill","tool_input":{"skill":"bro"}}`, 0},
+		{`{"tool_name":"Skill","tool_input":{"skill":"bruh:implement"}}`, 0},
+		{`{"tool_name":"Skill","tool_input":{"skill":"mattpocock-skills:grilling"}}`, 2},
+		{`{"tool_name":"Skill","tool_input":{"skill":"nothere"}}`, 2},
+		{`{"tool_name":"Skill","tool_input":{"skill":"empty"}}`, 2},
+		{`{"tool_name":"Skill","tool_input":{"skill":"../.claude/skills/bro"}}`, 2},
+		{`{"tool_name":"Skill","tool_input":{"skill":"x/../bro"}}`, 2},
+		{`{"tool_name":"Skill","tool_input":{"skill":"."}}`, 2},
+		{`{"tool_name":"Skill","tool_input":{"skill":""}}`, 2},
+		{`{"tool_name":"Skill","tool_input":{}}`, 2},
+		{`{}`, 2},
+		{`not json`, 2},
+	} {
+		code, out := runSkillHook(t, command, home, c.input)
+		if code != c.code || (code == 2) != strings.Contains(out, "send the ask to a clanker") {
+			t.Errorf("Skill hook with %s: exit %d, output %q, want exit %d", c.input, code, out, c.code)
+		}
+	}
+	// Without jq the hook blocks, even a global skill of the owner.
+	if code, _ := runSkillHook(t, "PATH=/nonexistent; "+command, home, `{"tool_input":{"skill":"bro"}}`); code != 2 {
+		t.Errorf("Skill hook without jq: exit %d, want 2", code)
+	}
+}
+
+// Task 34: init replaces the Skill hook group of an old command with the new group and keeps the
+// own groups of the file.
+func TestInitReplacesOldBigmSkillHook(t *testing.T) {
+	env, ledger := initEnv(t)
+	file := filepath.Join(ledger, ".claude", "settings.json")
+	// The group as init wrote it before task 34: matcher first, then hooks.
+	q, _ := json.Marshal(oldBigmSkillHooks[0])
+	writeFile(t, file, `{"hooks":{"PreToolUse":[{"matcher":"Bash","hooks":[{"type":"command","command":"true"}]},`+
+		`{"matcher":"Skill","hooks":[{"type":"command","command":`+string(q)+`}]},`+
+		`{"matcher":"Skill","hooks":[{"type":"command","command":"true"}]}]}}`)
+	apply(t, env, plan(t, env, answers(ledger, nil)))
+	pre := ledgerSettings(t, ledger)["hooks"].(map[string]any)["PreToolUse"].([]any)
+	var cmds []string
+	for _, g := range pre {
+		g := g.(map[string]any)
+		cmds = append(cmds, g["matcher"].(string)+" "+g["hooks"].([]any)[0].(map[string]any)["command"].(string))
+	}
+	want := []string{"Bash true", "Skill true", "Skill " + bigmSkillHook}
+	if !slices.Equal(cmds, want) {
+		t.Fatalf("PreToolUse = %q, want %q", cmds, want)
+	}
+	if d := plan(t, env, answers(ledger, nil))["diff"]; d != "" {
+		t.Fatalf("second init_plan: diff = %q, want empty", d)
 	}
 }
 
