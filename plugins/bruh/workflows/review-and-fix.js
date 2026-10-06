@@ -333,7 +333,13 @@ ${typeof A.house_rules === 'string' && A.house_rules.trim() ? A.house_rules : '(
 
 ${RULES}`
 
-const GATE_PROMPT = (round) => `Step: gates, round ${round}. Do not edit files. In ${root}, run each gate command, in this order:
+// Task 30: in a bruh session, the gate agent and the first fixer of each round write the phase of
+// the task to the report of the role, so the board shows the step. Kind event: no notice to bigm.
+const PHASE = (p) => `First call the bruh MCP tool report_write (mcp__plugin_bruh_bruh__report_write; load it with ToolSearch) with kind event, text "phase ${p}", and phase "${p}". If the tool is not there or the call fails, go on. Then do this step.`
+
+const GATE_PROMPT = (round) => `Step: gates, round ${round}. Do not edit files.
+${PHASE('review')}
+In ${root}, run each gate command, in this order:
 ${bullets(gateCommands)}
 Each gate is required: it must exit 0. These gates are test suites and must run tests:
 ${bullets(testGates)}
@@ -447,10 +453,11 @@ ${COMMON}`,
   phase('Fix')
   const areas = new Map()
   for (const x of open) areas.set(area(x), [...(areas.get(area(x)) || []), x])
+  let first = true
   for (const [name, batch] of areas) {
     const fix = await askable(
       `fix ${name}`,
-      `Step: fix these confirmed review findings of the area ${name} in ${root}. Read each file in full before you edit it. Keep each change minimal and in the spirit of the finding; do not refactor past it. When a finding needs a test change to stay honest, change the test too. When a fix touches a source that a generator reads, run the generator. If a finding cannot be fixed without breaking a test or the spec, leave it and say why in the report.
+      `Step: fix these confirmed review findings of the area ${name} in ${root}.${first ? `\n${PHASE('fix')}\n` : ' '}Read each file in full before you edit it. Keep each change minimal and in the spirit of the finding; do not refactor past it. When a finding needs a test change to stay honest, change the test too. When a fix touches a source that a generator reads, run the generator. If a finding cannot be fixed without breaking a test or the spec, leave it and say why in the report.
 Findings:
 ${batch.map((x, i) => `${i + 1}. ${x.file}:${x.line} [${x.severity}] ${x.rule}\n   ${x.problem}\n   FIX: ${x.fix}`).join('\n')}
 
@@ -464,6 +471,7 @@ ${COMMON}`,
     if (fix.failed) return fail(fix.failed)
     if (fix.stop) return stop(fix.stop)
     if (fix.question) return asked(fix)
+    first = false
     if (fix.value.report) deviations.push(`fix ${name}: ${fix.value.report}`)
 
     // An independent agent checks each fix that the fixer claims, in this batch

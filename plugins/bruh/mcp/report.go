@@ -20,6 +20,10 @@ func isRFC3339(s string) bool {
 
 var reportKinds = []string{"status", "answer", "event", "result"}
 
+// reportPhases are the values of the optional phase of a report line (task 30). The board reads
+// the field, so the names are a contract.
+var reportPhases = []string{"plan", "implement", "review", "fix", "merge", "done"}
+
 // isMailPendingEvent reports whether a line is the event "<role key> not running; mail pending"
 // of the mail procedure (clerk.md, "How to send a message"), with a valid role key.
 func isMailPendingEvent(kind, text string) bool {
@@ -40,6 +44,7 @@ type ReportLine struct {
 	Kind   string          `json:"kind"`
 	Text   string          `json:"text"`
 	Source *Source         `json:"source,omitempty"`
+	Phase  string          `json:"phase,omitempty"`
 	Event  json.RawMessage `json:"event,omitempty"` // watcher lines only
 }
 
@@ -79,7 +84,7 @@ func reportTools() []Tool {
 	return []Tool{
 		{
 			Name:        "report_write",
-			Description: "Append one line to the report file of the calling role. A status claim (merged, deployed, live, down, out of quota) carries source: {call, value, at}. Each line of a scout clerk needs the full source, with at in RFC 3339 and value present (it can be empty), except the event '<role key> not running; mail pending'. A status or result line of a role other than bigm also puts the notice 'DONE: report <role key>' (body: the line) in the mailbox of bigm, at most one unread notice per role.",
+			Description: "Append one line to the report file of the calling role. A status claim (merged, deployed, live, down, out of quota) carries source: {call, value, at}. Each line of a scout clerk needs the full source, with at in RFC 3339 and value present (it can be empty), except the event '<role key> not running; mail pending'. A status or result line of a role other than bigm also puts the notice 'DONE: report <role key>' (body: the line) in the mailbox of bigm, at most one unread notice per role. The optional phase (plan, implement, review, fix, merge, done) marks the step of the task that starts; it is stored as the top-level field phase of the line.",
 			InputSchema: map[string]any{
 				"type": "object",
 				"properties": map[string]any{
@@ -88,6 +93,7 @@ func reportTools() []Tool {
 					"source": map[string]any{"type": "object", "properties": map[string]any{
 						"call": map[string]any{"type": "string"}, "value": map[string]any{"type": "string"}, "at": map[string]any{"type": "string"},
 					}},
+					"phase": map[string]any{"type": "string", "enum": reportPhases},
 				},
 				"required": []string{"kind", "text"},
 			},
@@ -104,12 +110,16 @@ func reportTools() []Tool {
 						Value *string `json:"value"` // a pointer: present but empty is valid output
 						At    string  `json:"at"`
 					} `json:"source"`
+					Phase *string `json:"phase"`
 				}](raw)
 				if err != nil {
 					return nil, err
 				}
 				if !slices.Contains(reportKinds, a.Kind) {
 					return nil, fmt.Errorf("invalid kind: %q", a.Kind)
+				}
+				if a.Phase != nil && !slices.Contains(reportPhases, *a.Phase) {
+					return nil, fmt.Errorf("invalid phase: %q", *a.Phase)
 				}
 				var src *Source
 				if s := a.Source; s != nil {
@@ -132,6 +142,9 @@ func reportTools() []Tool {
 					return nil, err
 				}
 				line := ReportLine{At: c.Env.Stamp(), From: me, Kind: a.Kind, Text: a.Text, Source: src}
+				if a.Phase != nil {
+					line.Phase = *a.Phase
+				}
 				data, _ := json.Marshal(line)
 				f, err := os.OpenFile(filepath.Join(dir, me+".jsonl"), os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
 				if err != nil {

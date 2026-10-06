@@ -1,6 +1,10 @@
 #!/bin/sh
-# Hook for PermissionDenied, PreToolUse (all tools), and Stop: a refusal stops the session
-# (spec 15.1). PermissionDenied writes a hold record. For a role other than bigm, PreToolUse
+# Hook for PermissionDenied, PostToolUseFailure (Bash, Monitor), PreToolUse (all tools), and Stop:
+# a refusal stops the session (spec 15.1). PermissionDenied writes a hold record. So does a
+# PostToolUseFailure whose error has the two fixed fragments of the documented template of the
+# Claude Code worktree guard (errors.md, "Command blocked by the worktree isolation checks") for a
+# command with the word git; a guard refusal of a command with no git is a report event only
+# (spec 15.1.6) and writes no hold. For a role other than bigm, PreToolUse
 # denies every call of a session with a hold, except the escalation tools. For bigm, it denies
 # only the exact refused call, so bigm keeps working. Stop blocks the end of the turn while a
 # hold of the session has no P0. It reads only the event name and fields of the hook input,
@@ -44,6 +48,13 @@ deny() {
 case $(field .hook_event_name) in
 PermissionDenied)
 	write_hold permission_denied "$(field .reason)" > /dev/null
+	;;
+PostToolUseFailure)
+	# The guard refusal reaches no permission event: the Bash tool throws it before the spawn.
+	printf '%s' "$input" | jq -e '(.tool_name == "Bash" or .tool_name == "Monitor")
+		and (.error | type == "string" and contains("is isolated in the worktree ") and contains("git operations must target its own worktree"))
+		and (.tool_input.command // "" | test("\\bgit\\b"))' > /dev/null 2>&1 &&
+		write_hold worktree_guard "$(field .error)" > /dev/null
 	;;
 PreToolUse)
 	# A refusal never freezes bigm: deny only the exact refused call (same tool_name and

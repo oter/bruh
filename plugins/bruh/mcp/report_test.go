@@ -202,3 +202,46 @@ func TestReportWriteScoutNeedsSource(t *testing.T) {
 		t.Fatalf("task clerk line with no source: %v", err)
 	}
 }
+
+// Task 30: the optional phase is stored as a top-level field of the line; any other value is an
+// error and writes no line.
+func TestReportWritePhase(t *testing.T) {
+	env := testEnv(t, "clerk-a-1")
+	if _, err := call(t, env, "report_write", map[string]any{"kind": "event", "text": "phase review", "phase": "review"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := call(t, env, "report_write", map[string]any{"kind": "event", "text": "no phase"}); err != nil {
+		t.Fatal(err)
+	}
+	for _, bad := range []string{"deploy", ""} {
+		if _, err := call(t, env, "report_write", map[string]any{"kind": "event", "text": "x", "phase": bad}); err == nil || !strings.Contains(err.Error(), "invalid phase") {
+			t.Fatalf("phase %q: err = %v", bad, err)
+		}
+	}
+	dir, err := env.Dir("reports")
+	if err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(filepath.Join(dir, "clerk-a-1.jsonl"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw := strings.Split(strings.TrimSpace(string(data)), "\n")
+	if len(raw) != 2 {
+		t.Fatalf("lines = %q, want 2: a bad phase writes no line", raw)
+	}
+	var first, second map[string]any
+	if json.Unmarshal([]byte(raw[0]), &first) != nil || json.Unmarshal([]byte(raw[1]), &second) != nil {
+		t.Fatalf("lines = %q", raw)
+	}
+	if first["phase"] != "review" {
+		t.Fatalf("first line = %v, want top-level phase review", first)
+	}
+	if _, ok := second["phase"]; ok {
+		t.Fatalf("second line = %v, want no phase key", second)
+	}
+	got, _ := call(t, as(env, "bigm"), "report_read", map[string]any{"role_key": "clerk-a-1"})
+	if l := got.([]any); l[0].(map[string]any)["phase"] != "review" {
+		t.Fatalf("report_read = %v", l)
+	}
+}

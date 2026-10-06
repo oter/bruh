@@ -1,5 +1,5 @@
 {
-  "description": "bruh hooks: the handoff message, the handoff pickup, the waiter that wakes a role on new mail, and the refusal stop. Each does nothing when BRUH_ROLE_KEY is not set.",
+  "description": "bruh hooks: the handoff message, the handoff pickup, the waiter that wakes a role on new mail, and the refusal stop (also after a worktree guard refusal of a git command). Each does nothing when BRUH_ROLE_KEY is not set.",
   "modules": ["./register.js"],
   "hooks": {
     "PostToolUse": [
@@ -44,6 +44,14 @@
     ],
     "PermissionDenied": [
       {
+        "hooks": [
+          { "type": "command", "command": "sh", "args": ["${CLAUDE_PLUGIN_ROOT}/scripts/refusal-stop.sh"] }
+        ]
+      }
+    ],
+    "PostToolUseFailure": [
+      {
+        "matcher": "Bash|Monitor",
         "hooks": [
           { "type": "command", "command": "sh", "args": ["${CLAUDE_PLUGIN_ROOT}/scripts/refusal-stop.sh"] }
         ]

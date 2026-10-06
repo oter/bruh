@@ -867,3 +867,16 @@ test('review-only: a refuter that is not sure refutes', async () => {
   assert.equal(result.refuted.length, 1)
   assert.match(byWord('verify')[0].prompt, /When you are not sure, return confirmed = false/)
 })
+
+// Task 30: the gate agent of each round writes phase review, the first fixer of each round phase fix.
+test('review-and-fix: the gate and the first fixer of each round write the phases review and fix', async () => {
+  const { result, calls, byWord } = await run('review-and-fix', rfHandlers({
+    review: (p, o, n) => ({ findings: n <= 2 ? [f('src/a.go', 1), f('web/x.js', 2)] : [], summary: '' }),
+    verify: () => ({ confirmed: true, reason: '', adjusted_fix: '' }),
+  }), RF())
+  assert.equal(result.status, 'done')
+  const phaseOf = (p) => p.match(/report_write \(mcp__plugin_bruh_bruh__report_write; load it with ToolSearch\) with kind event, text "phase (\w+)", and phase "\1"/)?.[1]
+  assert.deepEqual(calls.map((c) => phaseOf(c.prompt)).filter(Boolean), ['review', 'fix', 'review'])
+  assert.ok(phaseOf(byWord('gate')[0].prompt) === 'review' && phaseOf(byWord('fix')[0].prompt) === 'fix')
+  assert.equal(phaseOf(byWord('fix')[1].prompt), undefined, 'only the first fixer of a round writes the phase')
+})

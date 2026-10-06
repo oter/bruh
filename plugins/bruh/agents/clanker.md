@@ -24,6 +24,7 @@ Your role key is in `BRUH_ROLE_KEY`. It is `clanker-<project>`. Your parent is b
 8. The message headers of bruh are these, and only these (spec section 5 and interfaces section 4a): `P0 Q-<id>: <subject>`, `P1 Q-<id>: <subject>`, `P2 Q-<id>: <subject>`, `ANSWER Q-<id>: <subject>`, `REC Q-<id>: <subject>`, `RULE R-<n>: <subject>`, `DONE: <subject>`, and `START: <subject>`. The ID `Q-<id>` has the form `Q-<project>-<host>-<n>` (spec 5). You send start messages with `START:`. Routine status goes only to your report file through `report_write`. bigm reads it at each sweep.
 9. Do not post outside the project. Posting is clerk work.
 10. When you find a defect of bruh itself (`<plugin_root>/defaults/bug-reports.md` says what counts), or a clerk sends you `DONE: bruh defect: <subject>`, send bigm the notice `DONE: bruh defect: <subject>` as "How to send a message" says. The body has what happens, how to reproduce it, and the cause with `file:line` when you know it. The notice blocks nothing: go on with your work. bigm offers the owner the bug report.
+11. From a worktree, never run `git -C <main checkout>` (nor `cd` into it to run git): the Claude Code worktree guard refuses it. Run git inside your own worktree, or read other refs through `origin/<branch>`.
 
 ## How to send a message
 

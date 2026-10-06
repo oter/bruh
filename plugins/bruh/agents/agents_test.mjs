@@ -595,3 +595,11 @@ test('the routing eval driver: dry run and compare rule', async () => {
     rmSync(tmp, { recursive: true, force: true })
   }
 })
+
+test('the clerk and the clanker never run git -C on the main checkout from a worktree', () => {
+  for (const name of ['clerk', 'clanker']) {
+    const rules = section(agents[name], '## Rules that always apply')
+    assert.match(rules, /From a worktree, never run `git -C <main checkout>`/, name)
+    assert.match(rules, /read other refs through `origin\/<branch>`/, name)
+  }
+})

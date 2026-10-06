@@ -300,6 +300,8 @@ func TestHooksJSON(t *testing.T) {
 		"Stop":             {{"", "wake.sh", true}, {"", "refusal-stop.sh", false}},
 		"PreToolUse":       {{"", "refusal-stop.sh", false}},
 		"PermissionDenied": {{"", "refusal-stop.sh", false}},
+		// Task D: a worktree guard refusal reaches only PostToolUseFailure.
+		"PostToolUseFailure": {{"Bash|Monitor", "refusal-stop.sh", false}},
 	}
 	if len(h.Hooks) != len(want) {
 		t.Fatalf("events = %v", h.Hooks)
@@ -472,6 +474,71 @@ func TestRefusalClearByBigm(t *testing.T) {
 	}
 	if out := refusal(t, data, preTool("S", "Bash", "ls", ""), refusalKey); out != "" {
 		t.Fatalf("denied after the clear: %q", out)
+	}
+}
+
+// guardError is the worktree guard refusal of errors.md ("Command blocked by the worktree
+// isolation checks"), as the error of PostToolUseFailure carries it.
+func guardError(why string) string {
+	return "This session is isolated in the worktree /w, but this command " + why + ". Refusing to run it — a worktree-isolated session's git operations must target its own worktree. Split it into plain, separate commands and run them from /w."
+}
+
+func guardFailure(command, err string) map[string]any {
+	return map[string]any{"hook_event_name": "PostToolUseFailure", "session_id": "S", "tool_name": "Bash",
+		"tool_input": map[string]string{"command": command}, "tool_use_id": "tu-1", "error": err}
+}
+
+// TestRefusalWorktreeGuardHolds (task D): a worktree guard refusal of a git command reaches the
+// hooks only as PostToolUseFailure, and holds the session like a PermissionDenied: ExitWorktree and
+// another form of the read are denied until the answer_write of bigm.
+func TestRefusalWorktreeGuardHolds(t *testing.T) {
+	data := t.TempDir()
+	// The two report-only kinds of spec 15.1.6 and a plain failure write no hold.
+	for _, in := range []map[string]any{
+		guardFailure(`for o in 1 2; do dd if=$B bs=1 skip=$o count=1; done`, guardError("runs dd with a value computed at runtime inside a construct too complex to verify")),
+		guardFailure("cat a > b", guardError("is too complex to verify that it stays inside the worktree")),
+		guardFailure("git status", "Exit code 128\nfatal: not a git repository"),
+	} {
+		refusal(t, data, in, refusalKey)
+	}
+	if h := holdFiles(t, data); len(h) != 0 {
+		t.Fatalf("holds = %v, want none", h)
+	}
+
+	refused := guardError("redirects git to the shared checkout via -C")
+	refusal(t, data, guardFailure("git -C /main rev-parse --abbrev-ref HEAD", refused), refusalKey)
+	holds := holdFiles(t, data)
+	if len(holds) != 1 || holds[0]["denial_source"] != "worktree_guard" || holds[0]["denial_reason"] != refused || holds[0]["session_id"] != "S" {
+		t.Fatalf("holds = %v", holds)
+	}
+	id := holds[0]["id"].(string)
+	calls := []map[string]any{preTool("S", "ExitWorktree", "", ""), preTool("S", "Bash", "git rev-parse --abbrev-ref HEAD", "/main")}
+	for _, in := range calls {
+		if r := denyReason(t, refusal(t, data, in, refusalKey)); !strings.Contains(r, id) {
+			t.Fatalf("%s: reason = %q, want the hold %s", in["tool_name"], r, id)
+		}
+	}
+	env := testEnv(t, "clerk-a-1")
+	env.DataDir = data
+	q, err := call(t, env, "question_open", map[string]any{"priority": "P0", "subject": "refused", "body": "b", "blocks": "x", "hold": id})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if body := q.(map[string]any)["body"].(string); !strings.Contains(body, "CATEGORY: worktree_guard "+refused) {
+		t.Fatalf("body = %q", body)
+	}
+	for _, in := range calls {
+		if denyReason(t, refusal(t, data, in, refusalKey)) == "" {
+			t.Fatalf("%s allowed before the answer", in["tool_name"])
+		}
+	}
+	if _, err := call(t, as(env, "bigm"), "answer_write", map[string]any{"question_id": q.(map[string]any)["id"], "text": "ok. Owner, {now}."}); err != nil {
+		t.Fatal(err)
+	}
+	for _, in := range calls {
+		if out := refusal(t, data, in, refusalKey); out != "" {
+			t.Fatalf("%s denied after the answer: %q", in["tool_name"], out)
+		}
 	}
 }
 

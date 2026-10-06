@@ -10,6 +10,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 - The `/bruh-board` command opens a live pane. It shows one short line for each open P0 and P1 question, and one collapsed line for each clanker with a spinner and its task count. Press `1` to `9` to expand a clanker to its clerks (task, spinner, and state), and `a` to `z` to expand a clerk to its last done and next step; Tab and Enter reach every line, and Esc gives the keys back to the prompt. The expanded state stays in the store of the mod, its only write.
 - The `/bruh-board` pane shows answer buttons for each open question: the options of the question, or `ok` and `hold` for a refusal P0. A press sends `Q-<id>: <label>` as a prompt to bigm.
+- `report_write` takes an optional `phase` (`plan`, `implement`, `review`, `fix`, `merge`, or `done`) and stores it as the top-level field `phase` of the report line; any other value is an error. The agents of `/bruh:deliver` write `plan`, `implement`, `review`, `fix`, and `done` at each step, and `/bruh:review-and-fix` writes `review` and `fix`.
 
 ### Changed
 
@@ -20,6 +21,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - bigm runs only bruh skills: init adds a `PreToolUse` hook for the `Skill` tool to `<ledger>/.claude/settings.json` that blocks each other skill, and bigm sends each ask of the owner that needs a skill, research, or project work to a clanker. Run `/bruh:init` again to get the hook.
 - A scout clerk may clone a public repository and download a file for research, into `/tmp/<scout key>-*` only: `role_settings_write` adds two allow rules for the exact forms `git clone https://<url> /tmp/<scout key>-<name>` and `curl -fsSL -o /tmp/<scout key>-<name> https://<url>`, plus guard deny rules for options, quotes, variables, `..`, file URLs, redirects, and home folders. A scout still never pushes or commits.
 - `answer_write`, `mail_post`, and `question_open` replace `{now}` in the text or body with the server time, so bigm, the clankers, and the clerks run no `date -u` for these calls.
+- From a worktree, a clerk and a clanker never run `git -C <main checkout>`: they run git inside their own worktree, or read other refs through `origin/<branch>`. The `root` of a clerk's implement or review workflow is a worktree, never the main checkout.
 
 ### Removed
 
@@ -31,6 +33,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 - The board and bigm count a question as open only while no role folder has its answer. A clanker records each delegated or relayed answer with `answer_write`, and a replaced duplicate closes with the answer of its replacement (new `replaces` input of `question_open`; a repeat of the same refusal links its older P0 itself). bigm counts the open questions with the new tool `question_list`. Run `/bruh:init` again so that the user settings allow it.
 - A held scout clerk no longer deadlocks: it has no `question_open`, so the hold guard tells it to send `DONE: scout <subject> refused` to its clanker with `mail_post`, and the `Stop` hook lets it stop.
+- A Claude Code worktree guard refusal of a git command now sets a hold, like a classifier refusal: a `PostToolUseFailure` hook of `refusal-stop.sh` writes it, so `ExitWorktree` and another form of the refused command are denied until the answer. A guard refusal of a command with no git still sets no hold.
 
 ## [0.11.1] - 2026-10-05
 
