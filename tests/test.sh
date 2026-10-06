@@ -408,8 +408,10 @@ check "lane start keeps an existing lane with its work" eq "$(ROOT="$tmp/ln" LAN
 C"
 out=$(ROOT="$tmp/ln" LANES="$lanes" sh "$lane" patch t-01-a 2>&1)
 check "lane patch counts the files of the ticket" contains "$out" "(3 files)"
-ROOT="$tmp/ln" LANES="$lanes" sh "$lane" apply t-01-a >/dev/null 2>&1
+rc=0
+ROOT="$tmp/ln" LANES="$lanes" sh "$lane" apply t-01-a >/dev/null 2>&1 || rc=$?
 group "lane apply brings each change of the ticket"
+row "exits 0" eq "$rc" 0
 row "a changed file" eq "$(cat "$tmp/ln/edit.txt")" C
 row "a new file" test -f "$tmp/ln/new.txt"
 row "a deletion" not test -e "$tmp/ln/gone.txt"
