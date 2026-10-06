@@ -4,6 +4,8 @@
 // the clerk. It reads the bruh data folder, the ledger "In progress" rows and
 // `claude agents --json --all`. Its one write is the expanded state: one
 // `open:<role key>` key per item in its own $.store, shared by the sessions.
+// A press on an answer button submits "Q-<id>: <label>" as a prompt into this
+// session (bigm), which records it as the owner answer.
 // The data lives in module variables; a hot reload loses them and the next
 // refresh fills them again.
 
@@ -78,6 +80,12 @@ const mask = text => String(text ?? '').replace(MASK, '…')
 const fit = (text, cols) => {
   const chars = [...text]
   return chars.length <= cols ? text : `${chars.slice(0, Math.max(cols - 1, 0)).join('')}…`
+}
+// The answer buttons of a question: its option labels, else ok and hold for a
+// refusal P0 (question.go holdRecord.lines writes its "CATEGORY: " line).
+function answers(q) {
+  if (q.options?.length) return q.options.map(o => o.label)
+  return q.priority === 'P0' && /^CATEGORY: /m.test(q.body ?? '') ? ['ok', 'hold'] : []
 }
 const SLUG = /\/\.claude\/worktrees\/([^/]+)\/?$/
 
@@ -256,6 +264,15 @@ export const register = on => {
       const isTwin = board.questions.some(other => other !== q && other.subject === q.subject)
       const number = isTwin ? ` (${String(q.id).split('-').at(-1)})` : ''
       out.push(line({ key: `q-${q.id}`, color: q.priority === 'P0' ? 'red' : 'yellow' }, `${q.priority}${number} ${mask(q.subject)}`))
+      const labels = answers(q)
+      if (!labels.length) continue
+      // A Button draws "[ label ]" (label + 4), then a 1-character gap.
+      const width = Math.max(Math.floor((cols - 2) / labels.length) - 5, 1)
+      out.push(h(Box, { key: `answers-${q.id}`, flexDirection: 'row' }, h(Text, {}, '  '),
+        ...labels.flatMap((label, i) => [
+          i ? h(Text, {}, ' ') : undefined,
+          h(Button, { key: `answer-${q.id}-${i}`, label: fit(mask(label), width), onPress: () => $.prompt.submit({ text: `${q.id}: ${label}` }) }),
+        ])))
     }
     for (const note of board.notes) out.push(line({ dimColor: true }, note))
     if (board.clankers.length) out.push(line({}, ' '))

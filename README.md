@@ -352,6 +352,8 @@ By default the pane shows two parts:
 - **Waits on you**: one short line for each open P0 or P1 question, P0 first, for example `P1 merge oter/bruh#29?`. A question is open while no answer file exists for it. Only when two open questions have the same subject, each line shows its number, for example `P1 (98) merge oter/bruh#29?`.
 - **The clankers**: one collapsed line for each project, with a spinner, the project path, and the task count, for example `1: ▸ oter/bruh · 2 tasks`.
 
+Under each open question, the pane shows one button for each option of the question, or `ok` and `hold` for a refusal P0 without options. A press sends `Q-<id>: <label>` as a prompt into the session that shows the pane, and bigm records it as the answer of the owner. The prompt reaches only that session, so open the board in bigm.
+
 Expand a line to see more, and collapse it again with the same key:
 
 - A clanker line expands to its clerks, one line each: the task number and slug, and the state, for example `a: ▸ task 12 fix-poller-wait-lock · working`. A clerk belongs to `clanker-<project>` by its role key `clerk-<project>-<name>`.
