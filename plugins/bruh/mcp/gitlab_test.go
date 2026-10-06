@@ -14,7 +14,7 @@ const glProject = "projects/group%2Fsub%2Frepo/"
 // newGitLabHost returns the client of group/sub/repo on gitlab.example.com.
 func newGitLabHost(t *testing.T) codeHost {
 	t.Helper()
-	h, err := newHost(repoConfig{Repo: "group/sub/repo", Host: "gitlab", APIURL: "https://gitlab.example.com/api/v4", Project: "repo", MergeMethod: "merge"})
+	h, err := newHost(repoConfig{Repo: "group/sub/repo", Host: "gitlab", APIURL: "https://gitlab.example.com/api/v4", Project: "repo"})
 	if err != nil {
 		t.Fatalf("newHost: %v", err)
 	}
@@ -49,8 +49,8 @@ func TestGitLabCallsUseHostnameAndEncodedPath(t *testing.T) {
 	if got, want := h.LastCall(), "glab api --hostname gitlab.example.com "+branches; got != want {
 		t.Errorf("LastCall() = %q, want %q", got, want)
 	}
-	if _, err := h.Pull(t.Context(), 1); err == nil || !strings.Contains(err.Error(), "404 Not Found") {
-		t.Errorf("Pull(1) with no fixture: err = %v, want an error with 404 Not Found", err)
+	if _, err := h.MergedPulls(t.Context()); err == nil || !strings.Contains(err.Error(), "404 Not Found") {
+		t.Errorf("MergedPulls() with no fixture: err = %v, want an error with 404 Not Found", err)
 	}
 }
 
@@ -79,35 +79,14 @@ func TestGitLabChecksStates(t *testing.T) {
 	}
 }
 
-func TestGitLabPullMapping(t *testing.T) {
+func TestGitLabMergedPullsMapping(t *testing.T) {
 	web := "https://gitlab.example.com/group/sub/repo/-/merge_requests/"
 	fakeGlab(t, map[string]string{
-		glProject + "merge_requests/5": `{"iid":5,"state":"opened","draft":true,"sha":"h5","merge_commit_sha":null,"squash_commit_sha":null,` +
-			`"web_url":"` + web + `5","updated_at":"2026-10-01T10:00:00Z","detailed_merge_status":"not_approved"}`,
-		glProject + "merge_requests/6": `{"iid":6,"state":"merged","draft":false,"sha":"h6","merge_commit_sha":null,"squash_commit_sha":"q6",` +
-			`"web_url":"` + web + `6","updated_at":"2026-10-02T10:00:00Z","merged_at":"2026-10-02T09:59:00.123Z","detailed_merge_status":"not_open"}`,
 		glProject + "merge_requests?state=merged&order_by=updated_at&sort=desc&per_page=30": `[` +
 			`{"iid":9,"state":"merged","sha":"h9","merge_commit_sha":"m9","squash_commit_sha":null,"web_url":"` + web + `9"},` +
 			`{"iid":8,"state":"merged","sha":"h8","merge_commit_sha":null,"squash_commit_sha":"q8","web_url":"` + web + `8"}]`,
 	})
 	h := newGitLabHost(t)
-
-	type pullView struct {
-		State, SHA, MergeSHA, URL, UpdatedAt, MergedAt, DetailedMergeStatus string
-		Merged, Draft                                                       bool
-	}
-	view := func(p hostPull) pullView {
-		return pullView{p.State, p.Head.SHA, p.MergeSHA, p.URL, p.UpdatedAt, p.MergedAt, p.DetailedMergeStatus, p.Merged, p.Draft}
-	}
-	for n, want := range map[int]pullView{
-		5: {State: "open", SHA: "h5", URL: web + "5", UpdatedAt: "2026-10-01T10:00:00Z", DetailedMergeStatus: "not_approved", Draft: true},
-		6: {State: "merged", SHA: "h6", MergeSHA: "q6", URL: web + "6", UpdatedAt: "2026-10-02T10:00:00Z", MergedAt: "2026-10-02T09:59:00.123Z", DetailedMergeStatus: "not_open", Merged: true},
-	} {
-		p, err := h.Pull(t.Context(), n)
-		if got := view(p); err != nil || got != want {
-			t.Errorf("Pull(%d) = %+v, %v; want %+v", n, got, err, want)
-		}
-	}
 
 	type mergedView struct {
 		Number   int
@@ -124,33 +103,6 @@ func TestGitLabPullMapping(t *testing.T) {
 	}
 	if want := []mergedView{{9, true, "m9"}, {8, true, "q8"}}; !slices.Equal(got, want) {
 		t.Errorf("MergedPulls() = %+v, want %+v", got, want)
-	}
-}
-
-func TestGitLabMergeBody(t *testing.T) {
-	merge := glProject + "merge_requests/7/merge"
-	for _, tc := range []struct{ method, stdin string }{
-		{"merge", `stdin: {"sha":"h7"}`},
-		{"squash", `stdin: {"sha":"h7","squash":true}`},
-	} {
-		t.Run(tc.method, func(t *testing.T) {
-			log := fakeGlab(t, map[string]string{merge: `{"iid":7,"state":"merged"}`})
-			if err := newGitLabHost(t).Merge(t.Context(), 7, "h7", tc.method); err != nil {
-				t.Fatalf("Merge(7, h7, %s) error: %v", tc.method, err)
-			}
-			lines := logLines(t, log)
-			if len(lines) != 2 {
-				t.Fatalf("glab log = %q; want the arguments and the stdin line", lines)
-			}
-			for _, part := range []string{"-X PUT", "--input -", "Content-Type: application/json", merge} {
-				if !strings.Contains(lines[0], part) {
-					t.Errorf("glab arguments = %q; want %q in them", lines[0], part)
-				}
-			}
-			if lines[1] != tc.stdin {
-				t.Errorf("glab stdin line = %q, want %q", lines[1], tc.stdin)
-			}
-		})
 	}
 }
 

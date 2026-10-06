@@ -84,8 +84,8 @@ func TestMailSenderPolicy(t *testing.T) {
 		{"bigm", "clanker-a", "RULE R-1: no pushes on Friday", true},
 		{"bigm", "clerk-a-x", "RULE R-1: no pushes on Friday", true},
 		{"bigm", "clerk-ledger", "DONE: ledger commit abc1234", true},
-		{"bigm", "clerk-a-merge", "ANSWER Q-a-host-2: merge owner/a#3 approved", true},
-		{"bigm", "clerk-a-merge", "START: merge owner/a#3", true},
+		{"bigm", "clanker-a", "ANSWER Q-a-host-2: merge owner/a#3 approved", true},
+		{"bigm", "clanker-a", "START: merge owner/a#3", true},
 		{"clerk-ledger", "bigm", "P1 Q-a-host-3: push refused", true},
 		// A clerk may raise a P0 straight to bigm, and nothing else.
 		{"clerk-a-x", "bigm", "P0 Q-a-host-4: permission prompt", true},

@@ -18,7 +18,7 @@ A monitor with a `command` source (spec 9.5) runs a program outside the permissi
 
 ## Merge grants
 
-Every merge is a P1 to the owner, except under a grant in this table. A grant names the stable merger role key `clerk-<project>-merge` and its conditions for one repository. Each merge gets a new merger session under that key. One merger acts for each repository at a time. A merge is confirmed by a read of the code host API, never by an exit code.
+Every merge is a P1 to the owner, except under a grant in this table. A grant names one repository and the clanker `clanker-<project>` that merges, with its conditions. A row of an older version that names `clerk-<project>-merge` covers the clanker of the same project. The clanker merges with gh, glab, or tea with the head SHA, and confirms each merge by a read of the code host API, never by an exit code.
 
 | Repository | Merger role key | Conditions | Owner words | Date (UTC) | Question ID |
 |---|---|---|---|---|---|

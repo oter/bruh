@@ -65,7 +65,7 @@ flowchart TB
 
 ## 2. Task lifecycle
 
-Each start writes a start message to the mailbox and a role settings file, then runs `claude --bg`. Routine status goes to report files, not to messages. A merge is a P1 `P1 Q-project-host-n: merge?` to the owner, unless a merge grant covers it. A merger clerk `clerk-<project>-merge` does each merge in a new session and stops. For a remote project, bigm starts the merger on its own machine. `mail_post` accepts messages only between a parent and its child, from bigm, and a P0 from a clerk to bigm.
+Each start writes a start message to the mailbox and a role settings file, then runs `claude --bg`. Routine status goes to report files, not to messages. A merge is a P1 `P1 Q-project-host-n: merge?` to the owner, unless a merge grant covers it. The clanker of the project merges each pull request itself, with `gh pr merge --match-head-commit` (or `glab` or `tea` with the head SHA), and confirms the merge at the code host API. A remote clanker does the same on its own machine. `mail_post` accepts messages only between a parent and its child, from bigm, and a P0 from a clerk to bigm.
 
 ```mermaid
 sequenceDiagram
@@ -75,7 +75,6 @@ sequenceDiagram
     participant Clanker
     participant Clerk
     participant WF as deliver workflow
-    participant Merger as clerk-project-merge
     participant CL as clerk-ledger
     Owner->>bigm: Work request for a project
     bigm->>MCP: ledger_edit records the request and commits
@@ -94,18 +93,17 @@ sequenceDiagram
         Clanker->>MCP: report_write status, no STATUS message
         Clanker->>Clanker: Accept the result
         alt Merge grant for the repository
-            Clanker->>Merger: START merge owner/repo#n with the grant as the cover
+            Clanker->>Clanker: Check each condition of the grant at its source
         else No merge grant
             Clanker->>bigm: P1 Q-project-host-n: merge owner/repo#n?
             bigm->>Owner: P1 in the next batch
             Owner->>bigm: Answer
-            bigm->>Clanker: ANSWER Q-project-host-n
-            bigm->>MCP: mail_post ANSWER Q-project-host-n: merge owner/repo#n approved, to clerk-project-merge
-            Clanker->>Merger: START merge owner/repo#n with the ANSWER as the cover
+            bigm->>Clanker: ANSWER Q-project-host-n: merge owner/repo#n approved
         end
-        Merger->>Merger: merge-train.sh merges only #n, confirms with the code host API
-        Merger->>MCP: report_write merge result
-        Merger->>Clanker: DONE merged, then stop
+        Clanker->>Clanker: gh pr merge n --merge --match-head-commit sha
+        Clanker->>Clanker: Read state merged and the merge commit at the code host API
+        Clanker->>MCP: report_write merge result
+        Clanker->>bigm: DONE merged owner/repo#n with the source read
         Clerk->>Clerk: Remove the worktree and stop
     end
     bigm->>MCP: Sweep reads the report files

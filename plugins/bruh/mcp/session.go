@@ -296,8 +296,8 @@ func sessionResult(key string, e map[string]any) map[string]string {
 	return map[string]string{"role_key": key, "session_id": str(e, "sessionId"), "name": str(e, "name"), "state": str(e, "state")}
 }
 
-// childKey checks that the caller is the parent of key or bigm, and returns the plugin agent of
-// the key. bigm starts the merger clerk of a remote project on its own machine.
+// childKey checks that the caller is the parent of key (or bigm for its own key), and returns the
+// plugin agent of the key.
 func childKey(env Env, key string) (RoleKey, string, error) {
 	me, err := env.Caller()
 	if err != nil {
@@ -308,7 +308,7 @@ func childKey(env Env, key string) (RoleKey, string, error) {
 		return RoleKey{}, "", err
 	}
 	if k.Parent() != me && (me != "bigm" || !bigmActsFor(k)) {
-		return RoleKey{}, "", fmt.Errorf("%s cannot start %s; only its parent %q can (bigm too for a merger clerk)", me, key, k.Parent())
+		return RoleKey{}, "", fmt.Errorf("%s cannot start %s; only its parent %q can", me, key, k.Parent())
 	}
 	agent := map[string]string{"clanker": "clanker", "clerk": "clerk", "ledger": "clerk"}[k.Role]
 	return k, agent, nil
@@ -338,7 +338,7 @@ func sessionTools() []Tool {
 	return []Tool{
 		{
 			Name:        "session_launch",
-			Description: "Start a clanker or clerk as a background session. Only the parent of role_key, or bigm. Write its role settings and its start message (mail_post) first.",
+			Description: "Start a clanker or clerk as a background session. Only the parent of role_key. Write its role settings and its start message (mail_post) first.",
 			InputSchema: objectSchema(map[string]any{
 				"agent":    map[string]any{"type": "string", "enum": []string{"clanker", "clerk"}},
 				"role_key": stringSchema(),
@@ -406,7 +406,7 @@ func sessionTools() []Tool {
 		},
 		{
 			Name:        "session_resume",
-			Description: "Wake a stopped background session of a role with a prompt. Only the parent of role_key, or bigm. A live session gets a SendMessage nudge instead. A scout clerk is never resumed.",
+			Description: "Wake a stopped background session of a role with a prompt. Only the parent of role_key. A live session gets a SendMessage nudge instead. A scout clerk is never resumed.",
 			InputSchema: objectSchema(map[string]any{
 				"role_key": stringSchema(),
 				"prompt":   map[string]any{"type": "string", "description": "Default: Read your mailbox with mail_read."},
@@ -461,7 +461,7 @@ func sessionTools() []Tool {
 		},
 		{
 			Name:        "session_tab_close",
-			Description: "Close the Orca tab of a retired role (its title is role_key). The session keeps running. Only the parent of role_key, or bigm. Call it after you accept a clerk's result or give up its task, after you stop a merger clerk, and after you stop a clanker for good. Without Orca it does nothing.",
+			Description: "Close the Orca tab of a retired role (its title is role_key). The session keeps running. Only the parent of role_key. Call it after you accept a clerk's result or give up its task, and after you stop a clanker for good. Without Orca it does nothing.",
 			InputSchema: objectSchema(map[string]any{"role_key": stringSchema()}, "role_key"),
 			Handler: func(c *Call, raw json.RawMessage) (any, error) {
 				a, err := decode[struct {

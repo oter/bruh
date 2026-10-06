@@ -255,13 +255,13 @@ jq -n --arg l "$srun/ledger" --arg p "$srun/project" --arg t "$(cd "$tmp/strust"
 	{id: "oth1", name: "clerk-other-x", pid: 6, cwd: ($t + "/.claude/worktrees/x")},
 	{id: "bg1", name: "bigm", pid: 1, cwd: $l},
 	{id: "cl1", name: "clerk-ledger", pid: 2, cwd: $l},
-	{id: "mg1", name: "clerk-smoke-fk1-merge", pid: 3, cwd: ($p + "/.claude/worktrees/m")},
+	{id: "tk1", name: "clerk-smoke-fk1-t1", pid: 3, cwd: ($p + "/.claude/worktrees/m")},
 	{id: "own1", name: "clerk-ledger", pid: 4, cwd: "/owner/ledger"}]' >"$tmp/fake/agents-after.json"
 echo '[]' >"$tmp/fake/agents.json"
 FAKE_AGENTS_AFTER="$tmp/fake/agents-after.json" smoke_fake >"$tmp/fake/run.txt" 2>&1
 stops=$(sort "$tmp/fake/stops.txt" 2>/dev/null | words)
 check "smoke run reaches cleanup with the fake claude" contains "$(cat "$tmp/fake/run.txt")" "cleanup"
-check "smoke cleanup stops bigm, clerk-ledger, a merger clerk, and a clerk in a worktree of the trusted repository" eq "$stops" "bg1 cl1 gt1 mg1"
+check "smoke cleanup stops bigm, clerk-ledger, a task clerk, and a clerk in a worktree of the trusted repository" eq "$stops" "bg1 cl1 gt1 tk1"
 check "smoke cleanup does not stop a clerk of another project in the trusted repository" not contains "$stops" oth1
 check "smoke cleanup does not stop the clerk-ledger of the owner" not contains "$stops" own1
 check "smoke cleanup removes the clerk-ledger data" not test -e "$tmp/sdata/mail/clerk-ledger"
