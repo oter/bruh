@@ -110,8 +110,8 @@ The review-round cap stopped the run with open findings. Open a P1 question to y
 
 Read the last line of `deviations`:
 
-- `CONFLICT:` with a hold ID `H-<...>` in the reason (a hold denied a call of a workflow agent, spec 15.1.4): open a P0 with `question_open` and the field `hold` = that ID. When the hold has its P0 already, `question_open` returns the existing question ID in its error; relay that one. Wait for the answer. Then start a NEW run of the workflow with the stored `args` plus `answers`, without `resumeFromRunId`: a resume replays the cached stop.
-- Any other `CONFLICT: <reason>`: open a P2 question to your clanker with the reason.
+- `CONFLICT: <reason>`: a resume replays the cached stop, so each relaunch after a `CONFLICT:` is a NEW run of the workflow with the stored `args` plus `answers`, without `resumeFromRunId`. Route it by the hold guard, not by the words of the reason: a hold that denied a call of a workflow agent holds your whole session (spec 15.1.3 and 15.1.4), so the hold guard denies your next call with the hold ID `H-<...>` in its deny reason, and the `Stop` hook blocks the end of your turn. Then open a P0 with `question_open` and the field `hold` = that ID. When the hold has its P0 already, `question_open` returns the existing question ID in its error; relay that one. Wait for the answer.
+- With no hold, open a P2 question to your clanker with the reason.
 - `STOP: <reason>`: the task cannot go on as written. Open a question with the P-level that the reason needs.
 - `FAILED: <reason>`: an agent did not return a result, for example at a usage limit. Follow "Usage limits and failures".
 
@@ -152,7 +152,7 @@ A relaunch always runs the workflow that stopped, with its own stored `args`. `<
 2. After an answer, add the key `answers` to it: an object from each question ID to its answer text, for example `{"Q-shop-dev-mac-7": "Use the existing table."}`, or to a list of answer texts in order when the question came back (see `REPEAT:`). Keep each earlier answer in `answers`. Change nothing else. Store the new text with `report_write` (kind `event`, `<workflow> args: <JSON text>`).
 3. Run the Workflow tool with the workflow `bruh:<workflow>`, `resumeFromRunId` set to the run ID, and this `args` object. The agents before the question return their cached results. Only the agents after the question run again.
 4. Exception: after a `FAILED:` stop of `/bruh:implement-tickets`, do not use `resumeFromRunId`, because a merge step of an applied wave runs again and fails. Start a new run with the stored `args` in which `waves` is exactly the `remaining_waves` of the result (the tickets that are not merged, in order) and `lane_tickets` is exactly the `lane_tickets` of the result (the tickets of `remaining_waves` that have a lane). A ticket with the status `done` is reviewed but not merged, so it stays in `remaining_waves`; its lane is kept for the same repository, commit, and run, and the new run goes on in it, also when the ticket is alone in its wave. Only when the result has `gate_only` = true (the gate agent died, and every ticket is merged), start a new run with `waves` = `[]`, `lane_tickets` = `[]`, and `gate_only` = `true`: a gate-only run has no tickets, so it takes no `lane_tickets`. Store these `args` first as the new `implement-tickets args:` line.
-5. Exception: after a `CONFLICT:` with a hold ID, start a new run without `resumeFromRunId`, as "Result `stopped`" says.
+5. Exception: after a `CONFLICT:` stop, start a new run without `resumeFromRunId`, as "Result `stopped`" says.
 
 ## Questions of workflow agents
 

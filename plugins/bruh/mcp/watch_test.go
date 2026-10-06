@@ -588,6 +588,13 @@ func TestWatchOnlyInBigm(t *testing.T) {
 		if _, err := os.Stat(dir); !errors.Is(err, fs.ErrNotExist) {
 			t.Fatalf("role key %q: data folder: %v", key, err)
 		}
+		// The check is in runWatch itself, so each caller of the watch command gets it.
+		if err := runWatch(t.Context(), Env{RoleKey: key, DataDir: dir}, &out, false); err != nil || out.Len() != 0 {
+			t.Fatalf("role key %q: runWatch: %v, out %q", key, err, out.String())
+		}
+		if _, err := os.Stat(dir); !errors.Is(err, fs.ErrNotExist) {
+			t.Fatalf("role key %q: runWatch made the data folder: %v", key, err)
+		}
 	}
 	var out, errOut bytes.Buffer
 	if code := runCLI([]string{"watch", "--no-such-flag"}, Env{RoleKey: "bigm"}, &out, &errOut); code != 2 ||

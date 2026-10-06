@@ -507,7 +507,12 @@ func lockPoller(env Env) (release func(), ok bool, err error) {
 // runWatch polls every interval_seconds until ctx ends, or once. When another poller on the
 // same data folder holds the lock, the loop waits and tries the lock again every pollerRetry
 // until it gets the lock or ctx ends; with once, it returns at once.
+// The plugin monitor bruh-poller starts it in each session; it polls only in bigm (spec 9.5),
+// and in each other session it returns nil in silence before it touches the data folder.
 func runWatch(ctx context.Context, env Env, out io.Writer, once bool) error {
+	if env.RoleKey != "bigm" {
+		return nil
+	}
 	release, ok, err := lockPoller(env)
 	if err != nil {
 		return err

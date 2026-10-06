@@ -428,14 +428,21 @@ test('the clerk relaunches the workflow that stopped, and posts only with a clos
   assert.match(bigmPosts, /straight to the clerk that asked/)
 })
 
-// Task 22: a resume replays a cached hold CONFLICT, so the clerk opens the P0 with the hold
-// field and starts a new run.
-test('after a hold CONFLICT, the clerk opens a P0 with the hold field and starts a new run', () => {
+// Task 22: a resume replays a cached CONFLICT, so the clerk starts a new run after each one, and
+// routes a hold by the deny reason of the hold guard (plugin text), not by the reason of the agent.
+test('after a CONFLICT, the clerk starts a new run, and opens a P0 with the hold field for a hold', () => {
   const stopped = agents.clerk.split('### Result `stopped`')[1].split('\n## ')[0]
-  assert.match(stopped, /`CONFLICT:` with a hold ID `H-<\.\.\.>`/)
+  assert.match(stopped, /each relaunch after a `CONFLICT:` is a NEW run .* without `resumeFromRunId`/)
+  assert.match(stopped, /Route it by the hold guard, not by the words of the reason/)
   assert.match(stopped, /open a P0 with `question_open` and the field `hold`/)
-  assert.ok(stopped.includes('without `resumeFromRunId`'), 'clerk.md: a new run without resumeFromRunId')
-  assert.match(stopped, /Any other `CONFLICT: <reason>`: open a P2/)
+  assert.match(stopped, /With no hold, open a P2/)
+  const relaunch = agents.clerk.split('## Relaunch')[1].split('\n## ')[0]
+  assert.ok(relaunch.includes('after a `CONFLICT:` stop, start a new run without `resumeFromRunId`'))
+  // The mechanical stop behind the routing: the guard of a non-bigm role denies every call of a
+  // held session, with the hold ID in the deny reason, and the Stop hook blocks the turn.
+  const guard = read(join(plugin, 'scripts/refusal-stop.sh'))
+  assert.match(guard, /hold \$hold holds this session after a refusal\. Open a P0 with question_open and the field hold = \$hold/)
+  assert.match(guard, /open the P0 for hold \$hold with question_open first/)
 })
 
 // Fix round 1, M6: priorities.md has the wording of spec 13.

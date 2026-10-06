@@ -15,7 +15,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - Init adds six deny rules to the start settings of bigm in `<ledger>/.claude/settings.json`: `Agent(claude-code-guide)`, `Agent(general-purpose)`, `Agent(Explore)`, `Agent(Plan)`, `WebFetch`, and `WebSearch`. bigm gets each fact from a clanker or its scout. Run `/bruh:init` again to add the rules.
 - bigm gets a notice in its mailbox when a role writes a status or result report line, with a maximum of one unread notice for each role. bigm gives the owner a short update every 5 minutes while work runs.
 - The waiter does not wake an idle session at its timeout any more. It waits up to 7 days for new mail and exits in silence at its limit, so only new mail wakes the session (hook timeout 604800 seconds).
-- After a workflow run stops with a hold `CONFLICT:`, the clerk opens a P0 with the `hold` field of `question_open`, and after the answer it starts a new run without `resumeFromRunId`, because a resume replays the cached stop.
+- After a workflow run stops with `CONFLICT:`, the clerk starts a new run without `resumeFromRunId`, because a resume replays the cached stop. When the hold guard denies its next call with a hold ID, it opens a P0 with the `hold` field of `question_open`, not a P2 conflict question.
 
 ### Removed
 
