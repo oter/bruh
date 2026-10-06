@@ -492,7 +492,7 @@ func sessionTools() []Tool {
 		},
 		{
 			Name:        "session_list",
-			Description: "List the sessions of claude agents --json --all whose name is a role key, with role_key added.",
+			Description: "List the sessions of claude agents --json --all whose name is a role key, with role_key added, and unread_mail: the number of unread messages in the mailbox of the role.",
 			InputSchema: map[string]any{"type": "object", "properties": map[string]any{}},
 			Handler: func(c *Call, _ json.RawMessage) (any, error) {
 				if _, err := c.Env.Caller(); err != nil {
@@ -506,6 +506,7 @@ func sessionTools() []Tool {
 				for _, e := range entries {
 					if _, err := ParseRoleKey(str(e, "name")); err == nil {
 						e["role_key"] = str(e, "name")
+						e["unread_mail"] = unreadMail(c.Env, str(e, "name"))
 						out = append(out, e)
 					}
 				}
@@ -513,4 +514,18 @@ func sessionTools() []Tool {
 			},
 		},
 	}
+}
+
+// unreadMail counts the unread messages of key: the .json files directly in its mailbox, as
+// mail_read reads them. A missing mailbox counts 0; it is not created. bigm reads this count, not
+// the folder, because each role settings file denies the mail folder (task 31).
+func unreadMail(env Env, key string) int {
+	entries, _ := os.ReadDir(filepath.Join(env.DataDir, "mail", key))
+	n := 0
+	for _, e := range entries {
+		if !e.IsDir() && strings.HasSuffix(e.Name(), ".json") {
+			n++
+		}
+	}
+	return n
 }

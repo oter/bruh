@@ -37,6 +37,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - The board and bigm count a question as open only while no role folder has its answer. A clanker records each delegated or relayed answer with `answer_write`, and a replaced duplicate closes with the answer of its replacement (new `replaces` input of `question_open`; a repeat of the same refusal links its older P0 itself). bigm counts the open questions with the new tool `question_list`. Run `/bruh:init` again so that the user settings allow it.
 - A held scout clerk no longer deadlocks: it has no `question_open`, so the hold guard tells it to send `DONE: scout <subject> refused` to its clanker with `mail_post`, and the `Stop` hook lets it stop.
 - A Claude Code worktree guard refusal of a git command now sets a hold, like a classifier refusal: a `PostToolUseFailure` hook of `refusal-stop.sh` writes it, so `ExitWorktree` and another form of the refused command are denied until the answer. A guard refusal of a command with no git still sets no hold.
+- A role reads its mail only through `mail_read`: every role settings file (bigm start settings, clanker, clerk, scout) denies `Read` (which also covers Grep, Glob, and `cat`-style Bash reads) and Bash commands that name `<data>/mail`, and `session_list` gives each role an `unread_mail` count for the idle check of bigm. The rules are a speed bump, not a sandbox. Run `/bruh:init` again, and write the other role settings again, to get them.
+- `/bruh:deliver` and `/bruh:review-and-fix` close a finding by its stable ID (`F<n>`), not by file and line, so a fix that moves the line of its finding no longer leaves it open and the run ends `done`.
 
 ## [0.11.1] - 2026-10-05
 

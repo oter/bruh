@@ -39,11 +39,15 @@ const answers = A.answers && typeof A.answers === 'object' && !Array.isArray(A.a
 const deviations = []
 const summaries = new Map() // lens key -> summary of the last round
 const found = new Map() // key -> finding with state open, fixed, or refuted
+let seq = 0 // the last finding ID
+// idFor returns the ID of the finding at key k: the ID it got when it first entered found, or a new
+// F<n>. The fixer and the checker report findings by ID, because a fix can move the line (task 32).
+const idFor = (k) => (found.has(k) ? found.get(k).id : `F${++seq}`)
 const refutedKeys = new Set()
 let tests = { ran: 0, passed: 0, failed: 0, skipped: 0 }
 
 function result(status, question = null) {
-  const all = [...found.values()].map(({ key: _k, gate: _g, ...f }) => f)
+  const all = [...found.values()].map(({ key: _k, gate: _g, id: _i, ...f }) => f)
   return {
     status,
     workflow: 'review-and-fix',
@@ -119,10 +123,11 @@ const CHECK = {
   properties: { head_sha: { type: 'string' }, status_porcelain: { type: 'string' }, base_is_ancestor: { type: 'boolean' } },
   required: ['head_sha', 'status_porcelain', 'base_is_ancestor'],
 }
-const LOCATION = {
+// A fixed finding: its ID closes it; file and line are for display only (a fix can move the line).
+const FIXED = {
   type: 'object',
-  properties: { file: { type: 'string' }, line: { type: 'integer' } },
-  required: ['file', 'line'],
+  properties: { id: { type: 'string' }, file: { type: 'string' }, line: { type: 'integer' } },
+  required: ['id'],
 }
 const FINDINGS = {
   type: 'object',
@@ -196,7 +201,7 @@ function located(x, v) {
 }
 const FIX = {
   type: 'object',
-  properties: { fixed: { type: 'array', items: LOCATION }, report: { type: 'string' }, question: QUESTION },
+  properties: { fixed: { type: 'array', items: FIXED }, report: { type: 'string' }, question: QUESTION },
   required: ['fixed', 'report'],
 }
 const CONFIRM = {
@@ -206,8 +211,8 @@ const CONFIRM = {
       type: 'array',
       items: {
         type: 'object',
-        properties: { file: { type: 'string' }, line: { type: 'integer' }, fixed: { type: 'boolean' }, reason: { type: 'string' } },
-        required: ['file', 'line', 'fixed', 'reason'],
+        properties: { id: { type: 'string' }, file: { type: 'string' }, line: { type: 'integer' }, fixed: { type: 'boolean' }, reason: { type: 'string' } },
+        required: ['id', 'fixed', 'reason'],
       },
     },
   },
@@ -375,7 +380,7 @@ for (let round = 1; ; round++) {
   }
   for (const f of gateNow) {
     found.set(f.key, {
-      file: f.file, line: f.line, lens: 'gate', rule: 'gate', severity: 'bug', problem: f.summary,
+      id: idFor(f.key), file: f.file, line: f.line, lens: 'gate', rule: 'gate', severity: 'bug', problem: f.summary,
       fix: 'Make the gate pass.', round, state: 'open', reason: 'gate result', gate: f.gate, key: f.key, output_tail: f.output_tail,
     })
   }
@@ -425,7 +430,7 @@ ${COMMON}`,
       refutedKeys.add(k)
       // A refutation overwrites only a refuted entry: an open finding of an earlier
       // round stays open, and a fix of an earlier round stays on record.
-      if (!found.has(k) || found.get(k).state === 'refuted') found.set(k, { ...x, state: 'refuted', reason: v.reason })
+      if (!found.has(k) || found.get(k).state === 'refuted') found.set(k, { ...x, id: idFor(k), state: 'refuted', reason: v.reason })
     }
   })
   // A confirmed finding at the key of an earlier finding (moved there by its
@@ -434,13 +439,13 @@ ${COMMON}`,
   for (const [k, y] of byLocation) {
     const prior = found.get(k)
     if (!prior || prior.gate) {
-      found.set(k, y)
+      found.set(k, { ...y, id: idFor(k) })
       continue
     }
     const state = RANK[prior.state] > RANK[y.state] ? prior.state : y.state
     const problem = prior.problem === y.problem ? y.problem : `${y.problem} | earlier (round ${prior.round}, ${prior.state}): ${prior.problem}`
     const reason = [y.reason, prior.reason].filter((r) => r && r !== 'gate result').filter((r, i, a) => a.indexOf(r) === i).join(' | ')
-    found.set(k, { ...y, state, problem, reason })
+    found.set(k, { ...y, id: prior.id, state, problem, reason })
   }
   if (dead) return fail(`${dead} refuter(s) of round ${round} did not return a result`)
 
@@ -459,11 +464,11 @@ ${COMMON}`,
       `fix ${name}`,
       `Step: fix these confirmed review findings of the area ${name} in ${root}.${first ? `\n${PHASE('fix')}\n` : ' '}Read each file in full before you edit it. Keep each change minimal and in the spirit of the finding; do not refactor past it. When a finding needs a test change to stay honest, change the test too. When a fix touches a source that a generator reads, run the generator. If a finding cannot be fixed without breaking a test or the spec, leave it and say why in the report.
 Findings:
-${batch.map((x, i) => `${i + 1}. ${x.file}:${x.line} [${x.severity}] ${x.rule}\n   ${x.problem}\n   FIX: ${x.fix}`).join('\n')}
+${batch.map((x, i) => `${i + 1}. [${x.id}] ${x.file}:${x.line} [${x.severity}] ${x.rule}\n   ${x.problem}\n   FIX: ${x.fix}`).join('\n')}
 
 After the edits, run the gate commands:
 ${bullets(gateCommands)}
-Return fixed with the file and the line of each finding that you fixed, and a report with the gate output and each finding that you left, with the reason.
+Return fixed with the ID (the [F<n>] before the finding) of each finding that you fixed, and its file and line now, and a report with the gate output and each finding that you left, with the reason.
 
 ${COMMON}`,
       { phase: 'Fix', effort: 'high', schema: FIX },
@@ -478,16 +483,16 @@ ${COMMON}`,
     // only. Only a checked fix is fixed. A gate finding is fixed only when its
     // gate is clean in a later round.
     const claims = fix.value.fixed || []
-    const claimed = batch.filter((x) => !x.gate && claims.some((c) => norm(c.file) === x.file && c.line === x.line))
+    const claimed = batch.filter((x) => !x.gate && claims.some((c) => c.id === x.id))
     if (!claimed.length) continue
-    const conf = await agent(`Step: check the fixes of the area ${name}. Do not edit files. Do not trust the report of the fixer. For each finding below, read the change of this run (\`git -C '${root}' diff ${head}\`, plus the untracked files) and the current file, and decide whether the change fixes the problem at its root. Return one result for each finding, with its file and line unchanged. When you are not sure, return fixed = false.
+    const conf = await agent(`Step: check the fixes of the area ${name}. Do not edit files. Do not trust the report of the fixer. For each finding below, read the change of this run (\`git -C '${root}' diff ${head}\`, plus the untracked files) and the current file, and decide whether the change fixes the problem at its root. Return one result for each finding, with its ID (the [F<n>] before it) unchanged. When you are not sure, return fixed = false.
 Findings:
-${claimed.map((x, i) => `${i + 1}. ${x.file}:${x.line}: ${x.problem}\n   FIX: ${x.fix}`).join('\n')}
+${claimed.map((x, i) => `${i + 1}. [${x.id}] ${x.file}:${x.line}: ${x.problem}\n   FIX: ${x.fix}`).join('\n')}
 
 ${COMMON}`, { label: `confirm ${name}`, phase: 'Fix', effort: 'low', schema: CONFIRM })
     if (!conf) return fail(`the fix check of the area ${name} did not return a result`)
     for (const x of claimed) {
-      const v = (conf.results || []).find((r) => norm(r.file) === x.file && r.line === x.line)
+      const v = (conf.results || []).find((r) => r.id === x.id)
       if (v && v.fixed === true) x.state = 'fixed'
     }
   }

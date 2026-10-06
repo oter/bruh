@@ -638,6 +638,8 @@ func TestCLIInitMatchesInteractive(t *testing.T) {
 	for _, rel := range rels {
 		c, inCLI := cliTree[rel]
 		m, inTool := toolTree[rel]
+		// The mail deny rules of the bigm start settings name the data folder, which differs.
+		c = strings.ReplaceAll(c, cliEnv.DataDir, toolEnv.DataDir)
 		if inCLI != inTool || c != m {
 			t.Errorf("ledger file %s: the CLI wrote %t %q, init_apply wrote %t %q, want the same bytes", rel, inCLI, c, inTool, m)
 		}

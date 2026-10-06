@@ -57,8 +57,8 @@ async function run(h = {}, args = baseArgs()) {
     const n = (counts[word] = (counts[word] || 0) + 1)
     calls.push({ prompt, opts, word })
     assert.ok(handlers[word], `no handler for label ${opts.label}`)
-    // A fixer gets the findings of its batch, read from its prompt lines "- file:line: summary".
-    const batch = [...prompt.matchAll(/^- (\S+):(\d+): /gm)].map((m) => ({ file: m[1], line: Number(m[2]) }))
+    // A fixer gets the findings of its batch, read from its prompt lines "- [F<n>] file:line: summary".
+    const batch = [...prompt.matchAll(/^- \[(F\d+)\] (\S+):(\d+): /gm)].map((m) => ({ id: m[1], file: m[2], line: Number(m[3]) }))
     return handlers[word](prompt, opts, n, batch)
   }
   const parallel = async (thunks) => Promise.all(thunks.map((t) => t().catch(() => null)))
@@ -250,6 +250,29 @@ test('a finding that the fixer did not fix stays open', async () => {
   })
   assert.equal(result.status, 'findings_left')
   assert.deepEqual(result.findings.map((f) => `${f.line} ${f.state}`), ['1 open', '2 open'])
+})
+
+// Task 32: the fix of src/a.go:61 inserts lines above it, so the fixer reports line 67. The ID
+// closes the finding, so the run ends done, not findings_left.
+test('a fix that moves the line of its finding closes it by ID', async () => {
+  const { result, byWord } = await run({
+    adversarial: (p, o, n) => ({ findings: n === 1 ? [finding('src/a.go', 61)] : [] }),
+    refute: () => ({ confirmed: true }),
+    fix: (p, o, n, fs) => ({ head_sha: HEAD, fixed: fs.map((f) => ({ id: f.id, file: f.file, line: f.line + 6 })), deviations: [] }),
+  })
+  assert.match(byWord('fix')[0].prompt, /^- \[F1\] src\/a\.go:61: bad$/m)
+  assert.equal(result.status, 'done')
+  assert.deepEqual(result.findings, [{ file: 'src/a.go', line: 61, summary: 'bad', state: 'fixed' }])
+})
+
+test('a fixer that reports only file and line closes nothing', async () => {
+  const { result } = await run({
+    adversarial: () => ({ findings: [finding('src/a.go', 61)] }),
+    refute: () => ({ confirmed: true }),
+    fix: () => ({ head_sha: HEAD, fixed: [{ file: 'src/a.go', line: 61 }], deviations: [] }),
+  })
+  assert.equal(result.status, 'findings_left')
+  assert.deepEqual(result.findings.map((f) => f.state), ['open'])
 })
 
 test('file paths are normalized before dedup', async () => {

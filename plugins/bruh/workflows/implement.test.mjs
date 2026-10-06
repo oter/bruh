@@ -91,8 +91,8 @@ const f = (file, line, extra = {}) => ({ file, line, rule: 'guide R1', problem: 
 const gateResult = (command, extra = {}) => ({ command, exit_code: 0, ran: 1, passed: 1, failed: 0, skipped: 0, output_tail: '', problems: [], ...extra })
 const cleanGate = (cmds = ['make test']) => ({ gates: cmds.map((c) => gateResult(c)) })
 const cleanCheck = () => ({ head_sha: HEAD, status_porcelain: '', base_is_ancestor: true })
-// The fixer and the fix check read the findings of their prompt: lines "1. file:line ...".
-const listed = (p) => [...p.matchAll(/^\d+\. (\S+):(\d+)[: ]/gm)].map((m) => ({ file: m[1], line: Number(m[2]) }))
+// The fixer and the fix check read the findings of their prompt: lines "1. [F<n>] file:line ...".
+const listed = (p) => [...p.matchAll(/^\d+\. \[(F\d+)\] (\S+):(\d+)[: ]/gm)].map((m) => ({ id: m[1], file: m[2], line: Number(m[3]) }))
 const confirmAll = (p) => ({ results: listed(p).map((l) => ({ ...l, fixed: true, reason: 'fixed' })) })
 const BUSY = {
   tickets: {
@@ -112,7 +112,7 @@ const BUSY = {
     review: (p, o, n) => ({ findings: n === 1 ? [f('src/a.go', 1)] : [], summary: 'ok' }),
     gate: () => cleanGate(),
     verify: () => ({ confirmed: true, reason: 'shown', adjusted_fix: '' }),
-    fix: () => ({ fixed: [{ file: 'src/a.go', line: 1 }], report: '' }),
+    fix: () => ({ fixed: [{ id: 'F1', file: 'src/a.go', line: 1 }], report: '' }),
     confirm: confirmAll,
   },
   'review-only': {
@@ -744,11 +744,27 @@ test('review-and-fix: a fixer cannot mark a finding of another area fixed', asyn
   const { result } = await run('review-and-fix', rfHandlers({
     review: (p, o, n) => ({ findings: n <= 2 ? [f('src/a.go', 1), f('web/x.js', 2)] : [], summary: '' }),
     verify: () => ({ confirmed: true, reason: '', adjusted_fix: '' }),
-    fix: (p) => ({ fixed: p.includes('area src') ? [{ file: 'src/a.go', line: 1 }, { file: 'web/x.js', line: 2 }] : [], report: '' }),
-    confirm: () => ({ results: [{ file: 'src/a.go', line: 1, fixed: true, reason: '' }, { file: 'web/x.js', line: 2, fixed: true, reason: '' }] }),
+    fix: (p) => ({ fixed: p.includes('area src') ? [{ id: 'F1', file: 'src/a.go', line: 1 }, { id: 'F2', file: 'web/x.js', line: 2 }] : [], report: '' }),
+    confirm: () => ({ results: [{ id: 'F1', file: 'src/a.go', line: 1, fixed: true, reason: '' }, { id: 'F2', file: 'web/x.js', line: 2, fixed: true, reason: '' }] }),
   }), RF({ round_cap: 2 }))
   const web = result.confirmed.find((x) => x.file === 'web/x.js')
   assert.equal(web.state, 'open')
+})
+
+// Task 32: the fix of src/a.go:61 inserts lines above it, so the fixer and the fix check report
+// line 67. The ID closes the finding, so the run ends done, not findings_left.
+test('review-and-fix: a fix that moves the line of its finding closes it by ID', async () => {
+  const moved = (p) => listed(p).map((l) => ({ ...l, line: l.line + 6 }))
+  const { result, byWord } = await run('review-and-fix', rfHandlers({
+    review: (p, o, n) => ({ findings: n === 1 ? [f('src/a.go', 61)] : [], summary: '' }),
+    verify: () => ({ confirmed: true, reason: '', adjusted_fix: '' }),
+    fix: (p) => ({ fixed: moved(p), report: '' }),
+    confirm: (p) => ({ results: moved(p).map((l) => ({ ...l, fixed: true, reason: '' })) }),
+  }), RF())
+  assert.match(byWord('fix')[0].prompt, /^1\. \[F1\] src\/a\.go:61 /m)
+  assert.match(byWord('confirm')[0].prompt, /^1\. \[F1\] src\/a\.go:61: /m)
+  assert.equal(result.status, 'done')
+  assert.deepEqual(result.confirmed.map((x) => `${x.file}:${x.line} ${x.state} ${'id' in x}`), ['src/a.go:61 fixed false'])
 })
 
 test('review-and-fix: a fix stays on record when a new finding at its key is refuted', async () => {

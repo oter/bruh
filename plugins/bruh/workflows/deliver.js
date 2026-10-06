@@ -29,7 +29,8 @@ const answers = A.answers && typeof A.answers === 'object' ? A.answers : {}
 let head = base
 let tests = { ran: 0, passed: 0, failed: 0, skipped: 0 }
 const deviations = []
-const found = new Map() // key -> {file, line, summary, state, gate}
+const found = new Map() // key -> {id, file, line, summary, state, gate}
+let seq = 0 // the last finding ID: a finding gets F<n> when it first enters found and keeps it
 const refuted = new Set() // keys of refuted review findings; gate findings never go here
 
 const norm = (file) => String(file || '').replace(/^(\.\/)+/, '')
@@ -114,10 +115,11 @@ const QUESTION = {
   properties: { id: { type: 'string' }, header: { type: 'string' }, body: { type: 'string' } },
   required: ['id', 'header', 'body'],
 }
-const LOCATION = {
+// A fixed finding: its ID closes it; file and line are for display only (a fix can move the line).
+const FIXED = {
   type: 'object',
-  properties: { file: { type: 'string' }, line: { type: 'integer' } },
-  required: ['file', 'line'],
+  properties: { id: { type: 'string' }, file: { type: 'string' }, line: { type: 'integer' } },
+  required: ['id'],
 }
 const FINDINGS = {
   type: 'object',
@@ -187,7 +189,7 @@ const FIX = {
   type: 'object',
   properties: {
     head_sha: { type: 'string' },
-    fixed: { type: 'array', items: LOCATION },
+    fixed: { type: 'array', items: FIXED },
     deviations: { type: 'array', items: { type: 'string' } },
     question: QUESTION,
   },
@@ -395,7 +397,8 @@ for (let round = 1; ; round++) {
   let dead = 0
   candidates.forEach((f, i) => {
     const k = key(f)
-    const entry = { file: f.file, line: f.line, summary: f.summary, gate: f.gate }
+    const prior = found.get(k)
+    const entry = { id: prior ? prior.id : `F${++seq}`, file: f.file, line: f.line, summary: f.summary, gate: f.gate }
     if (!verdicts[i]) {
       dead++
       found.set(k, { ...entry, state: 'open' })
@@ -431,11 +434,11 @@ for (let round = 1; ; round++) {
     const fix = await askable(
       `fix ${name}`,
       `${first ? `${PHASE('fix')}\n` : ''}Step: fix these confirmed findings of the area ${name}:
-${batch.map((f) => `- ${f.file}:${f.line}: ${f.summary}`).join('\n')}
+${batch.map((f) => `- [${f.id}] ${f.file}:${f.line}: ${f.summary}`).join('\n')}
 
 1. Fix each finding at its root. Edit only the files that the task lists.
 2. Commit your work on the branch ${branch}.
-3. Return fixed with the file and the line of each finding that you fixed, deviations with each deviation and its reason, and head_sha from \`git rev-parse HEAD\`.`,
+3. Return fixed with the ID (the [F<n>] before the finding) of each finding that you fixed, and its file and line now, deviations with each deviation and its reason, and head_sha from \`git rev-parse HEAD\`.`,
       FIX,
     )
     if (fix.failed) return fail(fix.failed)
@@ -444,11 +447,10 @@ ${batch.map((f) => `- ${f.file}:${f.line}: ${f.summary}`).join('\n')}
     first = false
     deviations.push(...list(fix.value.deviations))
     if (fix.value.head_sha) head = fix.value.head_sha
-    // Only a fix that the fixer reports makes a finding fixed.
-    for (const loc of fix.value.fixed || []) {
-      for (const f of found.values()) {
-        if (f.state === 'open' && f.file === norm(loc.file) && f.line === loc.line) f.state = 'fixed'
-      }
+    // Only a fix that the fixer reports makes a finding fixed. The ID closes it, because the fix
+    // can move the line of the finding (task 32).
+    for (const x of fix.value.fixed || []) {
+      for (const f of batch) if (f.state === 'open' && f.id === x.id) f.state = 'fixed'
     }
   }
 }

@@ -222,10 +222,22 @@ func defaultDeny(t *testing.T, env Env) []any {
 // them literally, so a change of bigmDenyRules fails it.
 var bigmSix = []any{"Agent(claude-code-guide)", "Agent(general-purpose)", "Agent(Explore)", "Agent(Plan)", "WebFetch", "WebSearch"}
 
-// bigmDeny returns the deny rules of the bigm start settings: the default rules, then bigmSix.
+// mailRules are the deny rules of every role settings file on the mail folder of env (task 31),
+// written out literally from the absolute data folder, so a change of mailDeny fails the tests.
+func mailRules(t *testing.T, env Env) []any {
+	t.Helper()
+	data, err := filepath.Abs(env.DataDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return []any{"Read(/" + data + "/mail)", "Read(/" + data + "/mail/**)", "Bash(*" + data + "/mail*)"}
+}
+
+// bigmDeny returns the deny rules of the bigm start settings: the default rules, bigmSix, then
+// mailRules.
 func bigmDeny(t *testing.T, env Env) []any {
 	t.Helper()
-	return append(defaultDeny(t, env), bigmSix...)
+	return append(append(defaultDeny(t, env), bigmSix...), mailRules(t, env)...)
 }
 
 func TestInitMergesLedgerSettings(t *testing.T) {
@@ -248,8 +260,8 @@ func TestInitMergesLedgerSettings(t *testing.T) {
 	gotDeny, _ := perms["deny"].([]any)
 	// The existing rules keep their order; a default or bigm rule that is there already (deny[1],
 	// WebFetch) is not added again.
-	want := append(append([]any{"Bash(rm:*)", "WebFetch", deny[1], deny[0]}, deny[2:]...),
-		"Agent(claude-code-guide)", "Agent(general-purpose)", "Agent(Explore)", "Agent(Plan)", "WebSearch")
+	want := append(append(append([]any{"Bash(rm:*)", "WebFetch", deny[1], deny[0]}, deny[2:]...),
+		"Agent(claude-code-guide)", "Agent(general-purpose)", "Agent(Explore)", "Agent(Plan)", "WebSearch"), mailRules(t, env)...)
 	if s["agent"] != "bruh:bigm" || lenv["A"] != "1" || lenv["BRUH_ROLE_KEY"] != "bigm" || lenv["CLAUDE_CODE_WORKFLOW_MAX_CONCURRENT_AGENTS"] != "16" ||
 		!slices.Equal(allow, []any{"Read(x)"}) || !slices.Equal(gotDeny, want) {
 		t.Fatalf("init_apply over %s: ledger settings = %v, want agent bruh:bigm, env A 1 plus the defaults, allow [Read(x)], deny %v", old, s, want)

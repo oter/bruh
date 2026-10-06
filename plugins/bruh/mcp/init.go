@@ -670,7 +670,7 @@ func planInit(env Env, a InitAnswers, at time.Time) ([]plannedFile, learnPlan, e
 			return nil, learnPlan{}, err
 		}
 	}
-	role, err := roleSettings(root, "bigm", nil, bigmDenyRules, nil)
+	role, err := roleSettings(Env{PluginRoot: root, DataDir: data}, "bigm", nil, bigmDenyRules, nil)
 	if err != nil {
 		return nil, learnPlan{}, fmt.Errorf("bigm role settings: %w", err)
 	}

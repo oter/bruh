@@ -194,7 +194,7 @@ func rolesTools() []Tool {
 				if isScout(target) {
 					deny, allow = append(slices.Clone(a.Deny), scoutDeny...), scoutAllow(key)
 				}
-				out, err := roleSettings(c.Env.PluginRoot, key, a.Env, deny, allow)
+				out, err := roleSettings(c.Env, key, a.Env, deny, allow)
 				if err != nil {
 					return nil, err
 				}
@@ -223,10 +223,36 @@ func rolesTools() []Tool {
 
 const telegramPlugin = "telegram@claude-plugins-official"
 
-// roleSettings builds a role settings file: the plugin defaults, the extra env values and
-// deny rules, the allow rules when extraAllow is not empty, and BRUH_ROLE_KEY.
-func roleSettings(pluginRoot, key string, extraEnv map[string]string, extraDeny, extraAllow []string) ([]byte, error) {
-	data, err := os.ReadFile(filepath.Join(pluginRoot, "defaults", "role-settings.json"))
+// mailDeny returns the deny rules that keep each role out of the mail folder of dataDir, so a
+// role reads its mail only through mail_read (task 31). Per the permission docs, the Read rules
+// (with // for an absolute path) also cover Grep, Glob, and the Bash file commands that Claude
+// Code recognizes (cat, head, tail, sed, tee, < redirects); the Bash rule covers the other Bash
+// reads that name the folder, such as grep, less, find, and ls. A Read deny also blocks Edit and
+// Write there; no role writes mail with them (mail_post writes in the MCP server). The MCP server
+// and the hook scripts read the folder as their own processes, which the rules do not gate.
+// ponytail: a speed bump, not a sandbox: a relative or quoted path, a glob, or a script gets past
+// it; the upgrade is the OS sandbox of Claude Code.
+func mailDeny(dataDir string) ([]string, error) {
+	if dataDir == "" {
+		return nil, errors.New("BRUH_DATA is not set")
+	}
+	abs, err := filepath.Abs(dataDir)
+	if err != nil {
+		return nil, err
+	}
+	m := filepath.Join(abs, "mail")
+	return []string{"Read(/" + m + ")", "Read(/" + m + "/**)", "Bash(*" + m + "*)"}, nil
+}
+
+// roleSettings builds a role settings file: the plugin defaults, the extra deny rules, the mail
+// deny rules (mailDeny), the extra env values, the allow rules when extraAllow is not empty, and
+// BRUH_ROLE_KEY.
+func roleSettings(e Env, key string, extraEnv map[string]string, extraDeny, extraAllow []string) ([]byte, error) {
+	mail, err := mailDeny(e.DataDir)
+	if err != nil {
+		return nil, err
+	}
+	data, err := os.ReadFile(filepath.Join(e.PluginRoot, "defaults", "role-settings.json"))
 	if err != nil {
 		return nil, err
 	}
@@ -255,7 +281,7 @@ func roleSettings(pluginRoot, key string, extraEnv map[string]string, extraDeny,
 			}
 		}
 	}
-	for _, d := range extraDeny {
+	for _, d := range slices.Concat(extraDeny, mail) {
 		if !slices.Contains(deny, d) {
 			deny = append(deny, d)
 		}

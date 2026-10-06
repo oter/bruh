@@ -85,6 +85,36 @@ func TestRoleSettingsWriteParentOnly(t *testing.T) {
 
 // Final review B1: only bigm may load the Telegram plugin. Its server takes over the one
 // getUpdates poller of the bot token, so any other role session would steal the bot from bigm.
+// Task 31: every role reads its mail only through mail_read, so each role settings file denies
+// Read (which also covers Grep, Glob, and cat-style Bash reads) and Bash commands that name the
+// mail folder. The bigm start settings are in init_test.go (bigmDeny), the remote clanker file
+// of the CLI in cli_test.go.
+func TestRoleSettingsDenyMail(t *testing.T) {
+	env := testEnv(t, "bigm")
+	for _, tt := range []struct{ caller, key string }{
+		{"bigm", "clanker-a"}, {"clanker-a", "clerk-a-1"}, {"clanker-a", "clerk-a-scout"}, {"bigm", "clerk-ledger"},
+	} {
+		out, err := call(t, as(env, tt.caller), "role_settings_write", map[string]any{"role_key": tt.key})
+		if err != nil {
+			t.Fatalf("%s: %v", tt.key, err)
+		}
+		var s struct {
+			Permissions struct {
+				Deny []any `json:"deny"`
+			} `json:"permissions"`
+		}
+		readJSON(t, out.(map[string]any)["path"].(string), &s)
+		for _, rule := range mailRules(t, env) {
+			if !slices.Contains(s.Permissions.Deny, rule) {
+				t.Errorf("%s: deny = %v, want it to contain %q", tt.key, s.Permissions.Deny, rule)
+			}
+		}
+	}
+	env.DataDir = ""
+	_, err := call(t, env, "role_settings_write", map[string]any{"role_key": "clanker-a"})
+	mustErr(t, err, "BRUH_DATA is not set")
+}
+
 func TestRoleSettingsDisableTelegramExceptBigm(t *testing.T) {
 	env := testEnv(t, "bigm")
 	telegram := func(path string) (bool, bool) {

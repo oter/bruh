@@ -256,7 +256,7 @@ All traffic between you and a remote clanker goes through Orca, because the mail
 
 The supervisor stops an idle background session after about an hour. A clerk that finds its clanker not running does not page the owner: it leaves its mail in the mailbox and writes the event `clanker-<project> not running; mail pending`. At the start of each turn and at each sweep:
 
-1. For each clanker and for `clerk-ledger` that `session_list` shows with no `pid`, and with `state` not `failed` and not `stopped`, check for work: unread mail (a `.json` file directly in `<data_dir>/mail/<role key>/`, not in its `read/` folder), or a report line `<role key> not running; mail pending` of one of its clerks after its last resume.
+1. For each clanker and for `clerk-ledger` that `session_list` shows with no `pid`, and with `state` not `failed` and not `stopped`, check for work: unread mail (`unread_mail` above 0 in its `session_list` row; do not read the mail folder), or a report line `<role key> not running; mail pending` of one of its clerks after its last resume.
 2. If it has work, call `session_resume` with its role key and the prompt `Read your mailbox with mail_read.` Record the resume in "Sessions" of the project file.
 3. A session in state `failed` or `stopped` follows "Failure handling", not this section.
 4. This is routine. Do not show it to the owner, and do not raise a P0 for it.

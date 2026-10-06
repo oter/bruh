@@ -191,6 +191,22 @@ func TestSessionList(t *testing.T) {
 	if len(list) != 2 || list[1].(map[string]any)["role_key"] != "clanker-a" {
 		t.Fatalf("list = %v", list)
 	}
+	// unread_mail counts the .json files directly in the mailbox, not the read/ ones (task 31).
+	if list[0].(map[string]any)["unread_mail"] != 0.0 || list[1].(map[string]any)["unread_mail"] != 0.0 {
+		t.Fatalf("no mail: list = %v", list)
+	}
+	box := filepath.Join(env.DataDir, "mail", "clanker-a")
+	for _, f := range []string{"1.json", "2.json", "x.tmp", "read/3.json"} {
+		writeTestFile(t, filepath.Join(box, f), "{}")
+	}
+	out, err = call(t, env, "session_list", map[string]any{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	list = out.([]any)
+	if list[0].(map[string]any)["unread_mail"] != 0.0 || list[1].(map[string]any)["unread_mail"] != 2.0 {
+		t.Fatalf("unread_mail: list = %v", list)
+	}
 }
 
 // Task 19 (2026-10-05): no merger clerk, so bigm is not the parent of any clerk key and cannot start
