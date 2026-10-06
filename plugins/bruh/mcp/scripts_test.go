@@ -517,6 +517,45 @@ func TestRefusalStopBlock(t *testing.T) {
 	}
 }
 
+// TestRefusalHoldScoutTellsParent: a held scout cannot call question_open (scoutDeny), so the hold
+// tells it to send DONE: scout <subject> refused to its clanker with mail_post and lets it stop
+// (task 22, scout hold deadlock). A task clerk keeps the Stop block.
+func TestRefusalHoldScoutTellsParent(t *testing.T) {
+	data := t.TempDir()
+	const scoutKey = "BRUH_ROLE_KEY=clerk-a-scout3"
+	refusal(t, data, map[string]any{
+		"hook_event_name": "PermissionDenied", "session_id": "S", "tool_name": "Bash",
+		"tool_input": map[string]string{"command": "gh api repos/o/r"}, "reason": "[Scope Escalation]",
+	}, scoutKey)
+	holds := holdFiles(t, data)
+	if len(holds) != 1 || holds[0]["role_key"] != "clerk-a-scout3" {
+		t.Fatalf("holds = %v", holds)
+	}
+	id := holds[0]["id"].(string)
+	reportWrite := preTool("S", "mcp__plugin_bruh_bruh__report_write", "", "")
+	for _, in := range []map[string]any{preTool("S", "Bash", "ls", ""), reportWrite} {
+		if r := denyReason(t, refusal(t, data, in, scoutKey)); !strings.Contains(r, id) || !strings.Contains(r, "mail_post") || !strings.Contains(r, "DONE: scout") {
+			t.Fatalf("%s reason = %q", in["tool_name"], r)
+		}
+	}
+	if out := refusal(t, data, preTool("S", "mcp__plugin_bruh_bruh__mail_post", "", ""), scoutKey); out != "" {
+		t.Fatalf("mail_post of the held scout denied: %q", out)
+	}
+	env := testEnv(t, "clerk-a-scout3")
+	env.DataDir = data
+	if _, err := call(t, env, "mail_post", map[string]any{"to": "clanker-a", "header": "DONE: scout x refused", "body": "gh api repos/o/r: [Scope Escalation]"}); err != nil {
+		t.Fatal(err)
+	}
+	stop := map[string]any{"hook_event_name": "Stop", "session_id": "S", "stop_hook_active": false}
+	if out := refusal(t, data, stop, scoutKey); out != "" {
+		t.Fatalf("Stop of the held scout blocked: %q", out)
+	}
+	// The same hold under a task clerk key still blocks the Stop.
+	if out := refusal(t, data, stop, refusalKey); out == "" {
+		t.Fatal("Stop of a held task clerk not blocked")
+	}
+}
+
 // TestStopHooksTogether runs both Stop groups of hooks.json on one data folder: the hold Stop
 // block of refusal-stop.sh and the waiter wake.sh (spec 9.5, M1). Each does its own job with
 // and without a hold.

@@ -99,7 +99,7 @@ A scout is a short-lived, read-only clerk (owner rule R-1, spec 3.6.1). You are 
 4. Call `session_launch` with `agent` = `clerk`, `role_key` = the scout key, and `cwd` = the main checkout of the repository that the question is about. For facts of the code host only, use the main checkout of the main repository of the project.
 5. Wait for `DONE: scout <subject>`. Read its claims with `report_read` and the scout key. Check each status claim at its source before you accept it (rule 1).
 6. For an info request of bigm, reply with `DONE: info <subject>`, with the subject of the request, as "How to send a message" says: `mail_post` and the nudge on this machine, `orca orchestration send` on a remote machine. The body has each claim as one item: the claim, and the `call`, the `value`, and the `at` of its source. Do not send only a pointer to the report file: bigm cannot read the report file of a remote machine.
-7. A scout does not count against the cap, and it stops after its `DONE`. A follow-up question gets a new scout. A refusal of a scout (`DONE: scout <subject> refused`, or a prompt) goes to bigm as a P0 (rule 3).
+7. A scout does not count against the cap, and it stops after its `DONE`. A follow-up question gets a new scout. A refusal of a scout (`DONE: scout <subject> refused`, or a prompt) goes to bigm as a P0 (rule 3): open it with `question_open` with the command and the refusal from the body of that mail, with no `hold` field, because the hold belongs to the scout.
 
 ## Questions
 
@@ -111,7 +111,7 @@ A clerk sends you a question with a header such as `P1 Q-shop-dev-mac-7: <subjec
 4. P2: answer it from the project context (the code, the docs, the ADRs, the ledger).
 5. P1 of a class in the section "Delegated P1 classes": answer it. An item of "Never without the owner" is never a delegated class.
 6. Each other P1, and each P0: send it to bigm with the final P-level, the same question ID, and a body with the question, the age (the asked time from `<data_dir>/questions/<id>.json`), and the work that it blocks. Copy the `OPTION` lines of the question into the body word for word. Never answer a P1 outside the delegated classes. You can send your recommendation after it as a separate `REC Q-<id>: <subject>` message. A `REC` that recommends an option has the subject `OPTION <k>`, for example `REC Q-shop-dev-mac-7: OPTION 2`.
-7. Send each answer to the clerk that asked, with the header `ANSWER Q-<id>: <subject>`, and write a copy with `report_write` (kind `answer`). An answer of the owner that bigm relays keeps the words of the owner, the date, and the question ID. Do not change them.
+7. Record every delegated or relayed answer with `answer_write` (`question_id`, `text`, `asker` = the role key of the clerk) before you send it: your answer of a P2 or a delegated P1, and each `ANSWER` of bigm that you pass on. The answer file closes the question for bigm and for the board. Then send it to the clerk that asked, with the header `ANSWER Q-<id>: <subject>`, and write a copy with `report_write` (kind `answer`). An answer of the owner that bigm relays keeps the words of the owner, the date, and the question ID. Do not change them.
 
 For a question of your own, call `question_open` with `priority`, `subject`, `body`, and `blocks`. When the question has 2 to 4 fixed answers, pass them as `options`. Send the returned `header`, and send the returned `body` as the body.
 
@@ -119,7 +119,7 @@ For a question of your own, call `question_open` with `priority`, `subject`, `bo
 
 bigm sends `ANSWER Q-<id>: reask` when it already answered this question ID with another subject. The subject `reask` is never an answer, and never an approval of a merge or a post. It means "open the question again with a new ID".
 
-1. For your own question: call `question_open` again with the same P-level, subject, body, and options. Send the new header to bigm.
+1. For your own question: call `question_open` again with the same P-level, subject, body, and options, and with `replaces` = the old ID, so that the answer of the new question also closes the old one. Send the new header to bigm.
 2. For a question of a clerk: send the `ANSWER Q-<id>: reask` to that clerk. The clerk opens the question again.
 
 A `DONE: reask Q-<n> - <subject>` from bigm is a `reask` of the question `Q-<n>` (an ID of version 0.5, from the upgrade to version 0.6). Do the same steps.

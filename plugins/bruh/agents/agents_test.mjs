@@ -56,7 +56,7 @@ const REQUIRED = {
     'answer_write', 'answer_wait', 'AskUserQuestion', 'OPTION <n>: <label> | <description>', '(Recommended)',
     'ANSWER Q-<id>: reask', '(attempt <n>)',
     'DONE: info request <subject>', 'DONE: info <subject>', 'R-1',
-    'DONE: report <role key>', 'R-7',
+    'DONE: report <role key>', 'R-7', 'question_list',
   ],
   clanker: [
     'session_launch', 'session_resume', 'session_list', 'mail_post', 'mail_read', 'role_settings_write',
@@ -451,6 +451,33 @@ test('priorities.md has the post grant wording of spec 13', () => {
   const item = spec.match(/^- An irreversible or outward-facing action: (.*?)\. A post grant/m)[1]
   const priorities = read(join(plugin, 'defaults/priorities.md'))
   assert.ok(priorities.includes(`- An irreversible or outward-facing action: ${item}.`), 'priorities.md differs from spec 13')
+})
+
+// Task 24: an answer file in any role folder closes a question, so each delegated or relayed
+// answer gets answer_write, a reask names the question it replaces, and bigm counts open
+// questions with question_list.
+test('every answer closes its question, and a reask passes replaces', () => {
+  assert.ok(section(agents.bigm, '## Start of each turn').includes('Call `question_list` and show each open P0'))
+  assert.ok(section(agents.bigm, '## Questions').includes('Count and list the open P0 and P1 questions only with `question_list`.'))
+  assert.ok(section(agents.clanker, '## Questions').includes('Record every delegated or relayed answer with `answer_write`'))
+  assert.ok(agents.clanker.split('\n### Reask\n')[1].split('\n## ')[0].includes('`replaces` = the old ID'))
+  assert.ok(agents.clerk.split('\n### Reask\n')[1].split('\n## ')[0].includes('`replaces` = the old ID'))
+})
+
+// Task 27 (owner, 2026-10-06): bigm only relays; a skill, research, or project work goes to a clanker.
+test('bigm sends an ask that needs a skill to a clanker', () => {
+  const rules = section(agents.bigm, '## Rules that always apply')
+  assert.ok(rules.includes('Any ask of the owner that needs a skill, research, or project work goes to a clanker'))
+  assert.ok(rules.includes('it blocks each skill except `bruh:*`'))
+})
+
+// Task 22 addition: a held scout has no question_open, so it tells its clanker and stops.
+test('a held scout tells its clanker and stops', () => {
+  const scout = agents.clerk.split('\n## The scout clerk\n')[1].split('\n## ')[0]
+  assert.ok(scout.includes('send `DONE: scout <subject> refused` with `mail_post` to your clanker'))
+  assert.ok(scout.includes('The `Stop` hook does not block a scout.'))
+  const guard = read(join(plugin, 'scripts/refusal-stop.sh'))
+  assert.match(guard, /A scout cannot open a question: send DONE: scout <subject> refused with mail_post to your clanker/)
 })
 
 // Owner rule R-1 (2026-10-03): bigm gathers no project info by hand. Owner words of 2026-10-04:

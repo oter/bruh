@@ -17,11 +17,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - bigm gets a notice in its mailbox when a role writes a status or result report line, with a maximum of one unread notice for each role. bigm gives the owner a short update every 5 minutes while work runs.
 - The waiter does not wake an idle session at its timeout any more. It waits up to 7 days for new mail and exits in silence at its limit, so only new mail wakes the session (hook timeout 604800 seconds).
 - After a workflow run stops with `CONFLICT:`, the clerk starts a new run without `resumeFromRunId`, because a resume replays the cached stop. When the hold guard denies its next call with a hold ID, it opens a P0 with the `hold` field of `question_open`, not a P2 conflict question.
+- bigm runs only bruh skills: init adds a `PreToolUse` hook for the `Skill` tool to `<ledger>/.claude/settings.json` that blocks each other skill, and bigm sends each ask of the owner that needs a skill, research, or project work to a clanker. Run `/bruh:init` again to get the hook.
 
 ### Removed
 
 - The house rule "In a worktree, no compound commands with git. Data goes through tool inputs." (item 10 of `defaults/house-rules.md`). Item 10 keeps the lane text for file reads, writes, and searches.
 - The lease guard hook, the post script of review results, and the shell wrapper of the poller. The plugin monitor `bruh-poller` runs the Go `watch` command, which polls only in bigm. A clerk posts a review result with `gh pr review` or `glab mr note create` after the yes of the owner or under a post grant.
+
+### Fixed
+
+- The board and bigm count a question as open only while no role folder has its answer. A clanker records each delegated or relayed answer with `answer_write`, and a replaced duplicate closes with the answer of its replacement (new `replaces` input of `question_open`; a repeat of the same refusal links its older P0 itself). bigm counts the open questions with the new tool `question_list`. Run `/bruh:init` again so that the user settings allow it.
+- A held scout clerk no longer deadlocks: it has no `question_open`, so the hold guard tells it to send `DONE: scout <subject> refused` to its clanker with `mail_post`, and the `Stop` hook lets it stop.
 
 ## [0.11.1] - 2026-10-05
 
