@@ -83,8 +83,6 @@ func TestRoleSettingsWriteParentOnly(t *testing.T) {
 	}
 }
 
-// Final review B1: only bigm may load the Telegram plugin. Its server takes over the one
-// getUpdates poller of the bot token, so any other role session would steal the bot from bigm.
 // Task 31: every role reads its mail only through mail_read, so each role settings file denies
 // Read (which also covers Grep, Glob, and cat-style Bash reads) and Bash commands that name the
 // mail folder. The bigm start settings are in init_test.go (bigmDeny), the remote clanker file
@@ -115,6 +113,8 @@ func TestRoleSettingsDenyMail(t *testing.T) {
 	mustErr(t, err, "BRUH_DATA is not set")
 }
 
+// Final review B1: only bigm may load the Telegram plugin. Its server takes over the one
+// getUpdates poller of the bot token, so any other role session would steal the bot from bigm.
 func TestRoleSettingsDisableTelegramExceptBigm(t *testing.T) {
 	env := testEnv(t, "bigm")
 	telegram := func(path string) (bool, bool) {
