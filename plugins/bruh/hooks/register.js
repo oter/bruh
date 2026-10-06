@@ -127,12 +127,19 @@ async function toggle($, key) {
 async function openQuestions($, data) {
   let names = []
   try { names = (await $.fs.list(`${data}/questions`)).map(entry => entry.name) } catch {}
+  // A question is answered when any role folder has its answer file: bigm, the asker, or the
+  // clanker of a delegated answer. answer_write also writes it for each question that it replaces.
+  let roles = []
+  try { roles = (await $.fs.list(`${data}/answers`)).map(entry => entry.name) } catch {}
+  const answered = async id => {
+    for (const role of roles) if (await exists($, `${data}/answers/${role}/${id}.answer`)) return true
+    return false
+  }
   const open = []
   for (const name of names.filter(one => /^Q-.*\.json$/.test(one) && !skipped.has(one))) {
     const q = await readJson($, `${data}/questions/${name}`)
     if (!q) continue
-    const isAnswered = (await exists($, `${data}/answers/bigm/${q.id}.answer`))
-      || (await exists($, `${data}/answers/${q.asker}/${q.id}.answer`))
+    const isAnswered = await answered(q.id)
     if (isAnswered || (q.priority !== 'P0' && q.priority !== 'P1')) { skipped.add(name); continue }
     open.push(q)
   }

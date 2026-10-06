@@ -277,6 +277,9 @@ func TestInitEmptyLedgerSettings(t *testing.T) {
 	if s["agent"] != "bruh:bigm" || lenv["BRUH_ROLE_KEY"] != "bigm" || !slices.Equal(deny, bigmDeny(t, env)) {
 		t.Fatalf("init_apply over an empty file: ledger settings = %v, want agent bruh:bigm, BRUH_ROLE_KEY bigm, deny %v", s, bigmDeny(t, env))
 	}
+	if g := skillGroups(t, ledger); len(g) != 1 {
+		t.Fatalf("init_apply over an empty file: Skill hook groups = %v, want one", g)
+	}
 }
 
 func TestInitRefusesBadLedgerSettings(t *testing.T) {
@@ -291,6 +294,8 @@ func TestInitRefusesBadLedgerSettings(t *testing.T) {
 		{name: "env is not an object", text: `{"env":"x"}`},
 		{name: "permissions is not an object", text: `{"permissions":[]}`},
 		{name: "deny is not an array", text: `{"permissions":{"deny":{}}}`},
+		{name: "hooks is not an object", text: `{"hooks":[]}`},
+		{name: "PreToolUse is not an array", text: `{"hooks":{"PreToolUse":{}}}`},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			if err := os.WriteFile(file, []byte(c.text), 0o644); err != nil {
@@ -304,6 +309,78 @@ func TestInitRefusesBadLedgerSettings(t *testing.T) {
 				t.Errorf("init_plan with the ledger settings %s: file = %s, want it unchanged", c.text, b)
 			}
 		})
+	}
+}
+
+// skillGroups returns the PreToolUse hook groups of the ledger settings with the matcher Skill.
+func skillGroups(t *testing.T, ledger string) []map[string]any {
+	t.Helper()
+	hooks, _ := ledgerSettings(t, ledger)["hooks"].(map[string]any)
+	pre, _ := hooks["PreToolUse"].([]any)
+	var out []map[string]any
+	for _, g := range pre {
+		if g := g.(map[string]any); g["matcher"] == "Skill" {
+			out = append(out, g)
+		}
+	}
+	return out
+}
+
+// Task 27: the bigm start settings block each skill except bruh:* with a PreToolUse hook, and an
+// existing file keeps its own hooks.
+func TestInitBigmSkillHook(t *testing.T) {
+	if _, err := exec.LookPath("jq"); err != nil {
+		t.Fatal("jq is not on PATH: the Skill hook of bigm needs it")
+	}
+	env, ledger := initEnv(t)
+	file := filepath.Join(ledger, ".claude", "settings.json")
+	if err := os.MkdirAll(filepath.Dir(file), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	own := `{"hooks":{"Stop":[{"hooks":[{"type":"command","command":"true"}]}],"PreToolUse":[{"matcher":"Bash","hooks":[{"type":"command","command":"true"}]}]}}`
+	if err := os.WriteFile(file, []byte(own), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	apply(t, env, plan(t, env, answers(ledger, nil)))
+	hooks := ledgerSettings(t, ledger)["hooks"].(map[string]any)
+	if pre := hooks["PreToolUse"].([]any); len(pre) != 2 || pre[0].(map[string]any)["matcher"] != "Bash" || hooks["Stop"] == nil {
+		t.Fatalf("hooks = %v, want the own Stop and Bash groups kept and one more group", hooks)
+	}
+	groups := skillGroups(t, ledger)
+	if len(groups) != 1 {
+		t.Fatalf("Skill hook groups = %v, want one", groups)
+	}
+	h := groups[0]["hooks"].([]any)[0].(map[string]any)
+	if h["type"] != "command" || h["command"] != bigmSkillHook {
+		t.Fatalf("Skill hook = %v, want the command %q", h, bigmSkillHook)
+	}
+	if d := plan(t, env, answers(ledger, nil))["diff"]; d != "" {
+		t.Fatalf("second init_plan: diff = %q, want empty", d)
+	}
+	// The written command blocks a skill of another plugin (exit 2) and lets a bruh skill pass.
+	for _, c := range []struct {
+		input string
+		code  int
+	}{
+		{`{"tool_name":"Skill","tool_input":{"skill":"mattpocock-skills:grilling"}}`, 2},
+		{`{"tool_name":"Skill","tool_input":{"skill":"bro"}}`, 2},
+		{`{"tool_name":"Skill","tool_input":{}}`, 2},
+		{`{"tool_name":"Skill","tool_input":{"skill":"bruh:implement"}}`, 0},
+	} {
+		cmd := exec.Command("sh", "-c", h["command"].(string))
+		cmd.Stdin = strings.NewReader(c.input)
+		out, err := cmd.CombinedOutput()
+		code := 0
+		if err != nil {
+			ee, ok := err.(*exec.ExitError)
+			if !ok {
+				t.Fatal(err)
+			}
+			code = ee.ExitCode()
+		}
+		if code != c.code || (code == 2) != strings.Contains(string(out), "send the ask to a clanker") {
+			t.Errorf("Skill hook with %s: exit %d, output %q, want exit %d", c.input, code, out, c.code)
+		}
 	}
 }
 

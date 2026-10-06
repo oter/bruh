@@ -47,9 +47,12 @@ function world(stored: Record<string, unknown> = {}) {
     on('fs.exists', ($, e) => ({ value: e.path in files }))
     on('fs.list', ($, e) => {
       const prefix = `${e.path}/`
-      const names = Object.keys(files).filter(f => f.startsWith(prefix)).map(f => f.slice(prefix.length)).filter(n => !n.includes('/'))
-      return names.length
-        ? { value: names.map(name => ({ name, kind: 'file' as const, size: 1, mtimeMs: 0, isLink: false })) }
+      const kinds = new Map<string, 'file' | 'dir'>() // each child once: a file, or a folder of files
+      for (const rest of Object.keys(files).filter(f => f.startsWith(prefix)).map(f => f.slice(prefix.length))) {
+        kinds.set(rest.split('/')[0], rest.includes('/') ? 'dir' : 'file')
+      }
+      return kinds.size
+        ? { value: [...kinds].map(([name, kind]) => ({ name, kind, size: 1, mtimeMs: 0, isLink: false })) }
         : { deny: `ENOENT ${e.path}` }
     })
     on('process.run', ($, e) => {
@@ -299,6 +302,27 @@ test('two open questions with one subject show their numbers', async ($, on) => 
   const v = await view(ui)
   expect(v.texts).toContain('P1 (98) merge oter/bruh#29?')
   expect(v.texts).toContain('P1 (94) merge oter/bruh#29?')
+})
+
+test('a delegated answer and a replaced duplicate do not show as open (task 24)', async ($, on) => {
+  const w = world()
+  // A P1 of a clerk that its clanker answered (delegated): the answer file is in answers/clanker-shop/.
+  w.files[`${D}/questions/Q-shop-m-90.json`] = line({ id: 'Q-shop-m-90', priority: 'P1', subject: 'delegated', asker: 'clerk-shop-x', opened_at: '2026-10-05T14:00:00Z' })
+  w.files[`${D}/answers/clanker-shop/Q-shop-m-90.answer`] = 'ok'
+  // A P0 that Q-shop-m-92 replaces: answer_write of Q-shop-m-92 wrote both answer files of bigm.
+  w.files[`${D}/questions/Q-shop-m-91.json`] = line({ id: 'Q-shop-m-91', priority: 'P0', subject: 'replaced duplicate', asker: 'clerk-shop-x', opened_at: '2026-10-05T14:01:00Z' })
+  w.files[`${D}/questions/Q-shop-m-92.json`] = line({ id: 'Q-shop-m-92', priority: 'P0', subject: 'its replacement', asker: 'clerk-shop-x', opened_at: '2026-10-05T14:02:00Z', replaces: 'Q-shop-m-91' })
+  w.files[`${D}/answers/bigm/Q-shop-m-91.answer`] = 'ok'
+  w.files[`${D}/answers/bigm/Q-shop-m-92.answer`] = 'ok'
+  w.files[`${D}/questions/Q-shop-m-89.json`] = line({ id: 'Q-shop-m-89', priority: 'P1', subject: 'not answered', asker: 'clerk-shop-x', opened_at: '2026-10-05T14:03:00Z' })
+  w.stub(on)
+  await $.command.run({ command: 'bruh-board' })
+  const ui = await mount($)
+  const text = await all(ui)
+  expect(text).toContain('P1 not answered')
+  expect(text).not.toContain('delegated')
+  expect(text).not.toContain('replaced duplicate')
+  expect(text).not.toContain('its replacement')
 })
 
 const OPTIONS = [{ label: 'merge now', description: 'squash' }, { label: 'wait', description: 'after the review' }]

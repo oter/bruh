@@ -393,12 +393,30 @@ func planSettings(old []byte, a InitAnswers, tap string) ([]byte, error) {
 // rule R-1, bigm gets each fact through a clanker or a scout.
 var bigmDenyRules = []string{"Agent(claude-code-guide)", "Agent(general-purpose)", "Agent(Explore)", "Agent(Plan)", "WebFetch", "WebSearch"}
 
+// bigmSkillHook is the PreToolUse command of the bigm start settings that blocks each skill except
+// bruh:* (task 27): bigm sends an ask that needs a skill to a clanker. No permission rule can do it,
+// because a deny rule wins over each allow rule and a Skill rule has no negation. Exit 2 blocks the
+// call; without jq or without a skill field, the hook blocks too.
+const bigmSkillHook = `jq -e '.tool_input.skill | startswith("bruh:")' >/dev/null || { echo 'bigm runs no skill: send the ask to a clanker' >&2; exit 2; }`
+
+// bigmSkillGroup returns the PreToolUse hook group of bigmSkillHook.
+func bigmSkillGroup() *object {
+	h := newObject()
+	h.set("type", "command")
+	h.set("command", bigmSkillHook)
+	g := newObject()
+	g.set("matcher", "Skill")
+	g.set("hooks", []any{h})
+	return g
+}
+
 // planLedgerSettings returns the start settings of bigm in the ledger folder. It starts from the
 // existing file (an empty file is {}), or from the bigm role settings when there is no file. It sets
 // agent to bruh:bigm and each env key of the role settings, so it replaces the old values of these
-// keys. It adds each deny rule of the role settings that the file does not have yet, and keeps every
-// other key. A file whose env, permissions, or permissions.deny has another JSON type is an error,
-// so init does not drop such a value.
+// keys. It adds each deny rule of the role settings that the file does not have yet, and the Skill
+// hook group (bigmSkillGroup) to hooks.PreToolUse when the file does not have it yet, and keeps every
+// other key. A file whose env, permissions, permissions.deny, hooks, or hooks.PreToolUse has another
+// JSON type is an error, so init does not drop such a value.
 func planLedgerSettings(exists bool, old, role []byte) ([]byte, error) {
 	r, err := parseOrdered(role)
 	if err != nil {
@@ -421,7 +439,7 @@ func planLedgerSettings(exists bool, old, role []byte) ([]byte, error) {
 		}
 		top = o
 	}
-	for _, k := range []string{"env", "permissions"} {
+	for _, k := range []string{"env", "permissions", "hooks"} {
 		if v, ok := top.vals[k]; ok {
 			if _, ok := v.(*object); !ok {
 				return nil, fmt.Errorf("ledger settings file: %s is not a JSON object", k)
@@ -445,6 +463,17 @@ func planLedgerSettings(exists bool, old, role []byte) ([]byte, error) {
 		}
 	}
 	perms.set("deny", deny)
+	hooks := top.child("hooks")
+	pre, ok := hooks.vals["PreToolUse"].([]any)
+	if _, has := hooks.vals["PreToolUse"]; has && !ok {
+		return nil, errors.New("ledger settings file: hooks.PreToolUse is not a JSON array")
+	}
+	group := bigmSkillGroup()
+	want := encodeOrdered(group, "")
+	if !slices.ContainsFunc(pre, func(v any) bool { return bytes.Equal(encodeOrdered(v, ""), want) }) {
+		pre = append(pre, group)
+	}
+	hooks.set("PreToolUse", pre)
 	return encodeOrdered(top, indentOf(src)), nil
 }
 
