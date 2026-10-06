@@ -67,7 +67,6 @@ func TestRoleSettingsWriteParentOnly(t *testing.T) {
 		{"bigm", "clerk-ledger", true},
 		{"bigm", "bigm", true},
 		{"bigm", "clerk-a-1", false},
-		{"bigm", "clerk-a-merge", true},
 		{"clanker-a", "clerk-a-1", true},
 		{"clanker-a", "clerk-ab-1", false},
 		{"clanker-a", "clerk-a-b-1", false},
@@ -218,7 +217,7 @@ func TestRoleSettingsWriteAllow(t *testing.T) {
 		{name: "one-level glob", rule: oneLevel, wantErr: ruleErr(oneLevel)},
 		{name: "relative path", rule: relative, wantErr: ruleErr(relative)},
 		{name: "clanker writes for its clerk", caller: clanker, target: "clerk-" + project + "-1", rule: readRule(alpha), wantErr: roleErr},
-		{name: "bigm writes for a clerk", target: "clerk-" + project + "-merge", rule: readRule(alpha), wantErr: roleErr},
+		{name: "bigm writes for the ledger clerk", target: "clerk-ledger", rule: readRule(alpha), wantErr: roleErr},
 		{name: "clanker writes for its scout", caller: clanker, target: "clerk-" + project + "-scout1", rule: readRule(alpha), wantErr: roleErr},
 		{name: "no index file", rule: readRule(alpha), noIndex: true},
 		{name: "no init config", rule: readRule(alpha), noConfig: true, wantErr: "no ledger path in <data>/init/config.json; run /bruh:init"},
@@ -331,7 +330,7 @@ func TestRoleSettingsWriteScout(t *testing.T) {
 func TestIsScout(t *testing.T) {
 	for key, want := range map[string]bool{
 		"clerk-a-scout1": true, "clerk-a-scout": true, "clerk-my-app-scout12": true,
-		"clerk-a-scoutx": false, "clerk-a-1scout": false, "clerk-a-merge": false, "clanker-scout1": false, "clerk-ledger": false,
+		"clerk-a-scoutx": false, "clerk-a-1scout": false, "clerk-a-t1": false, "clanker-scout1": false, "clerk-ledger": false,
 	} {
 		k, err := ParseRoleKey(key)
 		if err != nil {

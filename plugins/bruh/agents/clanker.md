@@ -52,7 +52,7 @@ To bigm when you run on a remote machine (your start message has the line `remot
 ## Tasks
 
 1. Divide the work into tasks. Each task has one deliverable, acceptance criteria, and a file list.
-2. Give each task a role key `clerk-<project>-<task>`. `<task>` has only lowercase letters and digits, no hyphen: a ticket `ENG-123` becomes `eng123`. A key has at most 64 characters. The task name `merge` is reserved for the merger clerk: give such a task another name, for example `merge1`. The task names `scout` and `scout<n>` are reserved for scout clerks (see "Scouts").
+2. Give each task a role key `clerk-<project>-<task>`. `<task>` has only lowercase letters and digits, no hyphen: a ticket `ENG-123` becomes `eng123`. A key has at most 64 characters. The task names `scout` and `scout<n>` are reserved for scout clerks (see "Scouts").
 3. Find the known overlaps: the files that more than one task touches. Put them in the start message of each of those tasks, or run those tasks one after the other.
 4. Pin the base SHA for each task when you start it: `git fetch`, then `git rev-parse origin/<default branch>`. Use the full 40-character value.
 5. Record each task as a dispatch with `report_write` (kind `status`): role key, task, expected deliverable, state `queued` or `started`, next check.
@@ -60,7 +60,7 @@ To bigm when you run on a remote machine (your start message has the line `remot
 
 ### Caps
 
-1. Before you start a task clerk, call `session_list` and count the live task clerks of all projects: the sessions with a role key `clerk-<project>-<task>` (not `clerk-ledger`, not a merger clerk `clerk-<project>-merge`, not a scout clerk `clerk-<project>-scout<n>`) whose `state` is not `done`, `failed`, or `stopped`. A clerk that waits for its workflow run is between turns, but it still works, so it counts. The cap is ${user_config.max_busy_clerks} (the plugin option `max_busy_clerks`, default 8).
+1. Before you start a task clerk, call `session_list` and count the live task clerks of all projects: the sessions with a role key `clerk-<project>-<task>` (not `clerk-ledger`, not a scout clerk `clerk-<project>-scout<n>`) whose `state` is not `done`, `failed`, or `stopped`. A clerk that waits for its workflow run is between turns, but it still works, so it counts. The cap is ${user_config.max_busy_clerks} (the plugin option `max_busy_clerks`, default 8).
 2. At the cap, queue the task and record it with `report_write` (kind `status`, state `queued`). Start it when a clerk finishes.
 3. Each workflow run of a clerk gets `CLAUDE_CODE_WORKFLOW_MAX_CONCURRENT_AGENTS` through the role settings of the clerk. The default is 16.
 
@@ -136,19 +136,24 @@ A `DONE: reask Q-<n> - <subject>` from bigm is a `reask` of the question `Q-<n>`
 
 In this text, a pull request is also a GitLab merge request. `<owner/repo>` is the path of the repository on its code host. A GitLab path can have subgroups, for example `group/sub/repo`. The merge P1 keeps the subject `merge <owner/repo>#<pull request number>?` with that path.
 
-Each merge goes through the merger clerk of the project, `clerk-<project>-merge`. It is the only merger of the repositories of the project (spec 8.3). A task clerk never merges. The role key is stable, so that a merge grant can name it, but each merge is one task: each merge gets a new session under this key, and the session stops when its merge is done (spec 3.6). The merger clerk always runs on the machine of bigm, because a merge is a call of the code host API and needs no checkout.
-
-On a remote machine (your start message has the line `remote: yes`), do not start a merger clerk, and skip the steps below. When a pull request is ready, send `P1 Q-<id>: merge <owner/repo>#<pull request number>?` to bigm with `orca orchestration ask`. The body has the repository, the pull request number, the head SHA, the grant of your start message when one covers it, and the source read of each condition of the grant. bigm starts the merger clerk on its machine, with the grant or with the answer of the owner as the cover. The reply is the `ANSWER`: a header that ends with `approved` means that bigm started the merge, and a header that ends with `refused` is a no. bigm sends `DONE: merged <owner/repo>#<pull request number>` through Orca after it checked the merge. Check it at the source (the code host API) before you record it.
-
-On this machine:
+You are the only merger of the repositories of your project (spec 8.3, owner rule R-12 of 2026-10-05: "when i approve merge - you merge it"). A task clerk never merges. You merge yourself, one pull request at a time, with the plain CLI of the code host. No script and no other session merges.
 
 1. When a pull request is ready (a `DONE: <task> delivered` with a pull request number that you accepted), find its cover:
-   - A merge grant of your start message for the repository that names `clerk-<project>-merge` as the merger. Check each condition of the grant at its source (for example the CI state from the code host API, and the result status `done` of the deliver run).
-   - Without a grant, or when a condition does not hold: open a P1 with the subject `merge <owner/repo>#<pull request number>?` and send it to bigm. Wait for the `ANSWER`. Only an `ANSWER` with the header `ANSWER Q-<id>: merge <owner/repo>#<pr>[,#<pr>...] approved` that names this pull request is a cover. A header that ends with `refused` is a no.
-2. Start a new merger session for this merge, only when no live session has the key `clerk-<project>-merge` (one merger for each repository at a time). If `session_list` shows a live session with the key, wait for its `DONE: merged ...`. When that session reported its merge and still has a `pid`, stop it with `claude stop <id>`: its task is done. Then call `role_settings_write` for the key (as for a task clerk), write the merge request with `mail_post` as its start message, and call `session_launch` with `agent` = `clerk`, `role_key` = `clerk-<project>-merge`, and `cwd` = the main checkout of the project.
-3. The merge request has the header `START: merge <owner/repo>#<pull request number>`. Its body has the repository, the pull request number, the head SHA, the ledger path, and the cover: the grant with its conditions, the words of the owner, and the date, or the `ANSWER` with the question ID, the words of the owner, and the date.
-4. Each merge request names only the pull requests of one merge, usually one. Start the next merger session only after `DONE: merged <owner/repo>#<pull request number>` of the one before.
-5. Check each merge at the source (the code host API) before you record it with `report_write` (kind `result`). Then call `session_tab_close` with `clerk-<project>-merge`; an `orca_error` blocks nothing.
+   - A merge grant of your start message whose row names the repository and `clanker-<project>`, or a row of an older version that names `clerk-<project>-merge`. Check each condition of the grant at its source (for example the CI state from the code host API, and the result status `done` of the deliver run).
+   - Without a grant, or when a condition does not hold: open a P1 with the subject `merge <owner/repo>#<pull request number>?` and send it to bigm. Wait for the `ANSWER`. Only an `ANSWER` from bigm with the header `ANSWER Q-<id>: merge <owner/repo>#<pr>[,#<pr>...] approved` that names this pull request is a cover. A header that ends with `refused` is a no. `reask` is never a cover.
+   - A grant that names a merge method other than a merge commit: send a P1 to bigm, and do not merge.
+2. When the remote of the repository uses an SSH host alias (the host of its URL in the index differs from the host of the code host), merge only when "Identities" of your start message has a row for the alias with a confirmed account. Otherwise send a P1 to bigm, and do not merge.
+3. Read the head SHA of the pull request at the code host API. Use the full 40-character value.
+4. Merge once, with that head SHA:
+   - GitHub: `gh pr merge <n> --repo <owner/repo> --merge --match-head-commit <sha>`. For GitHub Enterprise, use `--repo <host>/<owner/repo>`.
+   - GitLab: `glab mr merge <n> --repo <path or URL> --sha <sha> --auto-merge=false --yes`. For a self-hosted GitLab, the URL in `--repo` names the host.
+   - Gitea: `tea api --login <login> -X POST repos/<owner>/<repo>/pulls/<n>/merge -f Do=merge -f head_commit_id=<sha>`. `<login>` is the tea login of the host.
+5. Confirm the merge at the code host API: the state merged and the merge commit SHA. Use `gh api`, `glab api --hostname <host>`, or `tea api --login <login>`. An exit code is never the evidence.
+6. Do not run the merge command again. When the read does not show the state merged, send a P1 to bigm with the source read.
+7. A refusal of the merge command (a permission prompt, a classifier refusal, or a deny rule) is a P0 to bigm (rule 3).
+8. Record the merge with `report_write` (kind `result`) and the source read. Then send `DONE: merged <owner/repo>#<pull request number>` to bigm, with the source read in the body.
+
+On a remote machine (your start message has the line `remote: yes`), do the same steps on your own machine. Send the P1 with `orca orchestration ask`, and the `DONE` with `orca orchestration send`.
 
 ## Messages from bigm
 

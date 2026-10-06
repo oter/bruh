@@ -7,6 +7,7 @@ import (
 	"errors"
 	"io/fs"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"slices"
 	"strconv"
@@ -86,7 +87,7 @@ func TestWatchBaselineThenEvents(t *testing.T) {
 			ctx := context.Background()
 			now := time.Now()
 			f.branches["main"] = "aaaaaaa1"
-			f.addPull(1, "old")
+			f.addPull(1)
 			f.pulls[1].State, f.pulls[1].Merged, f.pulls[1].MergedAt = "closed", true, "2026-01-01T00:00:00Z"
 			f.comments = []hostComment{comment(1, now.Add(-time.Hour), "sam", "old comment", 1)}
 			if err := w.pollAll(ctx, cfg, hosts); err != nil {
@@ -99,7 +100,7 @@ func TestWatchBaselineThenEvents(t *testing.T) {
 			f.branches["main"] = "bbbbbbb2"
 			f.branches["fix"] = "ccccccc3"
 			f.statuses["ccccccc3"] = fakeStatus{"failure", 1}
-			f.addPull(2, "ccccccc3")
+			f.addPull(2)
 			f.pulls[2].State, f.pulls[2].Merged, f.pulls[2].MergedAt, f.pulls[2].MergeSHA = "closed", true, "2026-09-30T10:00:00Z", "m2"
 			f.comments = append(f.comments, comment(2, now.Add(time.Minute), "sam", "Why?", 2), comment(3, now.Add(2*time.Minute), "bot", "Done.\n<!-- bruh:clerk-repo-t1 -->", 2))
 			if err := w.pollAll(ctx, cfg, hosts); err != nil {
@@ -312,7 +313,7 @@ func TestWatchSeesReviews(t *testing.T) {
 	for _, kind := range []string{"github", "gitea"} {
 		f, w, out, cfg, hosts := watchSetup(t, kind)
 		ctx := context.Background()
-		f.addPull(7, "h7")
+		f.addPull(7)
 		if err := w.pollAll(ctx, cfg, hosts); err != nil {
 			t.Fatal(err)
 		}
@@ -476,7 +477,7 @@ func TestWatchFractionalTimeEmitsOnce(t *testing.T) {
 }
 
 func TestWatchGitLabBaselineThenEvents(t *testing.T) {
-	r := repoConfig{Repo: "group/sub/shop", Host: "gitlab", APIURL: "https://gitlab.example.com/api/v4", Project: "shop", MergeMethod: "merge"}
+	r := repoConfig{Repo: "group/sub/shop", Host: "gitlab", APIURL: "https://gitlab.example.com/api/v4", Project: "shop"}
 	h, err := newHost(r)
 	if err != nil {
 		t.Fatalf("newHost: %v", err)
@@ -573,5 +574,16 @@ func TestWatchGitLabBaselineThenEvents(t *testing.T) {
 	}
 	if got := events(t, bytes.NewBuffer(b)); !slices.Equal(got, all) {
 		t.Errorf("events in reports/clanker-shop.jsonl = %+v, want %+v", got, all)
+	}
+}
+
+func TestLaunchScripts(t *testing.T) {
+	// With a bad flag, the program prints its usage, so the script found and built the module.
+	// watcher.sh runs the poller only in bigm.
+	cmd := exec.Command("sh", "../scripts/watcher.sh", "--no-such-flag")
+	cmd.Env = append(os.Environ(), "BRUH_ROLE_KEY=bigm")
+	out, err := cmd.CombinedOutput()
+	if err == nil || !strings.Contains(string(out), "flag provided but not defined: -no-such-flag") {
+		t.Fatalf("watcher.sh: %v\n%s", err, out)
 	}
 }

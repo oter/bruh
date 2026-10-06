@@ -293,7 +293,7 @@ cleanup() {
 	fi
 	[ "$started" = 1 ] || return 0
 	# Every session in the run folder belongs to the run: bigm, clerk-ledger, the
-	# clanker, the task clerks, a merger clerk, and the -p sessions of the driver.
+	# clanker, the task clerks, and the -p sessions of the driver.
 	if ! refresh; then
 		fail cleanup "claude agents --json --all failed; stop the sessions of this run by hand"
 	fi

@@ -24,11 +24,14 @@ import (
 
 // repoConfig is one repository of <data>/repos.json.
 type repoConfig struct {
-	Repo        string `json:"repo"`
-	Host        string `json:"host"`
-	APIURL      string `json:"api_url"`
-	Project     string `json:"project"`
-	MergeMethod string `json:"merge_method"`
+	Repo    string `json:"repo"`
+	Host    string `json:"host"`
+	APIURL  string `json:"api_url"`
+	Project string `json:"project"`
+	// ponytail: ignored. repos_set of version 0.11 always wrote merge_method, and
+	// DisallowUnknownFields would refuse those files. Drop the field when no such file is left.
+	// Agent-derived, needs owner decision (task 19, 2026-10-05).
+	OldMergeMethod string `json:"merge_method,omitempty"`
 }
 
 type reposConfig struct {
@@ -84,15 +87,9 @@ func loadReposFile(file string) (reposConfig, error) {
 		if u, err := url.Parse(r.APIURL); err != nil || u.Scheme != "https" || u.Hostname() == "" || u.User != nil || u.RawQuery != "" || u.Fragment != "" {
 			return cfg, fmt.Errorf("%s: %s: api_url must be an https URL with no user, query, or fragment: %q", file, r.Repo, r.APIURL)
 		}
-		// An empty project stays empty: the watcher skips the entry and the merge train refuses it (G2).
+		// An empty project stays empty: the watcher skips the entry (G2).
 		if r.Project != "" && !projectRE.MatchString(r.Project) {
 			return cfg, fmt.Errorf("%s: %s: project must be a project key ([a-z0-9-]): %q", file, r.Repo, r.Project)
-		}
-		r.MergeMethod = cmp.Or(r.MergeMethod, "merge")
-		// Gitea "manually-merged" marks a pull request merged without a merge, so it is not accepted.
-		methods := map[string][]string{"github": {"merge", "squash", "rebase"}, "gitlab": {"merge", "squash"}, "gitea": {"merge", "rebase", "rebase-merge", "squash", "fast-forward-only"}}
-		if !slices.Contains(methods[r.Host], r.MergeMethod) {
-			return cfg, fmt.Errorf("%s: %s: merge_method %q is not one of %v", file, r.Repo, r.MergeMethod, methods[r.Host])
 		}
 	}
 	return cfg, nil
@@ -128,30 +125,19 @@ type hostPull struct {
 	State     string `json:"state"`
 	Merged    bool   `json:"merged"`
 	MergedAt  string `json:"merged_at"`
-	Draft     bool   `json:"draft"`
-	Mergeable *bool  `json:"mergeable"`
-	// MergeableState is GitHub only: "blocked" means that a required check or review is missing.
-	MergeableState string `json:"mergeable_state"`
-	MergeSHA       string `json:"merge_commit_sha"`
-	URL            string `json:"html_url"`
-	UpdatedAt      string `json:"updated_at"`
-	Head           struct {
-		SHA string `json:"sha"`
-	} `json:"head"`
-	// DetailedMergeStatus is GitLab only: detailed_merge_status of the merge request.
-	DetailedMergeStatus string `json:"-"`
+	MergeSHA  string `json:"merge_commit_sha"`
+	URL       string `json:"html_url"`
+	UpdatedAt string `json:"updated_at"`
 }
 
-// codeHost is the part of a code host API that the watcher and the merge train use.
+// codeHost is the part of a code host API that the watcher uses.
 type codeHost interface {
 	Branches(ctx context.Context) (map[string]string, error)                 // branch name -> head SHA
 	IssueComments(ctx context.Context, since string) ([]hostComment, error)  // issue and pull request comments
 	ReviewComments(ctx context.Context, since string) ([]hostComment, error) // line comments (GitHub; Gitea returns none)
 	Reviews(ctx context.Context, since string) ([]hostComment, error)        // review summaries of open pull requests
 	MergedPulls(ctx context.Context) ([]hostPull, error)
-	Pull(ctx context.Context, n int) (hostPull, error)
 	Checks(ctx context.Context, sha string) (string, error) // success, pending, failure, or none
-	Merge(ctx context.Context, n int, sha, method string) error
 	LastCall() string
 }
 
@@ -202,12 +188,6 @@ func (c *rest) do(ctx context.Context, method, p string, body, out any) error {
 		return nil
 	}
 	return json.Unmarshal(data, out)
-}
-
-func (c *rest) Pull(ctx context.Context, n int) (hostPull, error) {
-	var p hostPull
-	err := c.do(ctx, "GET", fmt.Sprintf("/pulls/%d", n), nil, &p)
-	return p, err
 }
 
 // reviewsSince reads the reviews of the open pull requests updated at or after since.
@@ -343,10 +323,6 @@ func (g *github) Checks(ctx context.Context, sha string) (string, error) {
 	return "success", nil
 }
 
-func (g *github) Merge(ctx context.Context, n int, sha, method string) error {
-	return g.do(ctx, "PUT", fmt.Sprintf("/pulls/%d/merge", n), map[string]string{"sha": sha, "merge_method": method}, nil)
-}
-
 type gitea struct{ rest }
 
 func (g *gitea) Branches(ctx context.Context) (map[string]string, error) {
@@ -402,10 +378,6 @@ func (g *gitea) Checks(ctx context.Context, sha string) (string, error) {
 		return "pending", nil
 	}
 	return "failure", nil // failure, error, and warning: never merge on them
-}
-
-func (g *gitea) Merge(ctx context.Context, n int, sha, method string) error {
-	return g.do(ctx, "POST", fmt.Sprintf("/pulls/%d/merge", n), map[string]string{"Do": method, "head_commit_id": sha}, nil)
 }
 
 // ghBin is the gh binary of the token fallback; tests replace it.
@@ -495,10 +467,10 @@ func reposTools() []Tool {
 	str := stringSchema()
 	return []Tool{{
 		Name:        "repos_set",
-		Description: "Add, replace, or remove (remove: true) one repository in <data>/repos.json, the code host configuration of the watcher and the merge train. Only bigm. project is the project key of the clanker of the repository ([a-z0-9-]) and is required except with remove: true. A repo that is already configured with another api_url must be removed first. api_url must be https. Tokens are never stored: GitHub uses GITHUB_TOKEN or gh only for api.github.com and the hosts of BRUH_GITHUB_HOSTS; Gitea uses BRUH_GITEA_TOKEN_<HOST>; GitLab uses `glab api --hostname`, and no token passes through bruh.",
+		Description: "Add, replace, or remove (remove: true) one repository in <data>/repos.json, the code host configuration of the watcher. Only bigm. project is the project key of the clanker of the repository ([a-z0-9-]) and is required except with remove: true. A repo that is already configured with another api_url must be removed first. api_url must be https. Tokens are never stored: GitHub uses GITHUB_TOKEN or gh only for api.github.com and the hosts of BRUH_GITHUB_HOSTS; Gitea uses BRUH_GITEA_TOKEN_<HOST>; GitLab uses `glab api --hostname`, and no token passes through bruh.",
 		InputSchema: objectSchema(map[string]any{
 			"repo": str, "host": map[string]any{"type": "string", "enum": []string{"github", "gitlab", "gitea"}}, "api_url": str,
-			"project": str, "merge_method": str, "remove": map[string]any{"type": "boolean"},
+			"project": str, "remove": map[string]any{"type": "boolean"},
 			"interval_seconds": map[string]any{"type": "integer", "minimum": 10},
 		}, "repo", "project"),
 		Handler: func(c *Call, raw json.RawMessage) (any, error) {

@@ -29,6 +29,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 ### Removed
 
 - The git-shape guard. The hook does not deny a compound Bash command with the word git in a linked worktree, and it does not write a hold for it. The Claude Code worktree guard, permission modes, and classifier stay.
+- The merge train (`scripts/merge-train.sh` and the `merge-train` command), the merger clerk `clerk-<project>-merge`, and `merge_method` of `repos_set`. After an owner approval (a recorded `ANSWER` or a merge grant), the clanker of the project merges with `gh pr merge <n> --repo <owner/repo> --merge --match-head-commit <sha>` (`glab` or `tea` for other hosts). Then it reads the state merged and the merge commit from the code host API. A `repos.json` file that has `merge_method` still loads.
 
 ### Fixed
 

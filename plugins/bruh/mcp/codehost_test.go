@@ -26,23 +26,19 @@ type fakeRun struct {
 
 // fakeForge is a small GitHub or Gitea API for one repository, owner/repo.
 type fakeForge struct {
-	kind       string // github or gitea
-	mu         sync.Mutex
-	branches   map[string]string
-	comments   []hostComment
-	review     []hostComment // GitHub pull request review comments
-	reviews    map[int][]hostComment
-	pulls      map[int]*hostPull
-	statuses   map[string]fakeStatus
-	runs       map[string][]fakeRun
-	mergeNoop  bool // the merge call answers 200 and merges nothing
-	mergeFail  int  // HTTP status of the merge call, when not 0
-	merges     []map[string]any
-	auth       []string
-	calls      []string
-	lastSince  string
-	mergeCount int
-	failPath   string // a path that answers 500
+	kind      string // github or gitea
+	mu        sync.Mutex
+	branches  map[string]string
+	comments  []hostComment
+	review    []hostComment // GitHub pull request review comments
+	reviews   map[int][]hostComment
+	pulls     map[int]*hostPull
+	statuses  map[string]fakeStatus
+	runs      map[string][]fakeRun
+	auth      []string
+	calls     []string
+	lastSince string
+	failPath  string // a path that answers 500
 }
 
 func newFakeForge(t *testing.T, kind string) (*fakeForge, repoConfig) {
@@ -61,7 +57,7 @@ func newFakeForge(t *testing.T, kind string) (*fakeForge, repoConfig) {
 	if kind == "gitea" {
 		api += "/api/v1"
 	}
-	return f, repoConfig{Repo: "owner/repo", Host: kind, APIURL: api, Project: "repo", MergeMethod: "squash"}
+	return f, repoConfig{Repo: "owner/repo", Host: kind, APIURL: api, Project: "repo"}
 }
 
 func (f *fakeForge) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -119,29 +115,6 @@ func (f *fakeForge) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	case len(parts) == 3 && parts[0] == "pulls" && parts[2] == "reviews":
 		n, _ := strconv.Atoi(parts[1])
 		send(append([]hostComment{}, f.reviews[n]...))
-	case len(parts) == 2 && parts[0] == "pulls" && r.Method == "GET":
-		n, _ := strconv.Atoi(parts[1])
-		pr, ok := f.pulls[n]
-		if !ok {
-			http.NotFound(w, r)
-			return
-		}
-		send(pr)
-	case len(parts) == 3 && parts[0] == "pulls" && parts[2] == "merge":
-		n, _ := strconv.Atoi(parts[1])
-		var body map[string]any
-		_ = json.NewDecoder(r.Body).Decode(&body)
-		body["number"] = n
-		f.merges = append(f.merges, body)
-		if f.mergeFail != 0 {
-			http.Error(w, `{"message":"Base branch was modified"}`, f.mergeFail)
-			return
-		}
-		if pr := f.pulls[n]; pr != nil && !f.mergeNoop {
-			f.mergeCount++
-			pr.State, pr.Merged, pr.MergedAt, pr.MergeSHA = "closed", true, "2026-09-30T10:00:00Z", fmt.Sprintf("m%039d", f.mergeCount)
-		}
-		send(map[string]any{"merged": true, "message": "Pull Request successfully merged"})
 	case len(parts) == 3 && parts[0] == "commits" && parts[2] == "status":
 		st := f.statuses[parts[1]]
 		send(map[string]any{"state": st.State, "total_count": st.Total})
@@ -164,24 +137,10 @@ func (f *fakeForge) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func (f *fakeForge) addPull(n int, sha string) {
+func (f *fakeForge) addPull(n int) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	f.pulls[n] = &hostPull{Number: n, State: "open", Mergeable: new(true), URL: fmt.Sprintf("https://example.com/owner/repo/pull/%d", n)}
-	f.pulls[n].Head.SHA = sha
-	if f.kind == "github" {
-		f.pulls[n].MergeableState = "clean"
-	}
-}
-
-func (f *fakeForge) green(sha string) {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	if f.kind == "github" {
-		f.runs[sha] = []fakeRun{{"completed", "success"}}
-	} else {
-		f.statuses[sha] = fakeStatus{"success", 1}
-	}
+	f.pulls[n] = &hostPull{Number: n, State: "open", URL: fmt.Sprintf("https://example.com/owner/repo/pull/%d", n)}
 }
 
 func TestLoadRepos(t *testing.T) {
@@ -198,7 +157,7 @@ func TestLoadRepos(t *testing.T) {
 	}
 	cfg, _ := loadRepos(dir)
 	gh, gt := cfg.Repos[0], cfg.Repos[1]
-	if cfg.IntervalSeconds != 60 || gh.APIURL != "https://api.github.com" || gh.Project != "" || gh.MergeMethod != "merge" ||
+	if cfg.IntervalSeconds != 60 || gh.APIURL != "https://api.github.com" || gh.Project != "" ||
 		gt.APIURL != "https://git.example.com/api/v1" {
 		t.Fatalf("cfg = %+v", cfg)
 	}
@@ -206,8 +165,6 @@ func TestLoadRepos(t *testing.T) {
 		`{"repos":[{"repo":"o/x","host":"github","api_url":"http://attacker.example.com"}]}`,
 		`{"repos":[{"repo":"o/x","host":"gitea","api_url":"https://u:p@git.example.com/api/v1"}]}`,
 		`{"repos":[{"repo":"o/x","host":"github","token_env":"GITHUB_TOKEN"}]}`,
-		`{"repos":[{"repo":"o/x","host":"gitea","api_url":"https://git.example.com/api/v1","merge_method":"manually-merged"}]}`,
-		`{"repos":[{"repo":"o/x","host":"github","merge_method":"fast-forward-only"}]}`,
 		`{"repos":[{"repo":"o/x","host":"github","project":"My_Repo"}]}`} {
 		if err := write(bad); err == nil {
 			t.Errorf("%s: no error", bad)
@@ -226,11 +183,12 @@ func TestLoadReposGitLab(t *testing.T) {
 		want       repoConfig
 	}{
 		{"subgroup with defaults", `{"repo":"group/sub/shop","host":"gitlab","project":"shop"}`,
-			repoConfig{Repo: "group/sub/shop", Host: "gitlab", APIURL: "https://gitlab.com/api/v4", Project: "shop", MergeMethod: "merge"}},
-		{"squash", `{"repo":"group/sub/shop","host":"gitlab","project":"shop","merge_method":"squash"}`,
-			repoConfig{Repo: "group/sub/shop", Host: "gitlab", APIURL: "https://gitlab.com/api/v4", Project: "shop", MergeMethod: "squash"}},
+			repoConfig{Repo: "group/sub/shop", Host: "gitlab", APIURL: "https://gitlab.com/api/v4", Project: "shop"}},
+		// repos_set of version 0.11 always wrote merge_method; such a file still loads (task 19).
+		{"legacy merge_method", `{"repo":"group/sub/shop","host":"gitlab","project":"shop","merge_method":"rebase"}`,
+			repoConfig{Repo: "group/sub/shop", Host: "gitlab", APIURL: "https://gitlab.com/api/v4", Project: "shop", OldMergeMethod: "rebase"}},
 		{"self-hosted api_url", `{"repo":"group/shop","host":"gitlab","api_url":"https://gitlab.example.com/api/v4","project":"shop"}`,
-			repoConfig{Repo: "group/shop", Host: "gitlab", APIURL: "https://gitlab.example.com/api/v4", Project: "shop", MergeMethod: "merge"}},
+			repoConfig{Repo: "group/shop", Host: "gitlab", APIURL: "https://gitlab.example.com/api/v4", Project: "shop"}},
 	}
 	for _, tt := range good {
 		t.Run(tt.name, func(t *testing.T) {
@@ -248,7 +206,6 @@ func TestLoadReposGitLab(t *testing.T) {
 		})
 	}
 	bad := []struct{ name, json string }{
-		{"gitlab rebase", `{"repo":"group/sub/shop","host":"gitlab","project":"shop","merge_method":"rebase"}`},
 		{"gitlab one part", `{"repo":"shop","host":"gitlab","project":"shop"}`},
 		{"github three parts", `{"repo":"a/b/c","host":"github","project":"c"}`},
 		{"gitea three parts", `{"repo":"a/b/c","host":"gitea","api_url":"https://git.example.com/api/v1","project":"c"}`},
@@ -301,34 +258,6 @@ func TestCodeHostChecksGitea(t *testing.T) {
 	}
 	if f.auth[0] != "token tok" {
 		t.Fatalf("auth = %q", f.auth[0])
-	}
-}
-
-func TestCodeHostMergeBodies(t *testing.T) {
-	for kind, want := range map[string]string{
-		"github": `map[merge_method:squash number:7 sha:abc]`,
-		"gitea":  `map[Do:squash head_commit_id:abc number:7]`,
-	} {
-		f, r := newFakeForge(t, kind)
-		f.addPull(7, "abc")
-		h, _ := newHost(r)
-		if err := h.Merge(context.Background(), 7, "abc", "squash"); err != nil {
-			t.Fatal(err)
-		}
-		if got := fmt.Sprint(f.merges[0]); got != want {
-			t.Errorf("%s merge body = %s, want %s", kind, got, want)
-		}
-		wantCall := "PUT " + r.APIURL + "/repos/owner/repo/pulls/7/merge"
-		if kind == "gitea" {
-			wantCall = "POST " + r.APIURL + "/repos/owner/repo/pulls/7/merge"
-		}
-		if h.LastCall() != wantCall {
-			t.Errorf("last call = %q, want %q", h.LastCall(), wantCall)
-		}
-		f.mergeFail = 405
-		if err := h.Merge(context.Background(), 7, "abc", "squash"); err == nil || !strings.Contains(err.Error(), "405") {
-			t.Errorf("%s: err = %v", kind, err)
-		}
 	}
 }
 
@@ -391,11 +320,11 @@ func TestReposSet(t *testing.T) {
 	if err := set(env, map[string]any{"repo": "o/x", "host": "gitea", "api_url": "https://git.example.com/api/v1", "project": "x", "interval_seconds": 30}); err != nil {
 		t.Fatal(err)
 	}
-	if err := set(env, map[string]any{"repo": "owner/app", "host": "github", "project": "app", "merge_method": "squash"}); err != nil {
+	if err := set(env, map[string]any{"repo": "owner/app", "host": "github", "project": "app2"}); err != nil {
 		t.Fatal(err)
 	}
 	cfg, err := loadRepos(env.DataDir)
-	if err != nil || len(cfg.Repos) != 2 || cfg.Repos[1].Repo != "owner/app" || cfg.Repos[1].MergeMethod != "squash" || cfg.IntervalSeconds != 30 {
+	if err != nil || len(cfg.Repos) != 2 || cfg.Repos[1].Repo != "owner/app" || cfg.Repos[1].Project != "app2" || cfg.IntervalSeconds != 30 {
 		t.Fatalf("cfg = %+v, %v", cfg, err)
 	}
 	mustErr(t, set(env, map[string]any{"repo": "o/y", "host": "gitea", "project": "y"}), "api_url is required")

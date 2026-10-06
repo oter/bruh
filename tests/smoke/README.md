@@ -105,7 +105,7 @@ This step checks that a change wakes an idle clerk, also after a resume (spec 9.
 Cleanup (also after a failure or Ctrl+C):
 
 1. It saves `claude logs` of each session of the run to the evidence folder.
-2. It stops each session whose folder is in the run folder, and checks that none has a process. These are bigm, `clerk-ledger`, the clanker, the task clerks, a merger clerk, and the `claude -p` sessions of the driver.
+2. It stops each session whose folder is in the run folder, and checks that none has a process. These are bigm, `clerk-ledger`, the clanker, the task clerks, and the `claude -p` sessions of the driver.
 3. It removes the scratch worktrees. It deletes each new branch in `BRUH_TRUSTED_REPO` that does not contain the HEAD commit of that repository from before the run. A run branch starts from an orphan commit, so a branch that somebody made from HEAD during the run stays.
 4. It removes the bruh data files of the role keys of the run, including `bigm` and `clerk-ledger`.
 5. For the remote step, it stops the worker and removes the remote worktree with `orca worktree rm`.

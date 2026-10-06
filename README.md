@@ -250,7 +250,7 @@ Run one bigm at a time. Each other `claude` in the ledger folder is a second big
 
 The ledger settings file holds the role key, the env values, and the deny rules of bigm. If you installed bruh before this file existed, run `/bruh:init` again (step 3) to write it. bigm stays an interactive session. Do not start it with `--bg`.
 
-bigm starts a clanker for each project that has work. Tell bigm what to do. For a project that init learned, bigm takes the repositories from `learn/projects/<key>.json`, and records them with the `repos_set` tool of bruh, so that the watcher (the poller in the plugin monitor of bigm) and the merge train know them. Tell bigm the code host repositories (`owner/name` and the host: GitHub, GitLab, or Gitea) only for a project on a remote machine.
+bigm starts a clanker for each project that has work. Tell bigm what to do. For a project that init learned, bigm takes the repositories from `learn/projects/<key>.json`, and records them with the `repos_set` tool of bruh, so that the watcher (the poller in the plugin monitor of bigm) knows them. After your approval (an answer to a merge question, or a merge grant), the clanker of the project merges the pull request with `gh pr merge --match-head-commit` (or `glab` or `tea` with the head SHA) and confirms the merge at the code host API. Tell bigm the code host repositories (`owner/name` and the host: GitHub, GitLab, or Gitea) only for a project on a remote machine.
 
 ### 8. Check the requirements
 
@@ -262,9 +262,9 @@ bigm starts a clanker for each project that has work. Tell bigm what to do. For 
 | `jq` | The hook scripts |
 | `git` | Worktrees, branches, and the ledger |
 | `rsync` | The lanes of `/bruh:implement-tickets` (`scripts/lane.sh`) |
-| `glab` | GitLab repositories: the pick, the status, the watcher, the merge train, and the posts (`scripts/post-findings.sh`) |
-| `gh` | GitHub repositories |
-| `tea` or a `BRUH_GITEA_TOKEN_<HOST>` variable | Gitea repositories |
+| `glab` | GitLab repositories: the pick, the status, the watcher, the merges of the clanker (`glab mr merge`), and the posts (`scripts/post-findings.sh`) |
+| `gh` | GitHub repositories, and the merges of the clanker (`gh pr merge`) |
+| `tea` or a `BRUH_GITEA_TOKEN_<HOST>` variable | Gitea repositories; the merges of the clanker need `tea` (`tea api`) |
 | `ssh` | Remotes with an SSH host alias (`ssh -G` finds the host) |
 | Orca | Remote machines; optional for local viewer tabs (app 1.4.218 or later) |
 | Bun | The Telegram channel plugin only |
