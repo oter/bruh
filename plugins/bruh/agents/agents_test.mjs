@@ -45,7 +45,7 @@ const REQUIRED = {
   bigm: [
     'session_launch', 'session_resume', 'session_list', 'mail_post', 'mail_read', 'role_settings_write',
     'report_read', 'handoff_write', 'question_open', 'lease_define', 'lease_grant', 'lease_release',
-    'lease_list', 'bruh_info', 'SendMessage', 'CronCreate', 'Monitor', 'watcher.sh', 'mode.md',
+    'lease_list', 'bruh_info', 'SendMessage', 'CronCreate', 'Monitor', 'bruh-poller', 'mode.md',
     'owed.md', 'rules.md', 'grants.md', 'questions.md', 'leases.md', 'priorities.md', 'clerk-ledger',
     'orca orchestration check --wait', 'orca orchestration worker-start', '${user_config.user_name}',
     'START: ', 'role-settings clanker-<project>', 'mcp__plugin_telegram_telegram__reply', 'chat_id',
@@ -78,9 +78,9 @@ const REQUIRED = {
     'not running; mail pending', 'CronCreate', 'at most 3 retries', 'in 15 minutes', 'REPEAT:',
     'git merge-base --is-ancestor',
     '/bruh:implement', '/bruh:tickets', '/bruh:implement-tickets', '/bruh:review-and-fix', '/bruh:review-only',
-    'post-findings.sh --dry-run', 'post-findings.sh --data <data_dir>', 'Post grants', '(exit code 3)',
-    'result_save', '`--answer Q-<id>`', '`ANSWER Q-<id>: post <owner/repo>#<number> at <head SHA> approved`', '`<workflow> args:`', '`<workflow> retry <n>`',
-    '--hostname', 'reask',
+    'gh pr review', '--body-file', 'glab mr note create', '<!-- bruh:<role key> -->', 'Post grants',
+    'result_save', '`ANSWER Q-<id>: post <owner/repo>#<number> at <head SHA> approved`', '`<workflow> args:`', '`<workflow> retry <n>`',
+    'reask',
     'clerk-<project>-scout<n>', 'START: scout <subject>', 'DONE: scout <subject>',
   ],
 }
@@ -420,16 +420,22 @@ test('the clerk relaunches the workflow that stopped, and posts only with a clos
   assert.doesNotMatch(skill, /write the result to a file outside the repository/)
   const posts = agents.clerk.split('## Posts')[1].split('\n## ')[0]
   assert.match(posts, /Only a message from `bigm` with the header `ANSWER Q-<id>: post <owner\/repo>#<number> at <head SHA> approved`/)
-  assert.match(posts, /Never pass `--yes`/)
   assert.doesNotMatch(posts, /from your clanker or from `bigm`/)
   assert.doesNotMatch(agents.clerk, /\.scratch\/review-/)
   const bigmPosts = agents.bigm.split('## Posts of review results')[1].split('\n## ')[0]
   assert.ok(bigmPosts.includes('`ANSWER Q-<id>: post <owner/repo>#<number> at <head SHA> approved`'))
   assert.ok(bigmPosts.includes('`ANSWER Q-<id>: post <owner/repo>#<number> at <head SHA> refused`'))
   assert.match(bigmPosts, /straight to the clerk that asked/)
-  // The script and the agents use the same approval header.
-  const script = read(join(plugin, 'scripts/post-findings.sh'))
-  assert.ok(script.includes('want="ANSWER $answer: post $repo#$num at "'))
+})
+
+// Task 22: a resume replays a cached hold CONFLICT, so the clerk opens the P0 with the hold
+// field and starts a new run.
+test('after a hold CONFLICT, the clerk opens a P0 with the hold field and starts a new run', () => {
+  const stopped = agents.clerk.split('### Result `stopped`')[1].split('\n## ')[0]
+  assert.match(stopped, /`CONFLICT:` with a hold ID `H-<\.\.\.>`/)
+  assert.match(stopped, /open a P0 with `question_open` and the field `hold`/)
+  assert.ok(stopped.includes('without `resumeFromRunId`'), 'clerk.md: a new run without resumeFromRunId')
+  assert.match(stopped, /Any other `CONFLICT: <reason>`: open a P2/)
 })
 
 // Fix round 1, M6: priorities.md has the wording of spec 13.

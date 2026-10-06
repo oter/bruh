@@ -7,7 +7,6 @@ import (
 	"errors"
 	"io/fs"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"slices"
 	"strconv"
@@ -289,7 +288,7 @@ func TestWatchReportsErrorOnce(t *testing.T) {
 
 func TestRunWatchOnce(t *testing.T) {
 	_, r := newFakeForge(t, "gitea")
-	env := testEnv(t, "")
+	env := testEnv(t, "bigm")
 	b, _ := json.Marshal(reposConfig{Repos: []repoConfig{r}})
 	if err := os.WriteFile(filepath.Join(env.DataDir, "repos.json"), b, 0o600); err != nil {
 		t.Fatal(err)
@@ -419,7 +418,7 @@ func TestWatchDoesNotRepeatPushAfterError(t *testing.T) {
 }
 
 func TestRunWatchWithoutReposWaitsForThem(t *testing.T) {
-	env := testEnv(t, "")
+	env := testEnv(t, "bigm")
 	var out, errOut bytes.Buffer
 	if code := runCLI([]string{"watch", "--once", "--data", env.DataDir}, env, &out, &errOut); code != 0 {
 		t.Fatalf("a missing repos.json must not stop the watcher: exit %d: %s", code, errOut.String())
@@ -577,13 +576,22 @@ func TestWatchGitLabBaselineThenEvents(t *testing.T) {
 	}
 }
 
-func TestLaunchScripts(t *testing.T) {
-	// With a bad flag, the program prints its usage, so the script found and built the module.
-	// watcher.sh runs the poller only in bigm.
-	cmd := exec.Command("sh", "../scripts/watcher.sh", "--no-such-flag")
-	cmd.Env = append(os.Environ(), "BRUH_ROLE_KEY=bigm")
-	out, err := cmd.CombinedOutput()
-	if err == nil || !strings.Contains(string(out), "flag provided but not defined: -no-such-flag") {
-		t.Fatalf("watcher.sh: %v\n%s", err, out)
+// TestWatchOnlyInBigm: the plugin monitor bruh-poller runs the watch command in each session,
+// and only bigm polls. Each other session exits 0 in silence and creates nothing.
+func TestWatchOnlyInBigm(t *testing.T) {
+	for _, key := range []string{"", "clanker-app"} {
+		dir := filepath.Join(t.TempDir(), "data")
+		var out, errOut bytes.Buffer
+		if code := runCLI([]string{"watch", "--data", dir}, Env{RoleKey: key}, &out, &errOut); code != 0 || out.Len()+errOut.Len() != 0 {
+			t.Fatalf("role key %q: exit %d, out %q, err %q", key, code, out.String(), errOut.String())
+		}
+		if _, err := os.Stat(dir); !errors.Is(err, fs.ErrNotExist) {
+			t.Fatalf("role key %q: data folder: %v", key, err)
+		}
+	}
+	var out, errOut bytes.Buffer
+	if code := runCLI([]string{"watch", "--no-such-flag"}, Env{RoleKey: "bigm"}, &out, &errOut); code != 2 ||
+		!strings.Contains(errOut.String(), "flag provided but not defined: -no-such-flag") {
+		t.Fatalf("bigm with a bad flag: exit %d, err %q", code, errOut.String())
 	}
 }

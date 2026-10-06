@@ -1,7 +1,7 @@
 export const meta = {
   name: 'review-and-fix',
   description: 'Review an own change with several lenses and the gates, refute each finding, fix the confirmed findings one area at a time with an independent check of each fix, and review again up to the round cap. No commits and no posts.',
-  whenToUse: 'Review and fix a change that bruh wrote, on a committed and clean branch. Commit the fixes afterwards. Save the result with result_save and post it with scripts/post-findings.sh after the approval of the owner or under a post grant.',
+  whenToUse: 'Review and fix a change that bruh wrote, on a committed and clean branch. Commit the fixes afterwards. Save the result with result_save and post it with gh pr review or glab mr note after the approval of the owner or under a post grant.',
   phases: [
     { title: 'Check', detail: 'HEAD of root, a clean tree, and the base SHA as an ancestor' },
     { title: 'Review', detail: 'one reviewer for each lens, and the gate commands' },
@@ -11,7 +11,7 @@ export const meta = {
 }
 
 // The script has no clock and no filesystem. It returns the findings; a session
-// posts them with post-findings.sh (spec 6.1: no agent of a workflow posts).
+// posts them with gh pr review or glab mr note (spec 6.1: no agent of a workflow posts).
 // Each helper is copied from deliver.js: the Workflow runtime has no imports.
 // Prompts before a question never contain an answer, so a relaunch with
 // resumeFromRunId returns their cached results (spec 6.2).

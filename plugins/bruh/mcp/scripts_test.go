@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -273,105 +274,6 @@ func TestInjectNoFileOrNoRoleKey(t *testing.T) {
 	}
 }
 
-func leaseState(t *testing.T, data string, grants []Grant) {
-	t.Helper()
-	st := LeaseState{Resources: map[string]*Resource{
-		"test-db": {Capacity: 1, Patterns: []string{"psql -h test-db", "make integration"}, Grants: grants},
-		"other":   {Capacity: 1, Grants: []Grant{}},
-	}}
-	b, _ := json.Marshal(st)
-	if err := os.MkdirAll(filepath.Join(data, "leases"), 0o700); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(data, "leases", "state.json"), b, 0o600); err != nil {
-		t.Fatal(err)
-	}
-}
-
-func guard(t *testing.T, data, command string, env ...string) string {
-	t.Helper()
-	in, _ := json.Marshal(map[string]any{"session_id": "s-1", "tool_name": "Bash", "tool_input": map[string]string{"command": command}})
-	out, code := runScript(t, "lease-guard.sh", string(in), append([]string{"CLAUDE_PLUGIN_DATA=" + data}, env...)...)
-	if code != 0 {
-		t.Fatalf("exit %d", code)
-	}
-	return out
-}
-
-func denied(t *testing.T, out string) bool {
-	t.Helper()
-	if out == "" {
-		return false
-	}
-	var m struct {
-		H struct {
-			Event    string `json:"hookEventName"`
-			Decision string `json:"permissionDecision"`
-			Reason   string `json:"permissionDecisionReason"`
-		} `json:"hookSpecificOutput"`
-	}
-	if err := json.Unmarshal([]byte(out), &m); err != nil || m.H.Event != "PreToolUse" || m.H.Decision != "deny" || !strings.Contains(m.H.Reason, "test-db") {
-		t.Fatalf("output = %q", out)
-	}
-	return true
-}
-
-func future(d time.Duration) string { return time.Now().Add(d).UTC().Format(stampLayout) }
-
-func TestLeaseGuardDeniesWithoutLease(t *testing.T) {
-	data := t.TempDir()
-	leaseState(t, data, []Grant{{Holder: "clerk-b-1", Grantor: "clanker-b", Until: future(time.Hour)}})
-	key := "BRUH_ROLE_KEY=clerk-a-1"
-	if !denied(t, guard(t, data, "psql -h test-db -c 'select 1'", key)) {
-		t.Fatal("allowed without a lease")
-	}
-	if !denied(t, guard(t, data, "  make integration", key)) {
-		t.Fatal("allowed with leading spaces")
-	}
-	for _, cmd := range []string{"go test ./...", "echo psql -h test-db", "make lint"} {
-		if denied(t, guard(t, data, cmd, key)) {
-			t.Fatalf("denied %q", cmd)
-		}
-	}
-}
-
-func TestLeaseGuardAllowsWithLease(t *testing.T) {
-	data := t.TempDir()
-	leaseState(t, data, []Grant{{Holder: "clerk-a-1", Grantor: "clanker-a", Until: future(time.Hour)}})
-	if denied(t, guard(t, data, "psql -h test-db", "BRUH_ROLE_KEY=clerk-a-1")) {
-		t.Fatal("denied with a lease")
-	}
-}
-
-func TestLeaseGuardExpiredLease(t *testing.T) {
-	data := t.TempDir()
-	leaseState(t, data, []Grant{{Holder: "clerk-a-1", Grantor: "clanker-a", Until: future(-time.Minute)}})
-	if !denied(t, guard(t, data, "psql -h test-db", "BRUH_ROLE_KEY=clerk-a-1")) {
-		t.Fatal("allowed with an expired lease")
-	}
-}
-
-func TestLeaseGuardCompoundCommand(t *testing.T) {
-	data := t.TempDir()
-	leaseState(t, data, nil)
-	for _, cmd := range []string{"cd x && psql -h test-db", "true; make integration", "a | psql -h test-db", "true\nmake integration", "x & psql -h test-db"} {
-		if !denied(t, guard(t, data, cmd, "BRUH_ROLE_KEY=clerk-a-1")) {
-			t.Fatalf("allowed %q", cmd)
-		}
-	}
-}
-
-func TestLeaseGuardNoRoleKeyOrNoState(t *testing.T) {
-	data := t.TempDir()
-	if out := guard(t, data, "psql -h test-db", "BRUH_ROLE_KEY=clerk-a-1"); out != "" {
-		t.Fatalf("no state: %q", out)
-	}
-	leaseState(t, data, nil)
-	if out := guard(t, data, "psql -h test-db"); out != "" {
-		t.Fatalf("no role key: %q", out)
-	}
-}
-
 func TestHooksJSON(t *testing.T) {
 	var h struct {
 		Hooks map[string][]struct {
@@ -387,7 +289,7 @@ func TestHooksJSON(t *testing.T) {
 	}
 	readJSON(t, "../hooks/hooks.json", &h)
 	// Each group: the matcher, the script, and whether it is the waiter of spec 9.5 (M1), which
-	// runs with asyncRewake and a timeout above its own limit of 3300 seconds.
+	// runs with asyncRewake and a timeout above its own limit of 604500 seconds.
 	type group struct {
 		matcher, script string
 		waiter          bool
@@ -396,7 +298,7 @@ func TestHooksJSON(t *testing.T) {
 		"PostToolUse":      {{"", "handoff-nudge.sh", false}},
 		"SessionStart":     {{"compact|clear|resume", "handoff-inject.sh", false}, {"startup|resume|compact", "wake.sh", true}},
 		"Stop":             {{"", "wake.sh", true}, {"", "refusal-stop.sh", false}},
-		"PreToolUse":       {{"Bash", "lease-guard.sh", false}, {"", "refusal-stop.sh", false}},
+		"PreToolUse":       {{"", "refusal-stop.sh", false}},
 		"PermissionDenied": {{"", "refusal-stop.sh", false}},
 	}
 	if len(h.Hooks) != len(want) {
@@ -413,12 +315,31 @@ func TestHooksJSON(t *testing.T) {
 			}
 			hk := groups[i].Hooks[0]
 			if hk.Type != "command" || hk.Command != "sh" || len(hk.Args) != 1 || hk.Args[0] != "${CLAUDE_PLUGIN_ROOT}/scripts/"+w.script ||
-				hk.AsyncRewake != w.waiter || (w.waiter && hk.Timeout != 3600) {
+				hk.AsyncRewake != w.waiter || (w.waiter && hk.Timeout != 604800) {
 				t.Fatalf("%s hook = %+v", ev, hk)
 			}
 			if _, err := os.Stat("../scripts/" + w.script); err != nil {
 				t.Fatal(err)
 			}
+		}
+	}
+}
+
+// TestWakeLimitBelowHookTimeout: the default limit of wake.sh, and its fallback for a bad
+// BRUH_WAKE_SECONDS, stay below the hook timeout of 604800 seconds that TestHooksJSON checks, so
+// the waiter exits 0 in silence before Claude Code kills it (bigm decision 2026-10-06).
+func TestWakeLimitBelowHookTimeout(t *testing.T) {
+	b, err := os.ReadFile("../scripts/wake.sh")
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := string(b)
+	for prefix, end := range map[string]string{"limit=${BRUH_WAKE_SECONDS:-": "}", "*[!0-9]*) limit=": " "} {
+		_, rest, ok := strings.Cut(s, prefix)
+		digits, _, _ := strings.Cut(rest, end)
+		n, err := strconv.Atoi(digits)
+		if !ok || err != nil || n <= 0 || n >= 604800 {
+			t.Fatalf("%q: limit %q, want a number below 604800", prefix, digits)
 		}
 	}
 }
@@ -623,7 +544,7 @@ func TestStopHooksTogether(t *testing.T) {
 		if code, seen := wake(); code != 2 || seen != "1.json\n" {
 			t.Fatalf("held=%v: new mail: exit %d, seen %q", held, code, seen)
 		}
-		if code, seen := wake(); code != 2 || seen != "1.json\n" {
+		if code, seen := wake(); code != 0 || seen != "1.json\n" {
 			t.Fatalf("held=%v: no new mail: exit %d, seen %q", held, code, seen)
 		}
 		out := refusal(t, data, stop, refusalKey)
@@ -728,39 +649,7 @@ func TestMonitorsJSON(t *testing.T) {
 		}
 	}
 	if e["name"] != "bruh-poller" || e["description"] == "" || e["when"] != "always" ||
-		e["command"] != `sh "${CLAUDE_PLUGIN_ROOT}/scripts/watcher.sh" --data "${CLAUDE_PLUGIN_DATA}"` {
+		e["command"] != `GOTOOLCHAIN=local go run -C "${CLAUDE_PLUGIN_ROOT}/mcp" . watch --data "${CLAUDE_PLUGIN_DATA}"` {
 		t.Errorf("entry = %v", e)
-	}
-}
-
-func TestLeaseGuardMatchesWholeWords(t *testing.T) {
-	data := t.TempDir()
-	leaseState(t, data, nil)
-	key := "BRUH_ROLE_KEY=clerk-a-1"
-	for _, cmd := range []string{
-		"psql -h test-db2 -c 1",
-		"make integration-lint",
-		`git commit -m "wip; make integration tests faster"`,
-		`echo "x|make integration"`,
-		`echo 'a; psql -h test-db'`,
-		`printf "%s \" ; make integration" x`,
-	} {
-		if denied(t, guard(t, data, cmd, key)) {
-			t.Errorf("denied %q", cmd)
-		}
-	}
-	for _, cmd := range []string{"psql -h test-db", "psql -h test-db\t-c 1", `git commit -m "x" && make integration`, "make integration FOO=1"} {
-		if !denied(t, guard(t, data, cmd, key)) {
-			t.Errorf("allowed %q", cmd)
-		}
-	}
-}
-
-func TestLeaseGuardTellsBigm(t *testing.T) {
-	data := t.TempDir()
-	leaseState(t, data, nil)
-	out := guard(t, data, "psql -h test-db", "BRUH_ROLE_KEY=bigm")
-	if !denied(t, out) || !strings.Contains(out, "bigm does not run commands") || strings.Contains(out, "lease_request") {
-		t.Fatalf("output = %q", out)
 	}
 }

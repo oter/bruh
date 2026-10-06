@@ -1,5 +1,5 @@
 {
-  "description": "bruh hooks: the handoff message, the handoff pickup, the lease guard, the waiter that wakes a role on new mail, and the refusal stop. Each does nothing when BRUH_ROLE_KEY is not set.",
+  "description": "bruh hooks: the handoff message, the handoff pickup, the waiter that wakes a role on new mail, and the refusal stop. Each does nothing when BRUH_ROLE_KEY is not set.",
   "modules": ["./register.js"],
   "hooks": {
     "PostToolUse": [
@@ -19,14 +19,14 @@
       {
         "matcher": "startup|resume|compact",
         "hooks": [
-          { "type": "command", "command": "sh", "args": ["${CLAUDE_PLUGIN_ROOT}/scripts/wake.sh"], "asyncRewake": true, "timeout": 3600 }
+          { "type": "command", "command": "sh", "args": ["${CLAUDE_PLUGIN_ROOT}/scripts/wake.sh"], "asyncRewake": true, "timeout": 604800 }
         ]
       }
     ],
     "Stop": [
       {
         "hooks": [
-          { "type": "command", "command": "sh", "args": ["${CLAUDE_PLUGIN_ROOT}/scripts/wake.sh"], "asyncRewake": true, "timeout": 3600 }
+          { "type": "command", "command": "sh", "args": ["${CLAUDE_PLUGIN_ROOT}/scripts/wake.sh"], "asyncRewake": true, "timeout": 604800 }
         ]
       },
       {
@@ -36,12 +36,6 @@
       }
     ],
     "PreToolUse": [
-      {
-        "matcher": "Bash",
-        "hooks": [
-          { "type": "command", "command": "sh", "args": ["${CLAUDE_PLUGIN_ROOT}/scripts/lease-guard.sh"] }
-        ]
-      },
       {
         "hooks": [
           { "type": "command", "command": "sh", "args": ["${CLAUDE_PLUGIN_ROOT}/scripts/refusal-stop.sh"] }

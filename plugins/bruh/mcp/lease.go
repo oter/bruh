@@ -111,7 +111,7 @@ func leaseTools() []Tool {
 	return []Tool{
 		{
 			Name:        "lease_define",
-			Description: "Define a shared resource, its capacity, and the command prefixes that use it (the lease guard hook reads them). Only bigm.",
+			Description: "Define a shared resource, its capacity, and the command prefixes that use it (stored for the record; no hook enforces them). Only bigm.",
 			InputSchema: objectSchema(map[string]any{
 				"resource": stringSchema(),
 				"capacity": map[string]any{"type": "integer", "minimum": 1},

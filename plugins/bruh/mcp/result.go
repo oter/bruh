@@ -10,11 +10,11 @@ import (
 var resultNameRE = regexp.MustCompile(`^[a-z0-9-]{1,64}$`)
 
 // resultTools holds result_save: a clerk saves the result of a workflow in the data
-// folder (principle 3), and post-findings.sh reads the file from the returned path.
+// folder (principle 3), and the clerk reads the file from the returned path.
 func resultTools() []Tool {
 	return []Tool{{
 		Name:        "result_save",
-		Description: "Save the result object of a workflow run as <data>/results/<role key>/<name>.json (results/owner/ without BRUH_ROLE_KEY; replaces the file) and return its path, for scripts/post-findings.sh.",
+		Description: "Save the result object of a workflow run as <data>/results/<role key>/<name>.json (results/owner/ without BRUH_ROLE_KEY; replaces the file) and return its path; the clerk reads the file from it.",
 		InputSchema: map[string]any{
 			"type": "object",
 			"properties": map[string]any{

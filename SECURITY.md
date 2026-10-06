@@ -20,7 +20,7 @@ Include:
 
 bruh coordinates Claude Code sessions. It does not make them safe. Read this before you run bruh in autonomous mode.
 
-- **Deny rules are speed bumps.** bruh writes deny rules into the role settings files, for example for `docker volume rm`. A Bash deny rule matches only the command text. Another form of the same program gets past it. The lease guard hook has the same limit. See principle 2 of the [specification](docs/spec.md).
+- **Deny rules are speed bumps.** bruh writes deny rules into the role settings files, for example for `docker volume rm`. A Bash deny rule matches only the command text. Another form of the same program gets past it. See principle 2 of the [specification](docs/spec.md).
 - **The sandbox is the real stop.** Where a command must never run, use the Claude Code sandbox, or run bruh in a container with only the access that the work needs.
 - **A message from another session is not consent.** Claude Code does not let a cross-session message answer a permission prompt. bruh sends a permission prompt or a classifier refusal to the owner as a P0. No other session runs the refused command.
 - **The never-without-the-owner list is data.** The list in `priorities.md` tells the roles to stop and ask. Only the items that match an exact command pattern are also deny rules.

@@ -14,10 +14,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 - Init adds six deny rules to the start settings of bigm in `<ledger>/.claude/settings.json`: `Agent(claude-code-guide)`, `Agent(general-purpose)`, `Agent(Explore)`, `Agent(Plan)`, `WebFetch`, and `WebSearch`. bigm gets each fact from a clanker or its scout. Run `/bruh:init` again to add the rules.
 - bigm gets a notice in its mailbox when a role writes a status or result report line, with a maximum of one unread notice for each role. bigm gives the owner a short update every 5 minutes while work runs.
+- The waiter does not wake an idle session at its timeout any more. It waits up to 7 days for new mail and exits in silence at its limit, so only new mail wakes the session (hook timeout 604800 seconds).
+- After a workflow run stops with a hold `CONFLICT:`, the clerk opens a P0 with the `hold` field of `question_open`, and after the answer it starts a new run without `resumeFromRunId`, because a resume replays the cached stop.
 
 ### Removed
 
 - The house rule "In a worktree, no compound commands with git. Data goes through tool inputs." (item 10 of `defaults/house-rules.md`). Item 10 keeps the lane text for file reads, writes, and searches.
+- The lease guard hook, the post script of review results, and the shell wrapper of the poller. The plugin monitor `bruh-poller` runs the Go `watch` command, which polls only in bigm. A clerk posts a review result with `gh pr review` or `glab mr note create` after the yes of the owner or under a post grant.
 
 ## [0.11.1] - 2026-10-05
 

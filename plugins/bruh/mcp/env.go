@@ -16,7 +16,7 @@ import (
 const stampLayout = "2006-01-02T15:04:05.000Z"
 
 // qidPattern is the one pattern of a question ID Q-<project>-<host>-<n> (spec 5, decision D2).
-// headerRE and qidRE use it; the Slack module and post-findings.sh keep copies.
+// headerRE and qidRE use it; the Slack module keeps a copy.
 const qidPattern = `Q-[a-z0-9]+(?:-[a-z0-9]+)+-[0-9]+`
 
 var (

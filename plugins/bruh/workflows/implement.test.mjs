@@ -168,7 +168,7 @@ for (const name of SCRIPTS) {
       assert.ok(c.prompt.includes(GIT_RULE), `${c.opts.label} has no git rule`)
       assert.ok(c.prompt.includes(POST_RULE), `${c.opts.label} has no post rule`)
       assert.equal(c.opts.model, undefined, `${c.opts.label} sets a model`)
-      assert.ok(!c.prompt.includes('post-findings'), `${c.opts.label} names the post script`)
+      assert.ok(!c.prompt.includes('gh pr review') && !c.prompt.includes('glab mr note'), `${c.opts.label} names a post command`)
     }
   })
 

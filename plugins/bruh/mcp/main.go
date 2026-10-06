@@ -26,7 +26,8 @@ Commands:
   init --answers <file>    non-interactive /bruh:init; BRUH_INIT_<KEY> variables override the file
   role-settings <role key> write <data>/roles/<role key>.json with the defaults (never overwrites)
   watch [--data <dir>] [--once]
-                           poll the code hosts of <data>/repos.json; one JSON line for each event
+                           poll the code hosts of <data>/repos.json; one JSON line for each event;
+                           only with BRUH_ROLE_KEY=bigm, else it exits 0 in silence
 `
 
 func main() {
@@ -96,6 +97,11 @@ func runCLI(args []string, env Env, stdout, stderr io.Writer) int {
 		once := fs.Bool("once", false, "poll once and exit")
 		if err := fs.Parse(args[1:]); err != nil {
 			return 2
+		}
+		// The plugin monitor bruh-poller starts this in each session; it polls only in bigm
+		// (spec 9.5), and each other session exits 0 in silence before it touches the data folder.
+		if env.RoleKey != "bigm" {
+			return 0
 		}
 		env.DataDir = *data
 		ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)

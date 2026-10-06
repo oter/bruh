@@ -56,7 +56,7 @@ The skill `/bruh:implement` is the procedure for each code change and each revie
 | `/bruh:review-and-fix` | Reviews an own change with several lenses and the gates, refutes each finding, and fixes the confirmed findings one area at a time |
 | `/bruh:review-only` | Reviews and refutes a pull request of another author, and changes nothing |
 
-No workflow posts on a pull request. A workflow returns its findings. You post them with `scripts/post-findings.sh` (GitLab through `glab`, GitHub through `gh`): run it with `--dry-run` first, then with `--yes` in your own session. For a host other than `gitlab.com` or `github.com`, add `--hostname <host>`. In a role session, a clerk saves the result with the MCP tool `result_save` and posts only with your approval, which bigm relays as `ANSWER Q-<id>: post <owner/repo>#<number> at <head SHA> approved` (`--answer Q-<id>`), or under a post grant in `grants.md` of the ledger. Each post starts with "Agent review" and carries the marker line `<!-- bruh:<role key> -->`. A rerun posts only the comments that are not on the pull request yet.
+No workflow posts on a pull request. A workflow returns its findings. After your yes, they are posted with plain `gh pr review --comment --body-file <file>` on GitHub or `glab mr note create` on GitLab. For a self-hosted server, the `--repo` value names the host. In a role session, a clerk saves the result with the MCP tool `result_save` and posts only with your approval, which bigm relays as `ANSWER Q-<id>: post <owner/repo>#<number> at <head SHA> approved`, or under a post grant in `grants.md` of the ledger. Each post ends with the marker line `<!-- bruh:<role key> -->`.
 
 In a role session, a clerk runs the skill. In your own session, you are the orchestrator: start with `/bruh:implement` and answer the questions of the session.
 
@@ -262,8 +262,8 @@ bigm starts a clanker for each project that has work. Tell bigm what to do. For 
 | `jq` | The hook scripts |
 | `git` | Worktrees, branches, and the ledger |
 | `rsync` | The lanes of `/bruh:implement-tickets` (`scripts/lane.sh`) |
-| `glab` | GitLab repositories: the pick, the status, the watcher, the merges of the clanker (`glab mr merge`), and the posts (`scripts/post-findings.sh`) |
-| `gh` | GitHub repositories, and the merges of the clanker (`gh pr merge`) |
+| `glab` | GitLab repositories: the pick, the status, the watcher, the merges of the clanker (`glab mr merge`), and the posts (`glab mr note create`) |
+| `gh` | GitHub repositories, the merges of the clanker (`gh pr merge`), and the posts (`gh pr review`) |
 | `tea` or a `BRUH_GITEA_TOKEN_<HOST>` variable | Gitea repositories; the merges of the clanker need `tea` (`tea api`) |
 | `ssh` | Remotes with an SSH host alias (`ssh -G` finds the host) |
 | Orca | Remote machines; optional for local viewer tabs (app 1.4.218 or later) |

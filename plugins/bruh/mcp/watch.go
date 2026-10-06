@@ -35,7 +35,7 @@ func agentMark(body string) string {
 			return ""
 		}
 		// "owner" marks a post that an agent made from a manual session of the owner
-		// (post-findings.sh without BRUH_ROLE_KEY); it is an agent post, not a human one.
+		// (no BRUH_ROLE_KEY); it is an agent post, not a human one.
 		if _, err := ParseRoleKey(m[1]); err != nil && m[1] != "owner" {
 			return ""
 		}
