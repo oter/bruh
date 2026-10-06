@@ -757,6 +757,8 @@ Agent-derived, accepted 2026-09-30.
 
 The bruh board is a live pane beside the status report. Only the command `/bruh-board` opens it, with the keyboard. It reads `claude agents --json --all`, the open P0 and P1 questions, the report files, `repos.json`, and the "In progress" rows of the ledger. Its only write is the expanded state, one key for each item in its own mod store. It refreshes every 10 seconds and stops when the pane closes. By default it shows one short line for each open P0 or P1 question and one collapsed line for each clanker, with a summary spinner and the task count. A clanker expands to its clerks (task number and slug, spinner, state), and a clerk expands to its last done and next step. Plain buttons expand and collapse: hotkeys `1` to `9` for the clankers and `a` to `z` for the clerks, Tab and Enter for the rest. Each line is cut to the pane width, and no line shows a time, a session ID, a run ID, or a commit SHA. The board has no workflow run line. Agent-derived, needs owner decision.
 
+Under each open question the board shows answer buttons: the options of the question, or `ok` and `hold` for a refusal P0 without options. A press calls `$.prompt.submit` with `Q-<id>: <label>`. That call has no session target and reaches only the session that draws the pane, so the board is opened in bigm, and bigm records the prompt as the answer of the owner. The mod does not call `answer_write` and writes no file. Agent-derived, needs owner decision.
+
 ### 9.5 Monitors
 
 Status: Built 2026-10-04.

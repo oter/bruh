@@ -40,7 +40,7 @@ function world(stored: Record<string, unknown> = {}) {
     { name: 'bigm', pid: 15, status: 'busy', startedAt: 8, cwd: '/w' },
   ]
   const store = new Map<string, unknown>(Object.entries(stored))
-  const calls = { run: 0, opened: [] as string[], registered: [] as string[], writes: [] as string[] }
+  const calls = { run: 0, opened: [] as string[], registered: [] as string[], writes: [] as string[], sent: [] as string[] }
   const stub = (on: On) => {
     mock.env(on, { HOME: '/h' })
     on('fs.read', ($, e) => (e.path in files ? { value: files[e.path] } : { deny: `ENOENT ${e.path}` }))
@@ -66,6 +66,10 @@ function world(stored: Record<string, unknown> = {}) {
     on('ui.open', ($, e) => {
       calls.opened.push(`${e.id}${e.focus ? ' focus' : ''}`)
       return { value: { isPlaced: true as const } }
+    })
+    on('prompt.submit', ($, e) => {
+      calls.sent.push(e.text)
+      return { text: e.text }
     })
     on('command.register', ($, e) => {
       calls.registered.push(e.name)
@@ -295,4 +299,33 @@ test('two open questions with one subject show their numbers', async ($, on) => 
   const v = await view(ui)
   expect(v.texts).toContain('P1 (98) merge oter/bruh#29?')
   expect(v.texts).toContain('P1 (94) merge oter/bruh#29?')
+})
+
+const OPTIONS = [{ label: 'merge now', description: 'squash' }, { label: 'wait', description: 'after the review' }]
+
+test('a question with options shows one button per option, a refusal P0 shows ok and hold', async ($, on) => {
+  const w = world()
+  w.files[`${D}/questions/Q-bruh-m-98.json`] = line({ id: 'Q-bruh-m-98', priority: 'P1', subject: 'merge oter/bruh#29?', asker: 'clanker-bruh', opened_at: '2026-10-05T16:20:00Z', options: OPTIONS })
+  w.files[`${D}/questions/Q-bruh-m-93.json`] = line({ id: 'Q-bruh-m-93', priority: 'P0', subject: 'refused', body: 'why\n\nCOMMAND: x\nCATEGORY: classifier y', asker: 'clerk-bruh-liveui', opened_at: '2026-10-05T16:21:00Z' })
+  w.stub(on)
+  await $.command.run({ command: 'bruh-board' })
+  const ui = await mount($)
+  const answers = (await view(ui)).buttons.filter(b => b.key.startsWith('answer-'))
+  expect(answers).toEqual([
+    { key: 'answer-Q-bruh-m-93-0', hotkey: undefined, label: 'ok' },
+    { key: 'answer-Q-bruh-m-93-1', hotkey: undefined, label: 'hold' },
+    { key: 'answer-Q-bruh-m-98-0', hotkey: undefined, label: 'merge now' },
+    { key: 'answer-Q-bruh-m-98-1', hotkey: undefined, label: 'wait' },
+  ])
+})
+
+test('a press submits the exact text', async ($, on) => {
+  const w = world()
+  w.files[`${D}/questions/Q-bruh-m-98.json`] = line({ id: 'Q-bruh-m-98', priority: 'P1', subject: 'merge oter/bruh#29?', asker: 'clanker-bruh', opened_at: '2026-10-05T16:20:00Z', options: OPTIONS })
+  w.stub(on)
+  await $.command.run({ command: 'bruh-board' })
+  const ui = await mount($)
+  await ui.press({ key: 'answer-Q-bruh-m-98-0' })
+  expect(w.calls.sent).toEqual(['Q-bruh-m-98: merge now'])
+  expect(w.calls.writes).toEqual([])
 })

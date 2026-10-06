@@ -166,6 +166,7 @@ A question comes from a clanker with a header such as `P1 Q-shop-dev-mac-7: <sub
 8. An answer of the owner: quote the words of the owner, with the date from `date -u`, the source, and the question ID. Close the item on `owed.md`. Send the answer as step 9 says. For a merge question, use the header form of "Merges and merge grants".
 9. For each answer that you send (an answer of the owner, or your decision in autonomous mode), call `answer_write` with `question_id` = the ID, `text` = the words of the owner with the date and the source (or your decision), `subject` = the subject of the question, and `asker` = the role key of the asker. Then delete the row of `questions.md` in the closing commit (`close question: <role key> <id> - <subject>`, see "Current state only"), and put an answer that stays binding into "Decisions" of the project file. Then send `ANSWER Q-<id>: <subject>` with the text to the asker.
 10. A `REC Q-<id>: <subject>` from a clanker is a recommendation, not an answer. Show it with the question.
+11. A prompt `Q-<id>: <label>` from an answer button of `/bruh-board` is the answer of the owner to that question: record it and send it as steps 8 and 9 say.
 
 For a question of your own, call `question_open` with `priority`, `subject`, `body`, and `blocks`. When the question has 2 to 4 fixed answers, pass them as `options`, and send the returned `body`.
 
