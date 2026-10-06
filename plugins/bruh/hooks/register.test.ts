@@ -476,6 +476,19 @@ test('pipeline: an open question shows "?" at the phase, merged is a full green 
   expect((await view(ui)).texts).toContain(`${' '.repeat(28)}plan  impl  rev   fix   merge`)
 })
 
+test('pipeline: an open question outranks a reported done phase: "?" sits at merge', pick('pipeline'), async ($, on) => {
+  const w = world(ALL_OPEN)
+  w.files[`${D}/questions/Q-bruh-m-93.json`] = line({ id: 'Q-bruh-m-93', priority: 'P1', subject: 'which way?', asker: 'clerk-bruh-liveui', opened_at: '2026-10-05T16:21:00Z' })
+  w.files[`${D}/reports/clerk-bruh-liveui.jsonl`] = line({ kind: 'status', text: 'asked', phase: 'done' }) + '\n'
+  w.stub(on)
+  await $.command.run({ command: 'bruh-board' })
+  const ui = await mount($)
+  const liveui = await cells(ui, 'clerk-bruh-liveui')
+  expect(liveui.slice(0, 4)).toEqual([GREEN, GREEN, GREEN, GREEN])
+  expect(liveui[4].text).toMatch(/^[◐◓◑◒]\?━━━ $/)
+  expect(liveui[4].color).toBe('yellow')
+})
+
 test('readPhase takes the latest line with a known top-level phase and reads nothing else', () => {
   for (const phase of PHASES) expect(readPhase([{ phase: 'plan' }, { phase }, { kind: 'event' }])).toBe(phase)
   expect(readPhase([])).toBeUndefined()

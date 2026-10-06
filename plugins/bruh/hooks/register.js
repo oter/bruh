@@ -408,10 +408,13 @@ export const register = (on, options) => {
       const green = () => STRIP.map(() => ({ text: '━━━━━ ', color: 'green' }))
       const strip = item => {
         if (item.state === 'stopped') return [{ text: '■ stopped', color: 'gray' }]
-        if (item.state === 'done' || item.phase === 'done') return green()
+        if (item.state === 'done') return green()
+        // An open question ("?") or a block ("!") outranks a reported done: its mark sits at merge.
+        const marked = item.state === 'owner' || item.state === 'blocked'
+        if (item.phase === 'done' && !marked) return green()
         const s = spinner('clerk', item.state, tick)
         const glyph = { ...(s.color && { color: s.color }), ...(s.dim && { dim: true }) }
-        const at = STRIP.indexOf(item.phase)
+        const at = item.phase === 'done' ? STRIP.length - 1 : STRIP.indexOf(item.phase)
         if (at < 0) return [{ ...glyph, text: `${s.glyph} ` }, { text: '····· phase not reported', dim: true }]
         return STRIP.map((phase, i) => (i < at ? { text: '━━━━━ ', color: 'green' }
           : i === at ? { ...glyph, text: `${s.glyph}${'━'.repeat(CELL - 1 - [...s.glyph].length)} ` }
