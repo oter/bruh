@@ -1,5 +1,6 @@
 {
   "description": "bruh hooks: the handoff message, the handoff pickup, the lease guard, the waiter that wakes a role on new mail, and the refusal stop. Each does nothing when BRUH_ROLE_KEY is not set.",
+  "modules": ["./register.js"],
   "hooks": {
     "PostToolUse": [
       {
