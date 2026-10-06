@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Added
+
+- The `/bruh-board` command opens a live pane. It shows one short line for each open P0 and P1 question, and one collapsed line for each clanker with a spinner and its task count. Press `1` to `9` to expand a clanker to its clerks (task, spinner, and state), and `a` to `z` to expand a clerk to its last done and next step; Tab and Enter reach every line, and Esc gives the keys back to the prompt. The expanded state stays in the store of the mod, its only write.
+
 ## [0.11.1] - 2026-10-05
 
 ### Changed

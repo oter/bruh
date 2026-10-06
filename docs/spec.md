@@ -754,6 +754,8 @@ Agent-derived, accepted 2026-09-30.
 - bigm reports status in three parts: "Ready for you", "Waiting on you", "In progress". Commands that the owner must run are in code blocks, never "see above". The setup of the owner used this form.
 - The status cadence is a runtime setting in `mode.md`: report only on change, or always.
 
+The bruh board is a live pane beside the status report. Only the command `/bruh-board` opens it, with the keyboard. It reads `claude agents --json --all`, the open P0 and P1 questions, the report files, `repos.json`, and the "In progress" rows of the ledger. Its only write is the expanded state, one key for each item in its own mod store. It refreshes every 10 seconds and stops when the pane closes. By default it shows one short line for each open P0 or P1 question and one collapsed line for each clanker, with a summary spinner and the task count. A clanker expands to its clerks (task number and slug, spinner, state), and a clerk expands to its last done and next step. Plain buttons expand and collapse: hotkeys `1` to `9` for the clankers and `a` to `z` for the clerks, Tab and Enter for the rest. Each line is cut to the pane width, and no line shows a time, a session ID, a run ID, or a commit SHA. The board has no workflow run line. Agent-derived, needs owner decision.
+
 ### 9.5 Monitors
 
 Status: Built 2026-10-04.
