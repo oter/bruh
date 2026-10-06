@@ -74,14 +74,16 @@ func scoutAllow(key string) []string {
 // more than a URL and a /tmp name. Deny wins over allow, so each command with an allow prefix
 // that holds one of these texts is denied: ".." climbs out of /tmp, "$" and "`" expand a
 // variable (a token) or run a command, quotes and "\" hide an option, " -" is any option after
-// the prefix (git clone -u or -c run a program, curl -T or -d upload a file), and "file:/" is a
-// local file URL. They match only commands that start with an allow prefix, so the other curl
-// reads still go to the classifier.
+// the prefix (git clone -u or -c run a program, curl -T or -d upload a file), "file:/" is a
+// local file URL, and ">" redirects the output into another file (a project folder too). A
+// compound command needs no guard: Claude Code splits it at &&, ||, ;, |, &, and newlines, and
+// each part must match an allow rule on its own. They match only commands that start with an
+// allow prefix, so the other curl reads still go to the classifier.
 func scoutGuardDeny() []string {
 	var out []string
 	for _, p := range []string{scoutClonePrefix, scoutCurlPrefix} {
 		// "file:/", not "file:": a rule that ends in ":*" means a trailing " *".
-		for _, x := range []string{"..", "$", "`", "'", `"`, `\`, " -", "file:/"} {
+		for _, x := range []string{"..", "$", "`", "'", `"`, `\`, " -", "file:/", ">"} {
 			out = append(out, "Bash("+p+"*"+x+"*)")
 		}
 	}

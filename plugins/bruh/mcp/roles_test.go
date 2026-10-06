@@ -359,20 +359,31 @@ func ruleMatches(rule, tool, cmd string) bool {
 
 // decide returns the outcome of a call in a settings file as the docs say: "Rules are evaluated
 // in order: deny, then ask, then allow. The first match in that order determines the outcome".
-// A call that matches no rule goes to the auto mode classifier.
+// A Bash command is split as the docs say: "The recognized command separators are `&&`, `||`,
+// `;`, `|`, `|&`, `&`, and newlines. A rule must match each subcommand independently", and
+// "Deny and ask rules apply when any subcommand matches them". A call that matches no rule goes
+// to the auto mode classifier.
 func decide(deny, allow []string, tool, cmd string) string {
-	for _, out := range []struct {
-		name  string
-		rules []string
-	}{{"deny", deny}, {"allow", allow}} {
-		for _, r := range out.rules {
-			if ruleMatches(r, tool, cmd) {
-				return out.name
-			}
-		}
+	parts := []string{cmd}
+	if tool == "Bash" {
+		parts = cmdSep.Split(cmd, -1)
+	}
+	matches := func(rules []string, p string) bool {
+		return slices.ContainsFunc(rules, func(r string) bool { return ruleMatches(r, tool, strings.TrimSpace(p)) })
+	}
+	if slices.ContainsFunc(parts, func(p string) bool { return matches(deny, p) }) {
+		return "deny"
+	}
+	if !slices.ContainsFunc(parts, func(p string) bool { return !matches(allow, p) }) {
+		return "allow"
 	}
 	return "classifier"
 }
+
+// cmdSep matches the command separators of the docs.
+// ponytail: no shell quoting, so a quoted separator splits too; the guard rules deny each quote
+// after an allow prefix, so no allowed form holds one.
+var cmdSep = regexp.MustCompile(`&&|\|\||\|&|[;|&\n]`)
 
 // Task 28 (owner, 2026-10-06T16:31:45Z): a scout may clone a public repository and download a
 // file into /tmp/<scout key>-* for research. The other writes stay denied.
@@ -413,6 +424,21 @@ func TestScoutCloneRules(t *testing.T) {
 		{"Bash", "curl -fsSL -o /tmp/clerk-a-scout1-f 'https://h' -d @x", "deny"},
 		{"Bash", "curl -fsSL -o /tmp/clerk-a-scout1-f file:///Users/me/.ssh/id_rsa https://h", "deny"},
 		{"Bash", "cp /tmp/x /Users/me/proj/x", "deny"},
+		// A write that rides on an allowed form: a redirect, or a compound with a write.
+		{"Bash", "git clone https://h/r /tmp/clerk-a-scout1-r > /Users/me/proj/x", "deny"},
+		{"Bash", "curl -fsSL -o /tmp/clerk-a-scout1-f https://h 2>/Users/me/proj/x", "deny"},
+		{"Bash", "curl -fsSL -o /tmp/clerk-a-scout1-f https://h >> /Users/me/proj/x", "deny"},
+		{"Bash", "git clone https://h/r /tmp/clerk-a-scout1-r; cp -r /tmp/clerk-a-scout1-r /Users/me/proj/r", "deny"},
+		{"Bash", "git clone https://h/r /tmp/clerk-a-scout1-r && git -C /tmp/clerk-a-scout1-r push", "deny"},
+		{"Bash", "git clone https://h/r /tmp/clerk-a-scout1-r && git -C /Users/me/proj commit -m x", "deny"},
+		{"Bash", "curl -fsSL -o /tmp/clerk-a-scout1-f https://h | tee /Users/me/proj/f", "deny"},
+		{"Bash", "curl -fsSL -o /tmp/clerk-a-scout1-f https://h & touch /Users/me/proj/f", "deny"},
+		{"Bash", "curl -fsSL -o /tmp/clerk-a-scout1-f https://h\nmv /tmp/clerk-a-scout1-f /Users/me/proj/f", "deny"},
+		// An allow covers only its own part: another part goes to the classifier.
+		{"Bash", "git clone https://h/r /tmp/clerk-a-scout1-r && python3 /tmp/clerk-a-scout1-r/w.py", "classifier"},
+		{"Bash", "git clone https://h/r /tmp/clerk-a-scout1-r || node w.js", "classifier"},
+		{"Bash", "git clone https://h/r /tmp/clerk-a-scout1-r &&", "classifier"},
+		{"Bash", "git clone https://h/r /tmp/clerk-a-scout1-r && curl -fsSL -o /tmp/clerk-a-scout1-f https://h", "allow"},
 		{"Edit", "", "deny"},
 		{"Write", "", "deny"},
 		// Another key's folder, and the forms outside the two exact ones, go to the classifier.
