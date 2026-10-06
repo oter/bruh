@@ -193,7 +193,8 @@ A monitor wakes you when an external state that your task waits on changes (spec
 2. After the acceptance, run `ExitWorktree`, then `git worktree remove <worktree path>` for your own worktree only.
 3. Call `lease_release` for each lease that you hold.
 4. Write `task closed` with `report_write` (kind `status`).
-5. End your turn after you write `task closed`. Do not start new work. Your clanker stops the session. The next task gets a new clerk.
+5. Send `DONE: <task> closed` to your clanker as "How to send a message" says, with the body `task closed`.
+6. End your turn after you write `task closed` and send that message. Do not start new work. Your clanker stops the session. The next task gets a new clerk.
 
 ## The scout clerk
 

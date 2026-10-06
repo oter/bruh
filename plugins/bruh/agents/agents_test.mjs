@@ -607,7 +607,8 @@ test('the clerk and the clanker never run git -C on the main checkout from a wor
 
 test('a clerk ends its turn after task closed, and the clanker stops it', () => {
   const finish = agents.clerk.split('\n## Finish\n')[1].split('\n## ')[0]
-  assert.match(finish, /End your turn after you write `task closed`.*Your clanker stops the session/)
+  assert.match(finish, /Send `DONE: <task> closed` to your clanker/)
+  assert.match(finish, /End your turn after you write `task closed` and send that message.*Your clanker stops the session/)
   const results = agents.clanker.split('\n## Results of clerks\n')[1].split('\n## ')[0]
-  assert.match(results, /shows its `task closed` line, run `claude stop <id>` with the `id` of the clerk from `session_list`/)
+  assert.match(results, /sends `DONE: <task> closed`\. When that message arrives, and `report_read` of the clerk key shows its `task closed` line, run `claude stop <id>` with the `id` of the clerk from `session_list`/)
 })
