@@ -1,5 +1,6 @@
 import { expect, mock, test } from 'claude-code/testing'
 import type { On } from 'claude-code'
+import { PHASES, readPhase, SOFT } from './register.js'
 
 // A small fake world beneath the plugin: the bruh data folder under HOME=/h,
 // a ledger at /l, the output of `claude agents --json --all`, and a $.store.
@@ -74,6 +75,7 @@ function world(stored: Record<string, unknown> = {}) {
       calls.sent.push(e.text)
       return { text: e.text }
     })
+    on('config.set', ($, e) => ({ value: e.value }))
     on('command.register', ($, e) => {
       calls.registered.push(e.name)
       return { value: { command: e.name } }
@@ -85,11 +87,22 @@ function world(stored: Record<string, unknown> = {}) {
 
 const ALL_OPEN = { 'open:clanker-bruh': true, 'open:clanker-shop': true, 'open:clerk-bruh-pollerwait': true, 'open:clerk-bruh-liveui': true, 'open:clerk-shop-x': true }
 
+const DESIGNS = ['cards', 'buckets', 'pipeline'] as const
+const pick = (design: string) => ({ options: { board_design: design } })
+// A done and a stopped clerk of oter/bruh: they belong to the Done group.
+function withEnded(w: ReturnType<typeof world>) {
+  w.sessions.push(
+    { name: 'clerk-bruh-merge', state: 'done', startedAt: 3, cwd: '/w/bruh/.claude/worktrees/merge-simplify' },
+    { name: 'clerk-bruh-tabclose', state: 'stopped', startedAt: 2, cwd: '/w/bruh/.claude/worktrees/tab-close' },
+  )
+  return w
+}
+
 const mount = ($: any, bodyColumns = 200) => $.ui.mount({
   plugin: 'bruh', surface: 'terminal', component: 'Pane', requestId: 'bruh-board',
   props: { title: 'bruh board', isFocused: true, bodyColumns, placement: 'dock' as const, scroll: { offset: 0, bodyRows: 60 }, view: {} },
 })
-// What the pane shows: each Text, and each Button as its key, hotkey and label.
+// What the pane shows: each Text, and each Button as its key, hotkey (none) and label.
 const view = async (ui: any) => {
   const texts: any[] = await ui.findAll({ type: 'Text' })
   const buttons: any[] = await ui.findAll({ type: 'Button' })
@@ -116,7 +129,7 @@ test('/bruh-board opens the pane with the keys and nothing opens it unasked', as
   expect(ran.text).toBe('bruh board opened.')
 })
 
-test('the default view: the open questions and one collapsed line per clanker', async ($, on) => {
+test('the default view: the open questions, one collapsed card per clanker and the Done group, no hotkeys', async ($, on) => {
   const w = world()
   w.stub(on)
   await $.command.run({ command: 'bruh-board' })
@@ -131,8 +144,9 @@ test('the default view: the open questions and one collapsed line per clanker', 
   expect(text).not.toContain('bigm')
   expect(text).not.toMatch(/last:|next:|pollerwait|liveui/)
   expect(v.buttons).toEqual([
-    { key: 'toggle-clanker-bruh', hotkey: '1', label: '▸ oter/bruh · 2 tasks' },
-    { key: 'toggle-clanker-shop', hotkey: '2', label: '▸ shop · no tasks' },
+    { key: 'toggle-clanker-bruh', hotkey: undefined, label: '▸ oter/bruh · 2 tasks' },
+    { key: 'toggle-clanker-shop', hotkey: undefined, label: '▸ shop · no tasks' },
+    { key: 'toggle-done', hotkey: undefined, label: '▸ Done (0)' },
   ])
   expect(w.calls.writes).toEqual([])
 })
@@ -145,19 +159,20 @@ test('a clanker expands to its clerks and collapses again, and the store keeps i
   await ui.press({ key: 'toggle-clanker-bruh' })
   const v = await view(ui)
   expect(v.buttons).toEqual([
-    { key: 'toggle-clanker-bruh', hotkey: '1', label: '▾ oter/bruh · 2 tasks' },
-    { key: 'toggle-clerk-bruh-pollerwait', hotkey: 'a', label: '▸ task 12 fix-poller-wait-lock · working' },
-    { key: 'toggle-clerk-bruh-liveui', hotkey: 'b', label: '▸ liveui · blocked' },
-    { key: 'toggle-clanker-shop', hotkey: '2', label: '▸ shop · no tasks' },
+    { key: 'toggle-clanker-bruh', hotkey: undefined, label: '▾ oter/bruh · 2 tasks' },
+    { key: 'toggle-clerk-bruh-pollerwait', hotkey: undefined, label: '▸ task 12 fix-poller-wait-lock · working' },
+    { key: 'toggle-clerk-bruh-liveui', hotkey: undefined, label: '▸ liveui · blocked' },
+    { key: 'toggle-clanker-shop', hotkey: undefined, label: '▸ shop · no tasks' },
+    { key: 'toggle-done', hotkey: undefined, label: '▸ Done (0)' },
   ])
   expect(w.store.get('open:clanker-bruh')).toBe(true)
   await ui.press({ key: 'toggle-clanker-bruh' })
-  expect(await labels(ui)).toEqual(['▸ oter/bruh · 2 tasks', '▸ shop · no tasks'])
+  expect(await labels(ui)).toEqual(['▸ oter/bruh · 2 tasks', '▸ shop · no tasks', '▸ Done (0)'])
   expect(w.store.get('open:clanker-bruh')).toBe(false)
   expect(w.calls.writes).toEqual(['open:clanker-bruh', 'open:clanker-bruh'])
 })
 
-test('a clerk expands to its last done and next step and collapses again', async ($, on) => {
+test('a clerk expands to its name, last done and next step and collapses again', async ($, on) => {
   const w = world()
   w.stub(on)
   await $.command.run({ command: 'bruh-board' })
@@ -165,14 +180,15 @@ test('a clerk expands to its last done and next step and collapses again', async
   await ui.press({ key: 'toggle-clanker-bruh' })
   await ui.press({ key: 'toggle-clerk-bruh-pollerwait' })
   let v = await view(ui)
-  // last done prefers the last status line over a later event line; a SHA is masked (R-5)
-  expect(v.texts).toContain('    last: pushed commit … to the branch')
-  expect(v.texts).toContain('    next: PR on oter/bruh')
+  // R-10 name; last done prefers the last status line over a later event line; a SHA is masked (R-5)
+  expect(v.texts).toContain('oter/bruh pollerwait (clerk, task 12 fix-poller-wait-lock)')
+  expect(v.texts).toContain('last: pushed commit … to the branch')
+  expect(v.texts).toContain('next: PR on oter/bruh')
   expect(await all(ui)).not.toContain('3f9a2b1c4d')
   expect(w.store.get('open:clerk-bruh-pollerwait')).toBe(true)
   await ui.press({ key: 'toggle-clerk-bruh-pollerwait' })
   v = await view(ui)
-  expect(v.texts.join('\n')).not.toMatch(/last:|next:/)
+  expect(v.texts.join('\n')).not.toMatch(/last:|next:|\(clerk/)
   expect(w.store.get('open:clerk-bruh-pollerwait')).toBe(false)
 })
 
@@ -183,9 +199,9 @@ test('the expanded state saved in the store shows at the first mount', async ($,
   const ui = await mount($)
   const v = await view(ui)
   expect(v.buttons.map(b => b.label)).toEqual([
-    '▾ oter/bruh · 2 tasks', '▾ task 12 fix-poller-wait-lock · working', '▸ liveui · blocked', '▸ shop · no tasks',
+    '▾ oter/bruh · 2 tasks', '▾ task 12 fix-poller-wait-lock · working', '▸ liveui · blocked', '▸ shop · no tasks', '▸ Done (0)',
   ])
-  expect(v.texts).toContain('    last: pushed commit … to the branch')
+  expect(v.texts).toContain('last: pushed commit … to the branch')
   expect(w.calls.writes).toEqual([])
 })
 
@@ -200,7 +216,7 @@ test('a refresh after 10 seconds shows new data', async ($, on) => {
   expect(await all(ui)).not.toContain('phase two')
   await clock.advance(500)
   expect(w.calls.run).toBe(2)
-  expect((await view(ui)).texts).toContain('    last: phase two')
+  expect((await view(ui)).texts).toContain('last: phase two')
 })
 
 test('the spinner differs by role and by state, a clanker shows the most urgent, and only working moves', async ($, on) => {
@@ -232,15 +248,17 @@ test('the spinner differs by role and by state, a clanker shows the most urgent,
   expect((await spin('clerk-bruh-liveui'))?.text).toBe(blocked?.text)
 })
 
-test('a clanker whose sessions are all done shows a gray check', async ($, on) => {
+test('a clanker whose sessions are all done is one gray line of the Done group', async ($, on) => {
   const w = world()
   w.sessions.splice(w.sessions.findIndex(s => s.name === 'clerk-shop-x'), 1)
   w.stub(on)
   await $.command.run({ command: 'bruh-board' })
   const ui = await mount($)
-  const box: any = await ui.find({ key: 'spin-clanker-shop' })
-  expect(box.text).toBe('✓')
-  expect(box.children[0].props.color).toBe('gray')
+  expect(await labels(ui)).toEqual(['▸ oter/bruh · 2 tasks', '▸ Done (1)'])
+  await ui.press({ key: 'toggle-done' })
+  const done: any = await ui.find({ key: 'done-clanker-shop' })
+  expect(done.text).toBe('✓ shop (clanker) · done')
+  expect(done.children[0].props.color).toBe('gray')
 })
 
 test('no line holds a timestamp, a run ID, a question ID, a SHA, a pid or a start time', async ($, on) => {
@@ -255,33 +273,46 @@ test('no line holds a timestamp, a run ID, a question ID, a SHA, a pid or a star
   await $.command.run({ command: 'bruh-board' })
   const ui = await mount($)
   const text = await all(ui)
-  expect(text).toContain('    last: at … and … run … asked … on …')
+  expect(text).toContain('last: at … and … run … asked … on …')
   expect(text).toContain('P1 merge at …?')
   expect(text).not.toMatch(/\d{4}-\d\d-\d\dT|\d\d:\d\dZ|wf_|Q-|\b[0-9a-f]{7,40}\b|9001\d|17596/)
 })
 
-test('long text is cut to the pane width, not wrapped', async ($, on) => {
-  const w = world(ALL_OPEN)
-  w.files[`${D}/questions/Q-bruh-m-98.json`] = line({ id: 'Q-bruh-m-98', priority: 'P1', subject: 'merge oter/bruh#29 after the long review of the board?', asker: 'clanker-bruh', opened_at: '2026-10-05T16:20:00Z' })
-  w.stub(on)
-  await $.command.run({ command: 'bruh-board' })
-  const ui = await mount($, 24)
-  const v = await view(ui)
-  const width = (s: string) => [...s].length
-  // a line Text has wrap truncate-end and fits; the other Texts are the indent, spinner and gap pieces of a toggle line
-  for (const t of v.textNodes) {
-    if (t.props.wrap) expect(t.props.wrap).toBe('truncate-end')
-    expect(width(t.text) <= (t.props.wrap ? 24 : 2)).toBe(true)
-  }
-  // a toggle line: indent, spinner and gap (3), "x: " of its hotkey (3), then the label
-  for (const b of v.buttons) {
-    const indent = b.key.startsWith('toggle-clerk-') ? 2 : 0
-    expect(indent + 3 + (b.hotkey ? 3 : 0) + width(b.label) <= 24).toBe(true)
-  }
-  expect(v.texts).toContain('P1 merge oter/bruh#29 a…')
-  expect(v.buttons[0].label).toBe('▾ oter/bruh · 2 t…')
-  expect(v.texts.find(t => t.startsWith('    last:'))).toBe('    last: pushed commit…')
-})
+// The columns a drawn element takes, as the terminal lays it out: a Box is a row
+// unless it says column, a border and its padding take columns, a Button draws
+// "[ label ]" unless plain. A Box with a width checks its content fits it.
+const columns = (node: any): number => {
+  if (typeof node === 'string') return [...node].length
+  if (!node) return 0
+  if (node.type === 'Button') return [...node.props.label].length + (node.props.plain ? 0 : 4)
+  const kids: number[] = (node.children ?? []).map(columns)
+  if (node.type !== 'Box') return kids.reduce((a, b) => a + b, 0)
+  const inner = node.props.flexDirection === 'column' ? Math.max(0, ...kids) : kids.reduce((a, b) => a + b, 0)
+  if (node.props.width !== undefined) expect(inner <= node.props.width).toBe(true)
+  return Math.max(inner, node.props.width ?? 0) + (node.props.borderStyle ? 2 : 0) + 2 * (node.props.paddingX ?? 0)
+}
+
+for (const design of DESIGNS) {
+  test(`long text is cut to the pane width, not wrapped (${design})`, pick(design), async ($, on) => {
+    const w = withEnded(world({ ...ALL_OPEN, 'open:done': true }))
+    w.files[`${D}/questions/Q-bruh-m-98.json`] = line({ id: 'Q-bruh-m-98', priority: 'P1', subject: 'merge oter/bruh#29 after the long review of the board?', asker: 'clanker-bruh', opened_at: '2026-10-05T16:20:00Z', options: [{ label: 'merge it now please' }, { label: 'wait for the review' }] })
+    w.files[REPORT] += line({ kind: 'event', text: 'review', phase: 'review' }) + '\n'
+    w.stub(on)
+    await $.command.run({ command: 'bruh-board' })
+    const ui = await mount($, 24)
+    const v = await view(ui)
+    for (const t of v.textNodes) if (t.props.wrap) expect(t.props.wrap).toBe('truncate-end')
+    const root: any = await ui.drawn()
+    for (const row of root.children) expect(columns(row) <= 24).toBe(true)
+    expect(v.texts.some(t => t.includes('pushed co'))).toBe(true)
+    if (design === 'cards') {
+      expect(v.texts).toContain('P1 merge oter/bruh#…')
+      expect(v.buttons[0].label).toBe('mer…')
+      expect(v.buttons.find(b => b.key === 'toggle-clanker-bruh')?.label).toBe('▾ oter/bruh · 4 …')
+      expect(v.texts).toContain('last: pushed co…')
+    }
+  })
+}
 
 test('a clanker with no session still counts the tasks of its rows and its live clerks', async ($, on) => {
   const w = world()
@@ -290,7 +321,7 @@ test('a clanker with no session still counts the tasks of its rows and its live 
   w.stub(on)
   await $.command.run({ command: 'bruh-board' })
   const ui = await mount($)
-  expect(await labels(ui)).toEqual(['▸ oter/bruh · 2 tasks', '▸ shop · 1 task'])
+  expect(await labels(ui)).toEqual(['▸ oter/bruh · 2 tasks', '▸ shop · 1 task', '▸ Done (0)'])
 })
 
 test('two open questions with one subject show their numbers', async ($, on) => {
@@ -326,30 +357,221 @@ test('a delegated answer and a replaced duplicate do not show as open (task 24)'
 })
 
 const OPTIONS = [{ label: 'merge now', description: 'squash' }, { label: 'wait', description: 'after the review' }]
-
-test('a question with options shows one button per option, a refusal P0 shows ok and hold', async ($, on) => {
-  const w = world()
+// An open P1 with options of the clanker, and a refusal P0 of a clerk.
+function withAnswers(w: ReturnType<typeof world>) {
   w.files[`${D}/questions/Q-bruh-m-98.json`] = line({ id: 'Q-bruh-m-98', priority: 'P1', subject: 'merge oter/bruh#29?', asker: 'clanker-bruh', opened_at: '2026-10-05T16:20:00Z', options: OPTIONS })
   w.files[`${D}/questions/Q-bruh-m-93.json`] = line({ id: 'Q-bruh-m-93', priority: 'P0', subject: 'refused', body: 'why\n\nCOMMAND: x\nCATEGORY: classifier y', asker: 'clerk-bruh-liveui', opened_at: '2026-10-05T16:21:00Z' })
+  return w
+}
+
+for (const design of DESIGNS) {
+  test(`a question shows one button per option, a refusal P0 ok and hold, and a press submits the exact text (${design})`, pick(design), async ($, on) => {
+    const w = withAnswers(world(ALL_OPEN))
+    w.stub(on)
+    await $.command.run({ command: 'bruh-board' })
+    const ui = await mount($)
+    const answers = (await view(ui)).buttons.filter(b => b.key.startsWith('answer-'))
+    const p0 = [
+      { key: 'answer-Q-bruh-m-93-0', hotkey: undefined, label: 'ok' },
+      { key: 'answer-Q-bruh-m-93-1', hotkey: undefined, label: 'hold' },
+    ]
+    const p1 = [
+      { key: 'answer-Q-bruh-m-98-0', hotkey: undefined, label: 'merge now' },
+      { key: 'answer-Q-bruh-m-98-1', hotkey: undefined, label: 'wait' },
+    ]
+    // buckets: the clanker's P1 on top, the P0 in the row of its clerk
+    expect(answers).toEqual(design === 'buckets' ? [...p1, ...p0] : [...p0, ...p1])
+    await ui.press({ key: 'answer-Q-bruh-m-98-0' })
+    await ui.press({ key: 'answer-Q-bruh-m-93-1' })
+    expect(w.calls.sent).toEqual(['Q-bruh-m-98: merge now', 'Q-bruh-m-93: hold'])
+    expect(w.calls.writes).toEqual([])
+  })
+}
+
+// The cards, buckets and pipeline of one world, each test drawing one design.
+
+test('cards: a double card per question, a bold card per clanker, a round card per clerk in its state colour, a dashed Done card', pick('cards'), async ($, on) => {
+  const w = withAnswers(world(ALL_OPEN))
   w.stub(on)
   await $.command.run({ command: 'bruh-board' })
   const ui = await mount($)
-  const answers = (await view(ui)).buttons.filter(b => b.key.startsWith('answer-'))
-  expect(answers).toEqual([
-    { key: 'answer-Q-bruh-m-93-0', hotkey: undefined, label: 'ok' },
-    { key: 'answer-Q-bruh-m-93-1', hotkey: undefined, label: 'hold' },
-    { key: 'answer-Q-bruh-m-98-0', hotkey: undefined, label: 'merge now' },
-    { key: 'answer-Q-bruh-m-98-1', hotkey: undefined, label: 'wait' },
+  const boxes: any[] = (await ui.findAll({ type: 'Box' })).filter((b: any) => b.props.borderStyle)
+  expect(boxes.map(b => [b.key, b.props.borderStyle, b.props.borderColor])).toEqual([
+    ['card-Q-bruh-m-93', 'double', 'red'],
+    ['card-Q-bruh-m-98', 'double', 'yellow'],
+    ['card-clanker-bruh', 'bold', 'gray'],
+    ['card-clerk-bruh-pollerwait', 'round', 'green'],
+    ['card-clerk-bruh-liveui', 'round', 'yellow'], // the asker of the P0 waits on you
+    ['card-clanker-shop', 'bold', 'gray'],
+    ['card-clerk-shop-x', 'round', 'gray'],
+    ['card-done', 'dashed', 'gray'],
+  ])
+  const pollerwait = boxes[3]
+  expect(pollerwait.text).toContain('last: pushed commit … to the branch')
+  expect((await ui.find({ key: 'card-Q-bruh-m-98' }))?.text).toContain('P1 merge oter/bruh#29?')
+})
+
+test('buckets: a soft bar per state, most urgent first, and a clerk question inside its row', pick('buckets'), async ($, on) => {
+  const w = withAnswers(world())
+  w.stub(on)
+  await $.command.run({ command: 'bruh-board' })
+  const ui = await mount($, 60)
+  const root: any = await ui.drawn()
+  const keys: string[] = root.children.map((c: any) => c.props?.key ?? '')
+  const bars: any[] = (await ui.findAll({ type: 'Box' })).filter((b: any) => String(b.key).startsWith('bar-') && b.key !== 'bar-done')
+  expect(bars.map(b => b.text.trimEnd())).toEqual([' WAITS ON YOU  1', ' WAITS ON YOU  1', ' WORKING  1', ' IDLE  1'])
+  for (const bar of bars) {
+    const props = bar.children[0].props
+    expect([...bar.text].length).toBe(60)
+    expect(Object.values(SOFT)).toContain(props.backgroundColor)
+    expect(props.color).toBe('#e6edf3')
+  }
+  expect((await ui.find({ key: 'bar-done' }))?.props.backgroundColor).toBe(SOFT.done)
+  expect(keys).toEqual([
+    'bar-questions', 'q-Q-bruh-m-98', 'answers-Q-bruh-m-98', // the clanker's own question
+    'crumb-clanker-bruh',
+    'bar-clanker-bruh-owner', 'clerk-bruh-liveui', 'q-Q-bruh-m-93', 'answers-Q-bruh-m-93',
+    'bar-clanker-bruh-working', 'clerk-bruh-pollerwait',
+    'crumb-clanker-shop', 'bar-clanker-shop-idle', 'clerk-shop-x',
+    'bar-done',
+  ])
+  expect((await ui.find({ key: 'crumb-clanker-bruh' }))?.text).toBe('oter/bruh · 2 tasks')
+  expect((await ui.find({ key: 'q-Q-bruh-m-93' }))?.text).toBe('    P0 refused')
+  expect(await labels(ui)).toContain('▸ task 12 fix-poller-wait-lock')
+})
+
+// The strip cells of a clerk row in the pipeline: each Text of its strip Box.
+const cells = async (ui: any, key: string) => {
+  const strip: any = await ui.find({ key: `strip-${key}` })
+  return strip.children.map((c: any) => ({ text: c.children.join(''), color: c.props.color, dim: c.props.dimColor }))
+}
+const GREEN = { text: '━━━━━ ', color: 'green', dim: undefined }
+const AHEAD = { text: '····· ', color: undefined, dim: true }
+
+for (const phase of PHASES) {
+  test(`pipeline: a report line with phase ${phase} fills the strip up to it`, pick('pipeline'), async ($, on) => {
+    const w = world(ALL_OPEN)
+    w.files[REPORT] += line({ kind: 'status', text: 'step', phase }) + '\n' + line({ kind: 'event', text: 'mail read' }) + '\n'
+    w.stub(on)
+    await $.command.run({ command: 'bruh-board' })
+    const ui = await mount($)
+    const got = await cells(ui, 'clerk-bruh-pollerwait')
+    const at = PHASES.indexOf(phase)
+    if (phase === 'done') {
+      expect(got).toEqual([GREEN, GREEN, GREEN, GREEN, GREEN])
+      return
+    }
+    expect(got).toHaveLength(5)
+    expect(got.slice(0, at)).toEqual(Array(at).fill(GREEN))
+    expect(got[at].text).toMatch(/^[◐◓◑◒]━━━━ $/)
+    expect(got[at].color).toBe('green')
+    expect(got.slice(at + 1)).toEqual(Array(4 - at).fill(AHEAD))
+  })
+}
+
+test('pipeline: with no phase field the strip says phase not reported, also when the text says a phase', pick('pipeline'), async ($, on) => {
+  const w = world(ALL_OPEN)
+  w.files[REPORT] += line({ kind: 'status', text: 'phase review' }) + '\n' + line({ kind: 'status', text: 'x', phase: 'shipping' }) + '\n'
+  w.stub(on)
+  await $.command.run({ command: 'bruh-board' })
+  const ui = await mount($)
+  const got = await cells(ui, 'clerk-bruh-pollerwait')
+  expect(got[0].text).toMatch(/^[◐◓◑◒] $/)
+  expect(got[0].color).toBe('green')
+  expect(got[1]).toEqual({ text: '····· phase not reported', color: undefined, dim: true })
+  expect(await cells(ui, 'clerk-bruh-liveui')).toEqual([
+    expect.objectContaining({ text: expect.stringMatching(/^[◐◓◑◒]! $/), color: 'red' }),
+    { text: '····· phase not reported', color: undefined, dim: true },
   ])
 })
 
-test('a press submits the exact text', async ($, on) => {
-  const w = world()
-  w.files[`${D}/questions/Q-bruh-m-98.json`] = line({ id: 'Q-bruh-m-98', priority: 'P1', subject: 'merge oter/bruh#29?', asker: 'clanker-bruh', opened_at: '2026-10-05T16:20:00Z', options: OPTIONS })
+test('pipeline: an open question shows "?" at the phase, merged is a full green strip, stopped shows ■ stopped', pick('pipeline'), async ($, on) => {
+  const w = withEnded(world({ ...ALL_OPEN, 'open:done': true }))
+  w.files[`${D}/questions/Q-bruh-m-93.json`] = line({ id: 'Q-bruh-m-93', priority: 'P1', subject: 'which way?', asker: 'clerk-bruh-liveui', opened_at: '2026-10-05T16:21:00Z' })
+  w.files[`${D}/reports/clerk-bruh-liveui.jsonl`] = line({ kind: 'status', text: 'asked', phase: 'review' }) + '\n'
   w.stub(on)
   await $.command.run({ command: 'bruh-board' })
   const ui = await mount($)
-  await ui.press({ key: 'answer-Q-bruh-m-98-0' })
-  expect(w.calls.sent).toEqual(['Q-bruh-m-98: merge now'])
-  expect(w.calls.writes).toEqual([])
+  const liveui = await cells(ui, 'clerk-bruh-liveui')
+  expect(liveui[2].text).toMatch(/^[◐◓◑◒]\?━━━ $/)
+  expect(liveui[2].color).toBe('yellow')
+  expect(await cells(ui, 'clerk-bruh-merge')).toEqual([GREEN, GREEN, GREEN, GREEN, GREEN])
+  expect(await cells(ui, 'clerk-bruh-tabclose')).toEqual([{ text: '■ stopped', color: 'gray', dim: undefined }])
+  expect((await view(ui)).texts).toContain(`${' '.repeat(28)}plan  impl  rev   fix   merge`)
+})
+
+test('pipeline: an open question outranks a reported done phase: "?" sits at merge', pick('pipeline'), async ($, on) => {
+  const w = world(ALL_OPEN)
+  w.files[`${D}/questions/Q-bruh-m-93.json`] = line({ id: 'Q-bruh-m-93', priority: 'P1', subject: 'which way?', asker: 'clerk-bruh-liveui', opened_at: '2026-10-05T16:21:00Z' })
+  w.files[`${D}/reports/clerk-bruh-liveui.jsonl`] = line({ kind: 'status', text: 'asked', phase: 'done' }) + '\n'
+  w.stub(on)
+  await $.command.run({ command: 'bruh-board' })
+  const ui = await mount($)
+  const liveui = await cells(ui, 'clerk-bruh-liveui')
+  expect(liveui.slice(0, 4)).toEqual([GREEN, GREEN, GREEN, GREEN])
+  expect(liveui[4].text).toMatch(/^[◐◓◑◒]\?━━━ $/)
+  expect(liveui[4].color).toBe('yellow')
+})
+
+test('readPhase takes the latest line with a known top-level phase and reads nothing else', () => {
+  for (const phase of PHASES) expect(readPhase([{ phase: 'plan' }, { phase }, { kind: 'event' }])).toBe(phase)
+  expect(readPhase([])).toBeUndefined()
+  expect(readPhase([{ text: 'phase review' }, { kind: 'status', text: 'review: fix' }])).toBeUndefined()
+  expect(readPhase([{ phase: 'review' }, { phase: 'shipping' }, { phase: 'Review' }])).toBe('review')
+  expect(readPhase([{ event: { phase: 'merge' } }, null, 3])).toBeUndefined()
+})
+
+for (const design of DESIGNS) {
+  test(`the Done group sits last, collapsed with its count, and opens on a press (${design})`, pick(design), async ($, on) => {
+    const w = withEnded(world())
+    w.stub(on)
+    await $.command.run({ command: 'bruh-board' })
+    const ui = await mount($)
+    let v = await view(ui)
+    expect(v.buttons.at(-1)).toEqual({ key: 'toggle-done', hotkey: undefined, label: '▸ Done (2)' })
+    let text = await all(ui)
+    expect(text).not.toMatch(/merge-simplify|tab-close/)
+    expect(text).toContain('oter/bruh · 4 tasks') // the ended clerks still count
+    await ui.press({ key: 'toggle-done' })
+    expect(w.store.get('open:done')).toBe(true)
+    v = await view(ui)
+    expect(v.buttons.at(-1)?.label).toBe('▾ Done (2)')
+    text = await all(ui)
+    expect(text).toContain('merge-simplify')
+    expect(text).toContain('tab-close')
+    if (design !== 'pipeline') {
+      expect(v.texts).toContain('✓ merge-simplify · done')
+      expect(v.texts).toContain('■ tab-close · stopped')
+    }
+    await ui.press({ key: 'toggle-done' })
+    expect(w.store.get('open:done')).toBe(false)
+    expect(await all(ui)).not.toMatch(/merge-simplify|tab-close/)
+  })
+}
+
+test('the /config pick switches the open pane at runtime, with no new /bruh-board', async ($, on) => {
+  const w = world()
+  w.stub(on)
+  await $.command.run({ command: 'bruh-board' })
+  const ui = await mount($)
+  expect(await ui.find({ key: 'card-done' })).toBeDefined()
+  for (const design of ['pipeline', 'buckets', 'cards']) {
+    const set = await $.config.set({ key: 'bruh.board_design', value: design })
+    expect(set.value).toBe(design)
+    expect(Boolean(await ui.find({ key: 'card-done' }))).toBe(design === 'cards')
+    expect(Boolean(await ui.find({ key: 'bar-done' }))).toBe(design === 'buckets')
+    expect((await view(ui)).texts.includes('Waits on you')).toBe(design === 'pipeline')
+  }
+  expect(w.calls.opened).toEqual(['bruh-board focus'])
+  expect(w.calls.run).toBe(1)
+})
+
+test('a draw with no timer (after a reload) starts the refresh again', pick('pipeline'), async ($, on) => {
+  const w = world()
+  const clock = w.stub(on)
+  const ui = await mount($) // no /bruh-board in this module's life
+  expect(w.calls.run).toBe(1)
+  expect(await labels(ui)).toContain('▸ oter/bruh · 2 tasks')
+  await clock.advance(10000)
+  expect(w.calls.run).toBe(2)
 })

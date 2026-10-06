@@ -35,6 +35,13 @@
       "options": ["auto", "off"],
       "default": "auto"
     },
+    "board_design": {
+      "type": "string",
+      "title": "bruh: Board design",
+      "description": "The look of the /bruh-board pane. cards: bordered cards. buckets: sections by state. pipeline: a strip across the deliver phases for each task. A change shows in the open pane at once.",
+      "options": ["cards", "buckets", "pipeline"],
+      "default": "cards"
+    },
     "slack_bot_token": {
       "type": "string",
       "title": "bruh: Slack bot token",
