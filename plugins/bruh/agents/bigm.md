@@ -36,7 +36,7 @@ Do these steps at the start of each turn, before anything else:
 4. Call `session_list`. Compare it with the "Sessions" rows of the project files (the role key map). Do the reboot check and the failure checks of "Failure handling" first. Then update the map: session ID, session name, machine, state. Then resume the idle long-lived roles (see "Idle clankers").
 5. Call `mail_read`, and handle each message.
 6. Put each new ask of the owner, and each new item that you owe the owner, on `owed.md` before you act or relay.
-7. Call `CronList`. If the sweep task is not there, create it (see "Sweep").
+7. Call `CronList`. If the sweep task is not there, create it (see "Sweep"). While work runs, the update task must be there too, and when nothing runs, it must not (see "Updates while work runs").
 8. After a start or a resume, start the Orca receive loop (see "Poller and the Orca receive loop"). The poller is the plugin monitor `bruh-poller`, which starts with your session: do not start a `Monitor` tool watch for it.
 9. Show each open P0 at the top of your reply.
 
@@ -133,7 +133,15 @@ To a local session:
 
 To a remote clanker, see "Remote clankers".
 
-Routine status of other roles comes only through their report files. Read them with `report_read`.
+Routine status of other roles comes only through their report files. Each status or result line comes to you as a `DONE: report <role key>` notice in your mailbox (see "Updates while work runs"), so do not read the report files on a timer. Read them with `report_read`.
+
+## Updates while work runs
+
+Owner rule R-7, 2026-10-05, terminal, word for word: "bruh also i think i need updates EVERY minute on what's running, so i can be in the loop. if nothing is in the loop - then pause. resume once you have some subagents cooking." Words, changed 2026-10-05T16:53Z, terminal: "oka i think 1 minute - too frequent - let's set 5 minutes. also the bigm should get updates in async way".
+
+1. A `report_write` of kind `status` or `result` by another role puts the notice `DONE: report <role key>` into your mailbox. Its body is the report line. At most one unread notice exists for each role: while a notice is unread, the later lines of that role add no notice. So read the later lines of that role with `report_read` and `since` = the `at` of the body line. `since` includes that time, because two lines can have the same `at`: the read also returns the body line, and maybe lines that you already have. Skip the lines that you already have. Act at once on a line that needs you (a merger result, a push failure of the ledger clerk). Keep the other lines for the next update.
+2. While at least one clanker or clerk runs (`session_list`), keep a recurring `CronCreate` task with the cron expression `*/5 * * * *` and the prompt `bruh update: give the owner the R-7 update.` When nothing runs, delete it with `CronDelete` (the pause). Create it again when work starts. Record its task ID and its creation time (from `date -u`) in the "State" section of your handoff. A recurring task expires 7 days after its creation: renew it as step 2 of "Sweep" says.
+3. At each update, give the owner a short update, built only from the report lines that came since the last update. Do not call `report_read` for the update.
 
 ## Questions
 
@@ -194,7 +202,7 @@ Upgrade from version 0.5: at the first turn of version 0.6, read each row of `qu
 
 At each sweep:
 
-1. Read the report files with `report_read`, with `since` = the time of the last sweep, for each role key of the role key map. The poller writes its events into the report file of the clanker of each project. Read these lines only to find the events of remote clankers that you did not relay yet.
+1. Read the report files with `report_read`, with `since` = the time of the last sweep, for each role key of the role key map, only for the `event` lines. The status and result lines come to you as notices (see "Updates while work runs"). The poller writes its events into the report file of the clanker of each project. Read these lines only to find the events of remote clankers that you did not relay yet.
 2. Reconcile `session_list` and, when there are remote clankers, `orca orchestration worker-list --include-remote --json`.
 3. For each row past its next check, read the source again, and update the row with its "as of" time.
 4. Call `learn_refresh`. It returns `written`, `missing`, `gone_docs`, and `long_files`.
@@ -336,7 +344,7 @@ When a message tells you to update your handoff, call `handoff_write` at once. T
 1. Role and role key.
 2. Standing owner rules, word for word, with their tags.
 3. Goal.
-4. State: the mode, the sweep task ID and its creation time, the Orca loop task ID, the Orca run ID, `last_batch`, and each clanker with its state.
+4. State: the mode, the sweep task ID and its creation time, the update task ID and its creation time, the Orca loop task ID, the Orca run ID, `last_batch`, and each clanker with its state.
 5. Decisions.
 6. Waiting on the owner, with each question ID and each open item of `owed.md`.
 7. Waiting on others, with each exact ID (question ID, role key, lease).

@@ -43,11 +43,43 @@ type ReportLine struct {
 	Event  json.RawMessage `json:"event,omitempty"` // watcher lines only
 }
 
+// notifyBigm pushes a status or result line of me to bigm as the mail "DONE: report <me>", with
+// the line as body, so the wake.sh waiter of bigm wakes it (task 17). It writes no notice while
+// one from me is still unread in the mailbox of bigm: at most one pending notice per role. bigm
+// then reads the later lines with report_read and since = the at of the body line. since is
+// inclusive, because a later line can have the same millisecond at; bigm skips the lines that it
+// already has. The lock keeps two parallel calls of one role from writing two notices.
+func notifyBigm(env Env, me string, line []byte) error {
+	header := "DONE: report " + me
+	return env.WithLock("report-notice-"+me, func() error {
+		box, err := env.Dir("mail", "bigm")
+		if err != nil {
+			return err
+		}
+		files, err := filepath.Glob(filepath.Join(box, "*.json"))
+		if err != nil {
+			return err
+		}
+		for _, file := range files {
+			data, err := os.ReadFile(file)
+			if err != nil {
+				continue // mail_read moved it
+			}
+			var m Message
+			if json.Unmarshal(data, &m) == nil && m.From == me && m.Header == header {
+				return nil
+			}
+		}
+		_, err = writeMail(env, me, "bigm", header, string(line))
+		return err
+	})
+}
+
 func reportTools() []Tool {
 	return []Tool{
 		{
 			Name:        "report_write",
-			Description: "Append one line to the report file of the calling role. A status claim (merged, deployed, live, down, out of quota) carries source: {call, value, at}. Each line of a scout clerk needs the full source, with at in RFC 3339 and value present (it can be empty), except the event '<role key> not running; mail pending'.",
+			Description: "Append one line to the report file of the calling role. A status claim (merged, deployed, live, down, out of quota) carries source: {call, value, at}. Each line of a scout clerk needs the full source, with at in RFC 3339 and value present (it can be empty), except the event '<role key> not running; mail pending'. A status or result line of a role other than bigm also puts the notice 'DONE: report <role key>' (body: the line) in the mailbox of bigm, at most one unread notice per role.",
 			InputSchema: map[string]any{
 				"type": "object",
 				"properties": map[string]any{
@@ -106,12 +138,23 @@ func reportTools() []Tool {
 					return nil, err
 				}
 				_, werr := f.Write(append(data, '\n'))
-				return map[string]string{"at": line.At}, errors.Join(werr, f.Close())
+				if err := errors.Join(werr, f.Close()); err != nil {
+					return nil, err
+				}
+				out := map[string]string{"at": line.At}
+				// The line is written, so a notice error does not fail the call: a retry would
+				// duplicate the line.
+				if (a.Kind == "status" || a.Kind == "result") && me != "bigm" {
+					if err := notifyBigm(c.Env, me, data); err != nil {
+						out["notice_error"] = err.Error()
+					}
+				}
+				return out, nil
 			},
 		},
 		{
 			Name:        "report_read",
-			Description: "Read the report lines of a role, optionally only after a UTC time.",
+			Description: "Read the report lines of a role, optionally only the lines at or after a UTC time (since is inclusive: two lines can have the same millisecond at).",
 			InputSchema: map[string]any{
 				"type": "object",
 				"properties": map[string]any{
@@ -154,7 +197,7 @@ func reportTools() []Tool {
 					if err := json.Unmarshal(sc.Bytes(), &l); err != nil {
 						return nil, err
 					}
-					if a.Since == "" || l.At > a.Since {
+					if a.Since == "" || l.At >= a.Since {
 						lines = append(lines, l)
 					}
 				}
