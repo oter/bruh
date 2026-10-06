@@ -193,7 +193,7 @@ A monitor wakes you when an external state that your task waits on changes (spec
 2. After the acceptance, run `ExitWorktree`, then `git worktree remove <worktree path>` for your own worktree only.
 3. Call `lease_release` for each lease that you hold.
 4. Write `task closed` with `report_write` (kind `status`).
-5. Stop. Do not start new work. The next task gets a new clerk.
+5. End your turn after you write `task closed`. Do not start new work. Your clanker stops the session. The next task gets a new clerk.
 
 ## The scout clerk
 
@@ -204,7 +204,7 @@ With the role key `clerk-<project>-scout<n>`, you are a scout: a short-lived, re
 3. For each question, write each claim with `report_write`: kind `result`, `text` = the claim, and `source` with `call` (the exact command or API call, with absolute paths so that it runs from any folder, for example `git -C <repository path> log -1 --format=%H`), `value` (the value that it returned, word for word), and `at` (the time from `date -u +%Y-%m-%dT%H:%M:%SZ`, just after the call). The MCP server refuses a line of a scout without all three. For a fact that you cannot read, write the text `not found: <question>`, one line for each read that you tried, with its output as the `value`. When the read printed nothing, the `value` is the empty string `""`. The only line without a `source` is the event `<role key> not running; mail pending` of "How to send a message".
 4. Send `DONE: scout <subject>` to your clanker as "How to send a message" says. The body has each claim of step 3 as one item: the claim, the call, the value, and the time. Do not send only a pointer to your report file. You cannot call `question_open`, and `mail_post` refuses each post of a scout to bigm. So when `session_list` shows your clanker with `waitingFor` equal to `permission prompt`, open no question: write `report_write` with kind `event`, the text `clanker-<project> at permission prompt; mail pending`, and the `source` of your `session_list` call (the `value` is the `waitingFor` value). Then send the nudge. The bigm sweep raises the P0 for the prompt of your clanker.
 5. At a permission prompt or a classifier refusal, stop at once. Do not try another form of the command. When you can still act, write the command and the refusal with `report_write` (the `call` is the command, the `value` is the refusal), and send `DONE: scout <subject> refused` with the same items to your clanker. Your clanker raises the P0. When a hold denies your next call, the hold guard denies `report_write` and each other tool except the escalation tools, such as `mail_post`, and you have no `question_open`: send `DONE: scout <subject> refused` with `mail_post` to your clanker, with the command and the refusal in the body, then stop. The `Stop` hook does not block a scout.
-6. Stop. Do not wait for another question. A follow-up question gets a new scout.
+6. End your turn after your `DONE: scout <subject>` (or `DONE: scout <subject> refused`). Do not wait for another question. Your clanker stops the session. A follow-up question gets a new scout.
 
 ## The ledger clerk
 

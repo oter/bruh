@@ -68,7 +68,7 @@ const REQUIRED = {
     'gh pr merge', '--match-head-commit', 'glab mr merge', 'head_commit_id',
     'OPTION <k>', 'doc pointers', 'reask', 'DONE: event', 'the main checkout of the repository that the task changes',
     'clerk-<project>-scout<n>', 'START: scout <subject>', 'DONE: scout <subject>', 'DONE: info request <subject>', 'DONE: info <subject>', 'report_read',
-    'The task names `scout` and `scout<n>` are reserved',
+    'The task names `scout` and `scout<n>` are reserved', 'claude stop <id>',
   ],
   clerk: [
     'mail_read', 'mail_post', 'answer_write', 'report_write', 'question_open', 'handoff_write',
@@ -81,7 +81,7 @@ const REQUIRED = {
     'gh pr review', '--body-file', 'glab mr note create', '<!-- bruh:<role key> -->', 'Post grants',
     'result_save', '`ANSWER Q-<id>: post <owner/repo>#<number> at <head SHA> approved`', '`<workflow> args:`', '`<workflow> retry <n>`',
     'reask',
-    'clerk-<project>-scout<n>', 'START: scout <subject>', 'DONE: scout <subject>',
+    'clerk-<project>-scout<n>', 'START: scout <subject>', 'DONE: scout <subject>', 'task closed',
   ],
 }
 
@@ -495,11 +495,12 @@ test('bigm asks the clanker, the clanker starts scouts, and a scout reads, repor
   const scout = agents.clerk.split('\n## The scout clerk\n')[1].split('\n## ')[0]
   assert.match(scout, /Do not run `EnterWorktree`/)
   assert.match(scout, /`source` with `call`/)
-  assert.match(scout, /Stop\. Do not wait for another question/)
+  assert.match(scout, /End your turn after your `DONE: scout <subject>`.*Your clanker stops the session/)
   assert.match(scout, /to your clanker/)
   assert.match(agents.clerk.split('## Start')[1].split('\n## ')[0], /`clerk-<project>-scout<n>`, skip this section/)
   const clanker = agents.clanker.split('\n### Scouts\n')[1].split('\n## ')[0]
   assert.match(clanker, /does not count against the cap/)
+  assert.match(clanker, /After you read its claims, run `claude stop <id>` with the `id` of the scout from `session_list`/)
   assert.match(clanker, /reply with `DONE: info <subject>`/)
   assert.match(clanker, /The MCP server adds the scout deny rules itself/)
   assert.match(agents.clanker, /Skip the scout keys in the steps below/)
@@ -602,4 +603,11 @@ test('the clerk and the clanker never run git -C on the main checkout from a wor
     assert.match(rules, /From a worktree, never run `git -C <main checkout>`/, name)
     assert.match(rules, /read other refs through `origin\/<branch>`/, name)
   }
+})
+
+test('a clerk ends its turn after task closed, and the clanker stops it', () => {
+  const finish = agents.clerk.split('\n## Finish\n')[1].split('\n## ')[0]
+  assert.match(finish, /End your turn after you write `task closed`.*Your clanker stops the session/)
+  const results = agents.clanker.split('\n## Results of clerks\n')[1].split('\n## ')[0]
+  assert.match(results, /shows its `task closed` line, run `claude stop <id>` with the `id` of the clerk from `session_list`/)
 })

@@ -484,6 +484,15 @@ check "the waiter of the other role key wakes on its own mail" eq "$(wait_code w
 out=$(BRUH_ROLE_KEY=clerk-app-t1 CLAUDE_PLUGIN_DATA="$wd" BRUH_WAKE_POLL=1 BRUH_WAKE_SECONDS=1 sh "$wake" </dev/null 2>&1; echo "exit $?")
 check "mail that a waiter already reported does not wake the next one" not contains "$out" "Call mail_read"
 check "the waiter exits 0 in silence at its limit, with no wake" eq "$out" "exit 0"
+mkdir -p "$wd/reports" "$wd/mail/clerk-app-t4"
+echo '{"at":"x","from":"clerk-app-t4","kind":"status","text":"task closed"}' >"$wd/reports/clerk-app-t4.jsonl"
+echo '{}' >"$wd/mail/clerk-app-t4/0001-a.json"
+out=$(BRUH_ROLE_KEY=clerk-app-t4 CLAUDE_PLUGIN_DATA="$wd" BRUH_WAKE_POLL=1 BRUH_WAKE_SECONDS=30 sh "$wake" </dev/null 2>&1; echo "exit $?")
+check "the waiter of a closed task exits 0 at once, also with new mail" eq "$out" "exit 0"
+echo '{"at":"y","from":"clerk-app-t4","kind":"status","text":"started"}' >>"$wd/reports/clerk-app-t4.jsonl"
+out=$(BRUH_ROLE_KEY=clerk-app-t4 CLAUDE_PLUGIN_DATA="$wd" BRUH_WAKE_POLL=1 BRUH_WAKE_SECONDS=1 sh "$wake" </dev/null 2>&1; echo "exit $?")
+check "a report line after task closed wakes the waiter again" contains "$out" "exit 2"
+check "the waiter after task closed tells the session to read its mail" contains "$out" "Call mail_read"
 
 echo "$n tests, $fails failed"
 [ "$fails" -eq 0 ]

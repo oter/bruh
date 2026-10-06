@@ -6,6 +6,7 @@
 # waiter, and each other waiter exits 0 in silence. At its limit (BRUH_WAKE_SECONDS,
 # default 604500, below the hook timeout of 604800 seconds), it exits 0 in silence:
 # only new mail wakes the session. It does nothing when BRUH_ROLE_KEY is not set.
+# It exits 0 at once when the last report line of the role is the status "task closed".
 cat > /dev/null
 [ -n "${BRUH_ROLE_KEY:-}" ] && [ -n "${CLAUDE_PLUGIN_DATA:-}" ] || exit 0
 key=$BRUH_ROLE_KEY
@@ -20,6 +21,9 @@ mkdir -p "$box" "$dir" || exit 0
 pidf="$dir/$key.pid"
 seen="$dir/$key.seen"
 echo "$$" > "$pidf"
+# ponytail: a reused task key does not wake on mail until its new clerk writes a report line;
+# a scout writes no "task closed" line, so its clanker stops it with claude stop.
+tail -n 1 "$CLAUDE_PLUGIN_DATA/reports/$key.jsonl" 2> /dev/null | grep -Fq '"kind":"status","text":"task closed"' && exit 0
 waited=0
 while :; do
 	[ "$(cat "$pidf" 2> /dev/null)" = "$$" ] || exit 0
