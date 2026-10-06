@@ -389,6 +389,10 @@ func planSettings(old []byte, a InitAnswers, tap string) ([]byte, error) {
 	return encodeOrdered(top, indentOf(old)), nil
 }
 
+// bigmDenyRules are the extra deny rules of the bigm start settings: the mechanical stop of owner
+// rule R-1, bigm gets each fact through a clanker or a scout.
+var bigmDenyRules = []string{"Agent(claude-code-guide)", "Agent(general-purpose)", "Agent(Explore)", "Agent(Plan)", "WebFetch", "WebSearch"}
+
 // planLedgerSettings returns the start settings of bigm in the ledger folder. It starts from the
 // existing file (an empty file is {}), or from the bigm role settings when there is no file. It sets
 // agent to bruh:bigm and each env key of the role settings, so it replaces the old values of these
@@ -637,7 +641,7 @@ func planInit(env Env, a InitAnswers, at time.Time) ([]plannedFile, learnPlan, e
 			return nil, learnPlan{}, err
 		}
 	}
-	role, err := roleSettings(root, "bigm", nil, nil, nil)
+	role, err := roleSettings(root, "bigm", nil, bigmDenyRules, nil)
 	if err != nil {
 		return nil, learnPlan{}, fmt.Errorf("bigm role settings: %w", err)
 	}
