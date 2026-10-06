@@ -1,0 +1,724 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>bruh board: 10 designs (mockup)</title>
+<style>
+  body { margin: 0; padding: 16px 24px 48px; background: #161b22; color: #e6edf3; font: 14px/1.5 -apple-system, "Segoe UI", system-ui, sans-serif; }
+  h1 { font-size: 20px; margin: 0 0 8px; }
+  h2 { font-size: 17px; margin: 0 0 4px; }
+  .banner { background: #5a2a00; color: #ffdfb6; border: 1px solid #b35900; padding: 8px 12px; border-radius: 6px; font-weight: 600; margin: 8px 0 12px; }
+  .intro { max-width: 980px; color: #c9d1d9; }
+  .intro code, .note code { background: #262c36; padding: 0 4px; border-radius: 3px; font-size: 12.5px; }
+  .tabs { position: sticky; top: 0; background: #161b22; padding: 8px 0; z-index: 2; display: flex; flex-wrap: wrap; gap: 6px; border-bottom: 1px solid #30363d; }
+  .tabs button { background: #21262d; color: #c9d1d9; border: 1px solid #30363d; border-radius: 6px; padding: 4px 10px; cursor: pointer; font: inherit; font-size: 13px; }
+  .tabs button.on { background: #1f6feb; border-color: #1f6feb; color: #fff; }
+  .design { margin: 28px 0 0; padding-top: 12px; border-top: 1px solid #30363d; }
+  .design .idea { color: #8b949e; margin: 0 0 10px; max-width: 980px; }
+  .pair { display: flex; flex-wrap: wrap; gap: 18px; align-items: flex-start; }
+  .cap { color: #8b949e; font-size: 12px; margin: 0 0 4px; }
+  .pane { background: #0b0e14; border: 1px solid #3d444d; border-radius: 4px; width: 68ch; font: 13px/1.38 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; color: #c9d1d9; outline: none; }
+  .pane:focus { border-color: #58a6ff; box-shadow: 0 0 0 1px #58a6ff; }
+  .ptitle { border-bottom: 1px solid #3d444d; padding: 0 1ch; color: #8b949e; white-space: pre; }
+  .pbody { padding: 4px 1ch; }
+  .ln { white-space: pre; min-height: 1.38em; overflow: hidden; }
+  .log { font: 12px/1.4 ui-monospace, Menlo, monospace; color: #7ee787; min-height: 1.4em; margin-top: 4px; white-space: pre-wrap; max-width: 68ch; }
+  .ctl { cursor: pointer; }
+  .ctl:hover { text-decoration: underline; }
+  .lnk { cursor: pointer; }
+  .inv { background: #c9d1d9 !important; color: #0b0e14 !important; }
+  .b { font-weight: 700; }
+  .d { opacity: .55; }
+  .u { text-decoration: underline; }
+  .i { font-style: italic; }
+  .green { color: #3fb950; } .yellow { color: #d29922; } .red { color: #f85149; } .gray { color: #8b949e; }
+  .cyan { color: #39c5cf; } .blue { color: #58a6ff; } .magenta { color: #bc8cff; } .white { color: #f0f6fc; }
+  .bg-yellow { background: #d29922; color: #0b0e14; } .bg-green { background: #2ea043; color: #0b0e14; }
+  .bg-red { background: #da3633; color: #0b0e14; } .bg-gray { background: #484f58; color: #e6edf3; }
+  .bg-blue { background: #1f6feb; color: #fff; }
+  .note { max-width: 980px; background: #0d1117; border: 1px solid #30363d; border-radius: 6px; padding: 8px 14px; margin-top: 10px; font-size: 13.5px; }
+  .note h3 { font-size: 13.5px; margin: 8px 0 2px; color: #79c0ff; }
+  .note ul { margin: 2px 0 6px; padding-left: 20px; }
+  .note li { margin: 1px 0; }
+  .hide { display: none; }
+</style>
+</head>
+<body>
+<h1>bruh board: 10 designs for the <code>/bruh-board</code> pane</h1>
+<div class="banner">MOCKUP: illustrative data, not live status. Task 25 board-designs, phase A. No PR, task, question or state below is read from a live board.</div>
+<div class="intro">
+  <p>Each option is drawn twice from the same data set: <b>as opened</b> (everything collapsed, the Done group closed) and <b>expanded</b> (after Enter on the clanker, one clerk, one question and the Done group). Both panes are live: click a pane, then use Tab or the arrows to move the focus ring, Enter to press, Esc to leave. The line under each pane says what the press would run in the plugin. No row shows a hotkey letter.</p>
+  <p>Shared by all 10: owner session bigm, clanker oter/bruh, four live clerks (tasks 15, 23, 24, 25), two open P1 questions with OPTION lines, and three done or stopped clerks (tasks 12, 19, 22) in one Done group at the bottom. Colors: green working, yellow waits on you, red blocked, gray done. The mod API named in the notes is the one in the Claude Code 2.1.289 plugin-authoring reference (<code>types/claude-code.d.ts</code>).</p>
+</div>
+<div class="tabs" id="tabs"></div>
+<div id="designs"></div>
+
+<script>
+'use strict'
+
+// ---- The one data set every design draws (illustrative, not live) ----
+const BOARD = {
+  label: 'MOCKUP: illustrative data, not live status',
+  owner: { key: 'bigm', name: 'bigm' },
+  clanker: { key: 'clanker-bruh', name: 'oter/bruh (clanker)', short: 'oter/bruh', state: 'owner' },
+  clerks: [
+    { key: 'clerk-bruh-boardbuttons', task: 15, slug: 'board-buttons', name: 'oter/bruh boardbuttons (clerk, task 15 board-buttons)',
+      state: 'working', phase: 'implement', last: 'one answer Button per OPTION line', next: 'PR on oter/bruh', pr: null },
+    { key: 'clerk-bruh-bundle', task: 23, slug: 'bundle-rest', name: 'oter/bruh bundle (clerk, task 23 bundle-rest)',
+      state: 'owner', phase: 'merge', last: 'the bundle branch passed the gate', next: 'merge into main on your go', pr: 'https://github.com/oter/bruh/pull/35' },
+    { key: 'clerk-bruh-answer', task: 24, slug: 'answer-closes-question', name: 'oter/bruh answer (clerk, task 24 answer-closes-question)',
+      state: 'blocked', phase: 'plan', last: 'the plan waits on task 15', next: 'an answer closes its question', pr: null },
+    { key: 'clerk-bruh-designs', task: 25, slug: 'board-designs', name: 'oter/bruh designs (clerk, task 25 board-designs)',
+      state: 'owner', phase: 'review', last: '10 board designs in one HTML file', next: 'port the pick to the board', pr: null },
+  ],
+  done: [
+    { key: 'clerk-bruh-merge', task: 19, slug: 'merge-simplify', name: 'oter/bruh merge (clerk, task 19 merge-simplify)',
+      state: 'done', last: 'merged into main', pr: 'https://github.com/oter/bruh/pull/33' },
+    { key: 'clerk-bruh-pollerwait', task: 12, slug: 'poller-wait-lock', name: 'oter/bruh pollerwait (clerk, task 12 poller-wait-lock)',
+      state: 'done', last: 'merged into main', pr: 'https://github.com/oter/bruh/pull/29' },
+    { key: 'clerk-bruh-tabclose', task: 22, slug: 'tab-close', name: 'oter/bruh tabclose (clerk, task 22 tab-close)',
+      state: 'stopped', last: 'stopped by its clanker', pr: null },
+  ],
+  questions: [
+    { key: 'q-merge', priority: 'P1', subject: 'merge task 23 bundle-rest into main?', asker: 'oter/bruh (clanker)', task: 23,
+      options: [
+        { label: 'merge now', description: 'the bundle PR goes into main' },
+        { label: 'wait for task 15', description: 'merge after board-buttons joins' },
+        { label: 'hold', description: 'keep the bundle open' },
+      ] },
+    { key: 'q-design', priority: 'P1', subject: 'pick a board design for phase B', asker: 'oter/bruh designs (clerk, task 25 board-designs)', task: 25,
+      options: [
+        { label: 'design 2', description: 'inbox first' },
+        { label: 'design 7', description: 'focus-reveal' },
+        { label: 'another', description: 'name it in the answer' },
+      ] },
+  ],
+}
+const C = BOARD.clanker, CL = BOARD.clerks, DN = BOARD.done, Q = BOARD.questions
+const PHASES = ['plan', 'implement', 'review', 'fix', 'merge']
+const COLOR = { working: 'green', owner: 'yellow', blocked: 'red', idle: 'gray', done: 'gray', stopped: 'gray' }
+const WORD = { working: 'working', owner: 'waits on you', blocked: 'blocked', idle: 'idle', done: 'done', stopped: 'stopped' }
+const SPIN = {
+  braille: '⣾⣽⣻⢿⡿⣟⣯⣷', quarter: '◐◓◑◒', dots: '⠁⠂⠄⡀⢀⠠⠐⠈', bars: '▁▂▃▄▅▆▇▆▅▄▃▂', arrows: '←↖↑↗→↘↓↙',
+  line: '|/-\\', pulse: '·•●•', blocks: '▖▘▝▗', circle: '◴◷◶◵', classic: '⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏',
+}
+
+// ---- Drawing helpers: a line is a list of segments; a control is a segment with a key ----
+const T = (t, cls = '') => ({ t: String(t), cls })
+const Btn = (key, t, cls = '', item) => ({ t, cls, ctl: key, item })
+const Lnk = url => ({ t: url, cls: 'blue u lnk', link: url })
+const Sel = (key, label, value, options, item) => {
+  const cur = options.find(o => o.value === value) ?? options[0]
+  return { t: `${label}‹${cur.label}› ▾`, cls: 'cyan', ctl: 'sel:' + key, sel: { key, options, value: cur.value }, item }
+}
+const len = line => line.reduce((n, s) => n + [...s.t].length, 0)
+const pad = (line, w) => { const n = len(line); return n >= w ? clip(line, w) : [...line, T(' '.repeat(w - n))] }
+function clip(line, w) {
+  const out = []; let n = 0
+  for (const s of line) {
+    const cs = [...s.t]
+    if (n + cs.length <= w) { out.push(s); n += cs.length; continue }
+    out.push({ ...s, t: cs.slice(0, Math.max(w - n - 1, 0)).join('') + '…' }); break
+  }
+  return out
+}
+function wrap(text, w) {
+  const out = []; let cur = ''
+  for (const word of text.split(' ')) {
+    if (cur && [...(cur + ' ' + word)].length > w) { out.push(cur); cur = word } else cur = cur ? cur + ' ' + word : word
+  }
+  if (cur) out.push(cur)
+  return out
+}
+// Columns side by side: blocks is a list of line lists; each is padded to its width.
+function cols(blocks, widths, sep) {
+  const rows = Math.max(...blocks.map(b => b.length)); const out = []
+  for (let r = 0; r < rows; r++) {
+    const line = []
+    blocks.forEach((b, i) => { if (i) line.push(sep); line.push(...pad(b[r] ?? [], widths[i])) })
+    out.push(line)
+  }
+  return out
+}
+// A border drawn as text, as Ink draws a Box border: the title cannot sit in the border line.
+const BORDERS = {
+  round: '╭╮╰╯─│', double: '╔╗╚╝═║', bold: '┏┓┗┛━┃', dashed: '┌┐└┘╌╎', single: '┌┐└┘─│',
+}
+function box(lines, w, style, color) {
+  const [tl, tr, bl, br, h, v] = [...BORDERS[style]]
+  const out = [[T(tl + h.repeat(w - 2) + tr, color)]]
+  for (const l of lines) out.push([T(v, color), T(' '), ...pad(l, w - 4), T(' '), T(v, color)])
+  out.push([T(bl + h.repeat(w - 2) + br, color)])
+  return out
+}
+function spin(set, state, t) {
+  if (state === 'done') return '✓'
+  if (state === 'stopped') return '■'
+  const f = [...SPIN[set]]
+  const step = state === 'working' ? t : state === 'owner' ? Math.floor(t / 4) : 0
+  return f[step % f.length]
+}
+const mark = state => (state === 'owner' ? '?' : state === 'blocked' ? '!' : ' ')
+const sp = (set, state, t, withMark = true) => T(spin(set, state, t) + (withMark ? mark(state) : ''), COLOR[state] + (state === 'idle' ? ' d' : ''))
+const caret = (S, k) => (S.open.has(k) ? '▾' : '▸')
+const tl = c => `task ${c.task} ${c.slug}`
+const qFor = c => Q.find(q => q.task === c.task)
+const count = n => (n === 1 ? '1 task' : `${n} tasks`)
+const doneLabel = S => `${caret(S, 'done')} Done (${DN.length})`
+const optionLines = (q, indent = '    ') => q.options.map(o => [T(indent), T('OPTION ', 'd'), T(o.label, 'b'), T(' · ' + o.description, 'd')])
+const answerRow = (q, indent = '    ', plain = false) => {
+  const line = [T(indent)]
+  q.options.forEach((o, i) => { if (i) line.push(T(' ')); line.push(Btn(`ans:${q.key}:${o.label}`, plain ? o.label : `[ ${o.label} ]`, plain ? 'yellow' : 'white', q.key)) })
+  return line
+}
+const blank = () => [T(' ')]
+
+// ---- The 10 designs ----
+const DESIGNS = []
+
+// 1. Calm tree
+DESIGNS.push({
+  name: 'Calm tree', set: 'braille',
+  idea: 'The board of #30, cleaned: the same owner lines, the bigm > clanker > clerk tree and hidden details, with no hotkey letters. Questions fold out their OPTION lines; the tree uses guide lines; a Done group closes the list.',
+  render(S, t) {
+    const out = [[T('Waits on you', 'b'), T(`  ${Q.length}`, 'yellow')]]
+    for (const q of Q) {
+      out.push([T('  '), Btn('tog:' + q.key, `${caret(S, q.key)} ${q.priority} ${q.subject}`, 'yellow', q.key)])
+      if (S.open.has(q.key)) out.push(...optionLines(q, '      '))
+    }
+    out.push(blank(), [T(BOARD.owner.name, 'b'), T(' (owner session)', 'd')])
+    out.push([T(' └ ', 'd'), sp(this.set, C.state, t), T(' '), Btn('tog:' + C.key, `${caret(S, C.key)} ${C.short} · ${count(CL.length)}`, '', C.key)])
+    if (S.open.has(C.key)) CL.forEach((c, i) => {
+      const lastOne = i === CL.length - 1
+      out.push([T(lastOne ? '    └ ' : '    ├ ', 'd'), sp(this.set, c.state, t), T(' '), Btn('tog:' + c.key, `${caret(S, c.key)} ${tl(c)} · ${WORD[c.state]}`, '', c.key)])
+      if (!S.open.has(c.key)) return
+      const g = lastOne ? '         ' : '    │    '
+      out.push([T(g, 'd'), T('last: ' + c.last, 'd')], [T(g, 'd'), T('next: ' + c.next, 'd')])
+      if (c.pr) out.push([T(g, 'd'), T('PR ', 'd'), Lnk(c.pr)])
+    })
+    out.push(blank(), [Btn('tog:done', doneLabel(S), 'gray', 'done')])
+    if (S.open.has('done')) for (const d of DN) {
+      out.push([T('  '), T(spin(this.set, d.state, t), 'gray'), T(' '), T(`${tl(d)} · ${WORD[d.state]}`, 'gray')])
+      if (d.pr) out.push([T('    '), Lnk(d.pr)])
+    }
+    return out
+  },
+  note: `
+<h3>Element to control</h3><ul>
+<li>"Waits on you" and the bigm line: <code>Text</code> bold; tree guides <code>├ └ │</code>: <code>Text dimColor</code>.</li>
+<li>Each question, the clanker and each clerk: a <code>Button</code> with <code>plain: true</code>, a <code>key</code> (<code>toggle-&lt;role key&gt;</code>, <code>toggle-q-&lt;n&gt;</code>) and no <code>hotkey</code>, so the terminal draws the label alone, the caret in it; <code>onPress</code> toggles.</li>
+<li>Spinner: a <code>Text</code> with <code>color</code> before the Button, one braille frame per 500 ms tick (<code>$.clock.every</code> + <code>$.ui.invalidate</code>), as today.</li>
+<li>OPTION, last and next lines: <code>Text dimColor</code>, <code>wrap: 'truncate-end'</code>. PR: <code>Link</code> with <code>href</code> the full URL and no label, so the URL is the text.</li></ul>
+<h3>Focus and toggle</h3><ul>
+<li>The pane opens with <code>$.ui.open({ id: 'bruh-board', focus: true })</code>; the first question Button carries <code>autoFocus: true</code>. Tab and the arrows walk the ring; the focused Button is drawn inverse; Enter presses it. No letter is drawn: the <code>hotkey</code> prop is left out.</li>
+<li>After a toggle, <code>$.ui.focus({ requestId: 'bruh-board', key })</code> keeps the ring on the same toggle.</li></ul>
+<h3>Done group</h3><ul>
+<li>One plain Button <code>toggle-done</code>, label <code>▸ Done (3)</code> / <code>▾ Done (3)</code>, drawn last. <code>onPress</code> flips the value and writes <code>$.store.set('open:done', isOpen)</code>; render reads it (module Map as today, or <code>$.state</code>). Collapsed by default: a missing key reads as closed. Done and stopped agents move here; nothing is deleted.</li></ul>
+<h3>Cannot draw</h3><ul>
+<li>A Button label does not wrap: long labels are cut with <code>fit()</code> to <code>bodyColumns</code>. Guides are plain text, so a narrow pane cuts them too.</li>
+<li>The spinner moves only on the redraw tick; no per-glyph animation.</li></ul>`,
+})
+
+// 2. Inbox first
+DESIGNS.push({
+  name: 'Inbox first', set: 'quarter',
+  idea: 'Questions on top as cards with one answer Button per OPTION (task 15), then one compact line per task. The board is an inbox first and a status list second.',
+  render(S, t) {
+    const out = [[T(' INBOX ', 'bg-yellow b'), T(`  ${Q.length} questions wait on you`, 'yellow')], [T('─'.repeat(62), 'd')]]
+    for (const q of Q) {
+      out.push([T(q.priority + '  ', 'yellow b'), T(q.subject, 'white b')])
+      out.push([T('    from ', 'd'), T(q.asker, 'd')])
+      out.push(answerRow(q))
+      out.push([T('    '), Btn('tog:' + q.key, `${caret(S, q.key)} OPTION lines`, 'd', q.key)])
+      if (S.open.has(q.key)) out.push(...optionLines(q, '      '))
+    }
+    out.push([T('─'.repeat(62), 'd')])
+    out.push([Btn('tog:' + C.key, `${caret(S, C.key)} ${C.name} · ${count(CL.length)}`, 'b', C.key), T('  under bigm', 'd')])
+    if (S.open.has(C.key)) for (const c of CL) {
+      out.push([T('  '), sp(this.set, c.state, t), T(' '), ...pad([Btn('tog:' + c.key, `${caret(S, c.key)} ${tl(c)}`, '', c.key)], 36), T(WORD[c.state], COLOR[c.state])])
+      if (!S.open.has(c.key)) continue
+      out.push([T('      ' + c.last, 'd')], [T('      next ' + c.next, 'd')])
+      if (c.pr) out.push([T('      '), Lnk(c.pr)])
+    }
+    out.push([T('─'.repeat(62), 'd')], [Btn('tog:done', doneLabel(S), 'gray', 'done')])
+    if (S.open.has('done')) for (const d of DN) {
+      out.push([T('  '), T(spin(this.set, d.state, t) + ' ', 'gray'), T(`${tl(d)} · ${WORD[d.state]}`, 'gray')])
+      if (d.pr) out.push([T('      '), Lnk(d.pr)])
+    }
+    return out
+  },
+  note: `
+<h3>Element to control</h3><ul>
+<li>INBOX header: <code>Text</code> with <code>backgroundColor: 'yellow'</code>, <code>color: 'black'</code>. Subject: <code>Text bold</code>; "from": <code>Text dimColor</code>.</li>
+<li>Answer per OPTION: a <code>Button</code> without <code>plain</code> (the terminal draws <code>[ label ]</code>), <code>key: 'answer-&lt;question&gt;-&lt;n&gt;'</code>, no <code>hotkey</code>. <code>onPress: () =&gt; $.prompt.submit({ text: 'Q-&lt;id&gt;: merge now' })</code>; <code>$.prompt.submit</code> queues the prompt in the session the board runs in, so the pane must be open in bigm (task 15).</li>
+<li>"▸ OPTION lines", the clanker and each task line: plain <code>Button</code>s that toggle; the state word is a coloured <code>Text</code> in a row <code>Box</code>. PR: <code>Link</code> (href and text the full URL).</li></ul>
+<h3>Focus and toggle</h3><ul>
+<li>Pane opened with <code>focus: true</code>; <code>autoFocus</code> on the first answer Button, so the most urgent action is one Enter away. Tab and the arrows walk answers, then toggles; Enter presses. No letters.</li></ul>
+<h3>Done group</h3><ul>
+<li>Plain Button <code>toggle-done</code> "▸ Done (3)" under a rule, last in the pane; <code>onPress</code> writes <code>$.store.set('open:done', isOpen)</code>, read back at render. Starts collapsed; done and stopped rows are only folded, never removed.</li></ul>
+<h3>Cannot draw</h3><ul>
+<li>Rounded "pill" buttons and card shadows: the terminal Button is <code>[ label ]</code>. Answer Buttons in one row Box do not wrap to a second line; three short labels fit in 60 columns, longer ones need a column Box.</li>
+<li>No confirm step: a press submits at once (a second "sure?" Button would be extra state).</li></ul>`,
+})
+
+// 3. Dense table
+DESIGNS.push({
+  name: 'Dense table', set: 'dots',
+  idea: 'Fixed columns, one line per task, almost no colour: only the state glyph is coloured. Questions fold into one summary line. The most information per row, the least decoration.',
+  render(S, t) {
+    const out = []
+    out.push([Btn('tog:qs', `${caret(S, 'qs')} ? ${Q.length} questions: ${Q.map(q => q.priority).join(' ')}`, 'yellow', 'qs')])
+    if (S.open.has('qs')) for (const q of Q) {
+      out.push([T('  '), Btn('tog:' + q.key, `${caret(S, q.key)} ${q.priority} ${q.subject}`, '', q.key)])
+      if (S.open.has(q.key)) out.push(...optionLines(q, '      '))
+    }
+    out.push([Btn('tog:' + C.key, `${caret(S, C.key)} ${C.short} · ${count(CL.length)}`, 'b', C.key), T(' · bigm', 'd')])
+    if (S.open.has(C.key)) {
+      out.push([T('   ST  TASK                         STATE         PHASE', 'd u')])
+      for (const c of CL) {
+        out.push([T('   '), ...pad([sp(this.set, c.state, t)], 4), Btn('tog:' + c.key, padText(`${c.task} ${c.slug}`, 28), '', c.key), T(' '), T(padText(WORD[c.state], 13), 'd'), T(' ' + c.phase, 'd')])
+        if (!S.open.has(c.key)) continue
+        out.push([T('       last ' + c.last, 'd')], [T('       next ' + c.next, 'd')])
+        if (c.pr) out.push([T('       '), Lnk(c.pr)])
+      }
+    }
+    out.push([Btn('tog:done', doneLabel(S), 'gray', 'done')])
+    if (S.open.has('done')) for (const d of DN) {
+      out.push([T('   '), T(padText(spin(this.set, d.state, t), 4), 'gray'), T(padText(`${d.task} ${d.slug}`, 28), 'gray'), T(' ' + padText(WORD[d.state], 13), 'gray')])
+      if (d.pr) out.push([T('       '), Lnk(d.pr)])
+    }
+    return out
+  },
+  note: `
+<h3>Element to control</h3><ul>
+<li>Header row: <code>Text dimColor underline</code>. Each task row: a row <code>Box</code> of a coloured spinner <code>Text</code>, a plain <code>Button</code> whose label is the padded "15 board-buttons" cell, and two <code>Text dimColor</code> cells padded to fixed widths in code (or <code>Box width</code> per column).</li>
+<li>"? 2 questions" line and each question: plain Buttons that toggle. OPTION lines: <code>Text dimColor</code>. PR: <code>Link</code>, full URL on its own detail line (a full URL does not fit a column).</li></ul>
+<h3>Focus and toggle</h3><ul>
+<li>Pane opened with <code>focus: true</code>; <code>autoFocus</code> on the questions line. Tab and the arrows walk the rows; the focused row's Button cell is drawn inverse; Enter toggles it. No hotkey prop, no letter.</li></ul>
+<h3>Done group</h3><ul>
+<li>Plain Button <code>toggle-done</code> "▸ Done (3)" below the table; <code>onPress</code> persists <code>open:done</code> with <code>$.store.set</code>. Collapsed by default; expanded it draws the done rows in the same columns, gray.</li></ul>
+<h3>Cannot draw</h3><ul>
+<li>No real table element: columns are padded text or fixed-width Boxes; under about 50 columns the PHASE column must be dropped.</li>
+<li>Only the Button cell inverts on focus, not the whole row (the other cells are Text).</li></ul>`,
+})
+function padText(s, w) { const n = [...s].length; return n >= w ? [...s].slice(0, w - 1).join('') + '…' : s + ' '.repeat(w - n) }
+
+// 4. Kanban
+DESIGNS.push({
+  name: 'Kanban', set: 'bars',
+  idea: 'Three columns side by side: waits on you, working, blocked. A card is one line; an opened card shows its details full width under the columns, with its question and answer Buttons.',
+  render(S, t) {
+    const out = []
+    const by = st => CL.filter(c => c.state === st)
+    const summary = ['owner', 'working', 'blocked'].map(st => `${mark(st) === ' ' ? '◆' : mark(st)}${by(st).length}`).join(' ')
+    out.push([T('bigm › ', 'd'), Btn('tog:' + C.key, `${caret(S, C.key)} ${C.name}`, 'b', C.key), T('  ' + summary, 'yellow')])
+    if (S.open.has(C.key)) {
+      const col = (st, title) => {
+        const lines = [[T(title, `bg-${COLOR[st]} b`)], [T('')]]
+        for (const c of by(st)) {
+          lines.push([sp(this.set, c.state, t), T(' '), Btn('tog:' + c.key, `${caret(S, c.key)} ${c.task} ${c.slug}`, '', c.key)])
+          const q = qFor(c)
+          lines.push([T('   ' + (q ? `${q.priority} question` : c.phase), q ? 'yellow d' : 'd')])
+        }
+        return lines
+      }
+      out.push(blank(), ...cols([col('owner', ' WAITS ON YOU '), col('working', ' WORKING '), col('blocked', ' BLOCKED ')], [20, 19, 19], T('│', 'd')))
+      for (const c of CL.filter(c => S.open.has(c.key))) {
+        out.push(blank(), [T('▾ ', COLOR[c.state]), T(c.name, 'b')], [T('  last ' + c.last, 'd')], [T('  next ' + c.next, 'd')])
+        if (c.pr) out.push([T('  '), Lnk(c.pr)])
+        const q = qFor(c)
+        if (q) out.push([T('  ' + q.priority + ' ', 'yellow b'), T(q.subject, 'yellow')], ...optionLines(q, '    '), answerRow(q))
+      }
+    }
+    out.push([T('─'.repeat(62), 'd')], [Btn('tog:done', doneLabel(S), 'gray', 'done')])
+    if (S.open.has('done')) {
+      const cells = DN.map(d => [[T(spin(this.set, d.state, t) + ' ' + d.task + ' ' + d.slug, 'gray')], [T('  ' + WORD[d.state], 'gray d')]])
+      out.push(...cols(cells, [21, 21, 18], T(' ')))
+      for (const d of DN.filter(d => d.pr)) out.push([T(`  ${d.task} `, 'gray'), Lnk(d.pr)])
+    }
+    return out
+  },
+  note: `
+<h3>Element to control</h3><ul>
+<li>Board: one <code>Box flexDirection: 'row'</code> holding three column Boxes with <code>width</code> 20/19/19; column headers are <code>Text backgroundColor</code> yellow / green / red. A card: spinner <code>Text</code> plus a plain <code>Button</code> "▸ 23 bundle-rest", then a dim <code>Text</code>.</li>
+<li>Opened card details: a full-width column Box under the board: <code>Text</code>, <code>Link</code> (full PR URL), OPTION <code>Text</code> lines and one <code>Button</code> per OPTION calling <code>$.prompt.submit({ text: 'Q-&lt;id&gt;: &lt;label&gt;' })</code> in bigm.</li></ul>
+<h3>Focus and toggle</h3><ul>
+<li>Pane opened with <code>focus: true</code>; <code>autoFocus</code> on the clanker Button. The ring walks in document order: column 1 top to bottom, then column 2, then column 3, then the detail Buttons. Enter toggles a card. No hotkey letters.</li></ul>
+<h3>Done group</h3><ul>
+<li>Plain Button <code>toggle-done</code> "▸ Done (3)" full width under the board; <code>$.store</code> key <code>open:done</code>. Expanded: done cards in a row Box, gray, with their PR Links. Collapsed by default.</li></ul>
+<h3>Cannot draw</h3><ul>
+<li>Side by side needs about 60 <code>bodyColumns</code>; a pane docked narrower must stack the columns (render checks <code>e.props.bodyColumns</code>).</li>
+<li>A full PR URL does not fit a 19-column card, hence the detail area. No drag between columns: the state comes from the sessions, not from the owner.</li></ul>`,
+})
+
+// 5. State buckets
+DESIGNS.push({
+  name: 'State buckets', set: 'arrows',
+  idea: 'Sections by urgency with full-width coloured header bars. The question sits inside the row of the task it is about, so each owner wait is one place.',
+  render(S, t) {
+    const out = [[T(`bigm › ${C.name} · ${count(CL.length)}`, 'd')]]
+    const bar = (st, title, n) => [T(padText(` ${title}  ${n}`, 62), `bg-${COLOR[st]} b`)]
+    for (const [st, title] of [['owner', 'WAITS ON YOU'], ['working', 'WORKING'], ['blocked', 'BLOCKED']]) {
+      const rows = CL.filter(c => c.state === st)
+      out.push(bar(st, title, rows.length))
+      for (const c of rows) {
+        out.push([T(' '), sp(this.set, c.state, t), T(' '), Btn('tog:' + c.key, `${caret(S, c.key)} ${tl(c)}`, '', c.key)])
+        const q = qFor(c)
+        if (q) out.push([T('     ' + q.priority + ' ', 'yellow b'), T(q.subject, 'yellow')])
+        if (!S.open.has(c.key)) continue
+        if (q) out.push(...optionLines(q, '       '), answerRow(q, '       '))
+        out.push([T('     last ' + c.last, 'd')], [T('     next ' + c.next, 'd')])
+        if (c.pr) out.push([T('     '), Lnk(c.pr)])
+      }
+    }
+    out.push([Btn('tog:done', padText(` ${caret(S, 'done')} DONE  ${DN.length}`, 62), 'bg-gray', 'done')])
+    if (S.open.has('done')) for (const d of DN) {
+      out.push([T(' '), T(spin(this.set, d.state, t), 'gray'), T(`  ${tl(d)} · ${WORD[d.state]}`, 'gray')])
+      if (d.pr) out.push([T('     '), Lnk(d.pr)])
+    }
+    return out
+  },
+  note: `
+<h3>Element to control</h3><ul>
+<li>Header bars: <code>Text</code> with <code>backgroundColor</code> yellow / green / red, <code>color: 'black'</code>, <code>bold</code>, padded to <code>bodyColumns</code>. Rows: spinner <code>Text</code> (arrow frames) plus a plain <code>Button</code> per task.</li>
+<li>Question line under its task: <code>Text color: 'yellow'</code>; when the row opens: OPTION <code>Text</code> lines and one <code>Button</code> per OPTION (<code>$.prompt.submit({ text: 'Q-&lt;id&gt;: &lt;label&gt;' })</code> in bigm). PR: <code>Link</code>.</li>
+<li>The clanker is a dim breadcrumb <code>Text</code>: one clanker today, so no tree toggle; with several clankers each gets its own set of bars.</li></ul>
+<h3>Focus and toggle</h3><ul>
+<li>Pane opened with <code>focus: true</code>; <code>autoFocus</code> on the first row in WAITS ON YOU. Tab and the arrows walk the rows; Enter opens a row. No letters.</li></ul>
+<h3>Done group</h3><ul>
+<li>The DONE bar itself is a plain <code>Button</code> (<code>key: 'toggle-done'</code>) whose label is the padded bar text; a Button takes no <code>backgroundColor</code>, so the gray bar becomes a Text bar plus the Button, or a <code>Box backgroundColor: 'gray'</code> around the Button. <code>onPress</code> stores <code>open:done</code>. Collapsed by default, shows the count.</li></ul>
+<h3>Cannot draw</h3><ul>
+<li>A Button cannot carry a background colour itself (ButtonProps has no <code>backgroundColor</code>): wrap it in a coloured <code>Box</code>.</li>
+<li>The bar width follows <code>bodyColumns</code> only after a redraw on resize.</li></ul>`,
+})
+
+// 6. Select-driven
+DESIGNS.push({
+  name: 'Select-driven', set: 'line',
+  idea: 'No toggle Buttons at all: every row ends in a Select. One Select per question picks the answer; one per task switches summary / details / PR; one Select shows or hides the Done group.',
+  render(S, t) {
+    const out = [[T('Waits on you', 'b u')]]
+    for (const q of Q) {
+      out.push([T(q.priority + ' ', 'yellow b'), T(q.subject, 'yellow')])
+      const opts = [{ value: 'none', label: 'answer…' }, ...q.options.map(o => ({ value: `ans:${q.key}:${o.label}`, label: o.label })), { value: 'open:' + q.key, label: 'show OPTION lines' }]
+      out.push([T('   '), Sel(q.key, '', S.open.has(q.key) ? 'open:' + q.key : 'none', opts, q.key)])
+      if (S.open.has(q.key)) out.push(...optionLines(q, '     '))
+    }
+    out.push(blank(), [T(`bigm › ${C.name}`, 'b'), T('  '), Sel(C.key, '', (S.open.has(C.key) ? 'open:' : 'hide:') + C.key, [{ value: 'hide:' + C.key, label: `${count(CL.length)} hidden` }, { value: 'open:' + C.key, label: `${count(CL.length)} shown` }], C.key)])
+    if (S.open.has(C.key)) for (const c of CL) {
+      const opts = [{ value: 'hide:' + c.key, label: 'summary' }, { value: 'open:' + c.key, label: 'details' }, ...(c.pr ? [{ value: 'pr:' + c.pr, label: 'open PR' }] : [])]
+      out.push([T(' '), sp(this.set, c.state, t), T(' '), ...pad([T(tl(c)), T(' · ' + WORD[c.state], COLOR[c.state])], 42), Sel(c.key, '', (S.open.has(c.key) ? 'open:' : 'hide:') + c.key, opts, c.key)])
+      if (!S.open.has(c.key)) continue
+      out.push([T('      last ' + c.last, 'd')], [T('      next ' + c.next, 'd')])
+      if (c.pr) out.push([T('      '), Lnk(c.pr)])
+    }
+    out.push(blank(), [T(`Done (${DN.length}) `, 'gray b'), Sel('done', '', (S.open.has('done') ? 'open:' : 'hide:') + 'done', [{ value: 'hide:done', label: 'hidden' }, { value: 'open:done', label: 'shown' }], 'done')])
+    if (S.open.has('done')) for (const d of DN) {
+      out.push([T('  ' + spin(this.set, d.state, t) + ' ', 'gray'), T(`${tl(d)} · ${WORD[d.state]}`, 'gray')])
+      if (d.pr) out.push([T('    '), Lnk(d.pr)])
+    }
+    return out
+  },
+  note: `
+<h3>Element to control</h3><ul>
+<li>Every row's control is a <code>Select</code>: <code>{ key, options, value, onSelect }</code>. Question Select: options "answer…", one per OPTION, "show OPTION lines"; <code>onSelect</code> on an OPTION value runs <code>$.prompt.submit({ text: 'Q-&lt;id&gt;: &lt;label&gt;' })</code> in bigm (task 15).</li>
+<li>Clanker Select: "4 tasks hidden" / "4 tasks shown". Task Select: summary / details / open PR; "open PR" has no Link press to raise, so it shows the full URL as a <code>Link</code> line instead. Task text and state word: <code>Text</code>, coloured.</li></ul>
+<h3>Focus and toggle</h3><ul>
+<li>Pane opened with <code>focus: true</code>; <code>autoFocus</code> on the first question Select. Tab moves between Selects; on a focused Select the arrows move the choice and Enter picks it (SelectProps: "arrows move, Enter picks"), raising <code>ui.select</code> and its <code>onSelect</code>. In this mockup Enter opens the list below the row. No letters.</li></ul>
+<h3>Done group</h3><ul>
+<li>A <code>Select</code> with <code>key: 'done'</code>, label text "Done (3)", options hidden / shown, <code>value</code> from <code>open:done</code>; <code>onSelect</code> writes <code>$.store.set('open:done', value === 'shown')</code>. Default hidden.</li></ul>
+<h3>Cannot draw</h3><ul>
+<li>How the terminal draws a Select at rest (here <code>‹summary› ▾</code>) is the engine's, not the plugin's; the mockup only guesses its look.</li>
+<li>Inside a Select, the arrows change its value, so they no longer walk rows: only Tab does. More keys per row than design 1.</li></ul>`,
+})
+
+// 7. Focus-reveal
+DESIGNS.push({
+  name: 'Focus-reveal', set: 'pulse',
+  idea: 'The quietest board: glyph, number and slug, no state words. Only the focused row speaks: it shows its state, its key hints and, for a question, its answer Buttons. Everything else stays one short line.',
+  render(S, t) {
+    const out = []
+    const hint = (k, text) => (S.item === k ? [T('  ' + text, 'd i')] : [])
+    out.push([Btn('tog:qs', `${caret(S, 'qs')} ? ${Q.length}`, 'yellow b', 'qs'), ...hint('qs', 'Enter: questions')])
+    if (S.open.has('qs')) for (const q of Q) {
+      out.push([T('  '), Btn('tog:' + q.key, `${caret(S, q.key)} ${q.priority} ${q.subject}`, 'yellow', q.key), ...hint(q.key, 'Enter: options')])
+      if (S.open.has(q.key) || S.item === q.key) out.push(...optionLines(q, '      '), answerRow(q, '      ', true))
+    }
+    out.push(blank())
+    out.push([sp(this.set, C.state, t, false), T(' '), Btn('tog:' + C.key, `${caret(S, C.key)} ${C.short}`, 'b', C.key), ...hint(C.key, `${count(CL.length)} · Enter: clerks`)])
+    if (S.open.has(C.key)) for (const c of CL) {
+      const isFocused = S.item === c.key
+      out.push([T('  '), sp(this.set, c.state, t, false), T(' '), Btn('tog:' + c.key, `${c.task} ${c.slug}`, '', c.key), ...(isFocused ? [T('  ' + WORD[c.state], COLOR[c.state]), T(`  Enter: ${S.open.has(c.key) ? 'less' : 'more'}`, 'd i')] : [])])
+      if (!S.open.has(c.key)) continue
+      out.push([T('      ' + c.last, 'd')], [T('      next ' + c.next, 'd')])
+      if (c.pr) out.push([T('      '), Lnk(c.pr)])
+    }
+    out.push(blank(), [Btn('tog:done', doneLabel(S), 'gray', 'done'), ...hint('done', 'Enter: show')])
+    if (S.open.has('done')) for (const d of DN) {
+      out.push([T('  ' + spin(this.set, d.state, t) + ' ', 'gray'), Btn('show:' + d.key, `${d.task} ${d.slug}`, 'gray', d.key), ...(S.item === d.key ? [T('  ' + WORD[d.state], 'gray')] : [])])
+      if (S.item === d.key && d.pr) out.push([T('    '), Lnk(d.pr)])
+    }
+    out.push(blank(), [T('bigm · Tab or arrows to move', 'd')])
+    return out
+  },
+  initial: { open: ['clanker-bruh', 'clerk-bruh-bundle', 'qs', 'done'], focus: 'tog:clerk-bruh-bundle' },
+  note: `
+<h3>Element to control</h3><ul>
+<li>Rows: a coloured spinner <code>Text</code> (no "?" or "!" mark) and a plain <code>Button</code> "23 bundle-rest", no <code>hotkey</code>. The state word and the hint ("Enter: more") are <code>Text dimColor italic</code> drawn only after the focused row's Button.</li>
+<li>A focused or opened question draws its OPTION <code>Text</code> lines and plain answer <code>Button</code>s (label only); <code>onPress</code> runs <code>$.prompt.submit({ text: 'Q-&lt;id&gt;: &lt;label&gt;' })</code> in bigm. PR: <code>Link</code>.</li></ul>
+<h3>Focus and toggle</h3><ul>
+<li>Pane opened with <code>focus: true</code>; <code>autoFocus</code> on "? 2". A hook <code>on('ui.focus', { requestId: 'bruh-board' }, ...)</code> reads <code>e.element</code> (the key taking the ring), writes it to <code>$.state</code> (a <code>focused</code> value) and calls <code>next(e)</code>; render reads <code>$.state</code>, so only the focused row draws its hint. Tab and the arrows move; Enter toggles. No letters on any row; the only key text is "Enter", on the focused row.</li></ul>
+<h3>Done group</h3><ul>
+<li>Plain Button <code>toggle-done</code> "▸ Done (3)"; <code>onPress</code> stores <code>open:done</code> in <code>$.store</code>. Collapsed by default. Expanded, each done row is a Button too, so focus on it reveals its state and PR.</li></ul>
+<h3>Cannot draw</h3><ul>
+<li>A drawn hint changes the row, so each focus move costs a redraw (one <code>ui.focus</code> + one <code>$.state.set</code>); answer Buttons that appear on focus also join the Tab ring, so the ring grows while a question is focused.</li>
+<li>The pointer hover reveal (<code>Box hover: { display: 'flex' }</code>) would avoid the redraw but works only with a mouse in fullscreen, not with the keyboard.</li></ul>`,
+})
+
+// 8. Bordered cards
+DESIGNS.push({
+  name: 'Bordered cards', set: 'blocks',
+  idea: 'Every item is a bordered card; the border colour is the state. Questions are double-bordered cards with their answer Buttons; the clanker is a bold card holding its clerk cards. Spacious, scannable, tall.',
+  render(S, t) {
+    const out = []
+    for (const q of Q) {
+      const body = [[T(q.priority + ' ', 'yellow b'), T(q.subject, 'b')]]
+      body.push([Btn('tog:' + q.key, `${caret(S, q.key)} OPTION lines`, 'd', q.key)])
+      if (S.open.has(q.key)) body.push(...optionLines(q, '  '))
+      body.push(answerRow(q, ''))
+      out.push(...box(body, 62, 'double', 'yellow'))
+    }
+    const inner = [[sp(this.set, C.state, t), T(' '), Btn('tog:' + C.key, `${caret(S, C.key)} ${C.name} · ${count(CL.length)}`, 'b', C.key), T('  bigm', 'd')]]
+    if (S.open.has(C.key)) for (const c of CL) {
+      const body = [[sp(this.set, c.state, t), T(' '), ...pad([Btn('tog:' + c.key, `${caret(S, c.key)} ${tl(c)}`, '', c.key)], 37), T(WORD[c.state], COLOR[c.state])]]
+      if (S.open.has(c.key)) {
+        body.push(...wrap(c.name, 54).map(s => [T(s, 'd')]), [T('last ' + c.last, 'd')], [T('next ' + c.next, 'd')])
+        if (c.pr) body.push([Lnk(c.pr)])
+      }
+      inner.push(...box(body, 58, 'round', COLOR[c.state]))
+    }
+    out.push(...box(inner, 62, 'bold', 'gray'))
+    const done = [[Btn('tog:done', doneLabel(S), 'gray', 'done')]]
+    if (S.open.has('done')) for (const d of DN) {
+      done.push([T(spin(this.set, d.state, t) + ' ' + tl(d) + ' · ' + WORD[d.state], 'gray')])
+      if (d.pr) done.push([T('  '), Lnk(d.pr)])
+    }
+    out.push(...box(done, 62, 'dashed', 'gray'))
+    return out
+  },
+  note: `
+<h3>Element to control</h3><ul>
+<li>Question card: <code>Box borderStyle: 'double', borderColor: 'yellow'</code>; answers: one <code>Button</code> (drawn <code>[ label ]</code>) per OPTION in a row Box, <code>$.prompt.submit({ text: 'Q-&lt;id&gt;: &lt;label&gt;' })</code> into bigm.</li>
+<li>Clanker card: <code>Box borderStyle: 'bold'</code>; clerk cards inside: <code>Box borderStyle: 'round', borderColor</code> green / yellow / red by state. Card line: block spinner <code>Text</code>, plain toggle <code>Button</code>, state <code>Text</code>. Opened card: R-10 name, last, next as <code>Text dimColor</code>, PR as <code>Link</code>.</li></ul>
+<h3>Focus and toggle</h3><ul>
+<li>Pane opened with <code>focus: true</code>; <code>autoFocus</code> on the first answer Button. Tab and the arrows walk the Buttons card by card; Enter presses. No hotkey letters.</li></ul>
+<h3>Done group</h3><ul>
+<li>Last card: <code>Box borderStyle: 'dashed', borderColor: 'gray'</code> holding a plain Button <code>toggle-done</code> "▸ Done (3)"; <code>$.store</code> key <code>open:done</code>. Collapsed by default: the card is three rows tall.</li></ul>
+<h3>Cannot draw</h3><ul>
+<li>No title inside a border line (Ink borders hold no text): the title is the card's first row. No rounded fill or shadow.</li>
+<li>Each card costs two extra rows and four columns; nested cards lose eight. Tall: the expanded view does not fit a short pane without scrolling.</li></ul>`,
+})
+
+// 9. Pipeline
+DESIGNS.push({
+  name: 'Pipeline', set: 'circle',
+  idea: 'Each task is a strip across the deliver phases plan, implement, review, fix, merge. Where a task stands is the picture; a question shows as "?" at its phase. Less text, more shape.',
+  render(S, t) {
+    const out = []
+    const ask = CL.filter(c => qFor(c))
+    out.push([T(`? ${ask.length} wait on you: `, 'yellow b'), T(ask.map(c => `task ${c.task}`).join(', '), 'yellow')])
+    out.push([T('bigm › ', 'd'), Btn('tog:' + C.key, `${caret(S, C.key)} ${C.name}`, 'b', C.key)])
+    const strip = (phase, state) => {
+      const at = PHASES.indexOf(phase); const segs = []
+      PHASES.forEach((p, i) => {
+        if (state === 'done' || i < at) segs.push(T('━━━━━ ', 'green'))
+        else if (i === at) segs.push(T(spin(this.set, state, t) + mark(state) + '━━━ ', COLOR[state]))
+        else segs.push(T('····· ', 'd'))
+      })
+      return segs
+    }
+    if (S.open.has(C.key)) {
+      out.push([T(padText('', 28)), T('plan  impl  rev   fix   merge', 'd')])
+      for (const c of CL) {
+        out.push([...pad([Btn('tog:' + c.key, `${caret(S, c.key)} ${c.task} ${c.slug}`, '', c.key)], 28), ...strip(c.phase, c.state)])
+        if (!S.open.has(c.key)) continue
+        out.push([T(`    ${WORD[c.state]} at ${c.phase} · ${c.last}`, 'd')], [T('    next ' + c.next, 'd')])
+        if (c.pr) out.push([T('    '), Lnk(c.pr)])
+        const q = qFor(c)
+        if (q) out.push([T('    ' + q.priority + ' ', 'yellow b'), T(q.subject, 'yellow')], ...optionLines(q, '      '), answerRow(q, '      '))
+      }
+    }
+    out.push(blank(), [Btn('tog:done', doneLabel(S), 'gray', 'done')])
+    if (S.open.has('done')) for (const d of DN) {
+      out.push([T(padText(`  ${d.task} ${d.slug}`, 28), 'gray'), ...(d.state === 'done' ? strip('merge', 'done') : [T('■ stopped', 'gray')])])
+      if (d.pr) out.push([T('    '), Lnk(d.pr)])
+    }
+    return out
+  },
+  note: `
+<h3>Element to control</h3><ul>
+<li>Strip: one <code>Text</code> per phase cell in a row <code>Box</code>: <code>━━━━━</code> green for passed phases, the circle spinner plus "?" / "!" in the state colour at the current phase, <code>·····</code> dim ahead. Phase header: <code>Text dimColor</code>. A <code>Raster</code> could paint the strip as coloured cells, but text glyphs are enough and stay readable.</li>
+<li>Task name: plain <code>Button</code> (toggle), padded to 28 columns. Opened: <code>Text</code> lines, PR <code>Link</code>, the question and one <code>Button</code> per OPTION (<code>$.prompt.submit({ text: 'Q-&lt;id&gt;: &lt;label&gt;' })</code> in bigm).</li></ul>
+<h3>Focus and toggle</h3><ul>
+<li>Pane opened with <code>focus: true</code>; <code>autoFocus</code> on the clanker Button. Tab and the arrows walk the task Buttons; Enter opens a strip's details. No letters.</li></ul>
+<h3>Done group</h3><ul>
+<li>Plain Button <code>toggle-done</code> "▸ Done (3)"; <code>$.store</code> key <code>open:done</code>. Expanded: full green strips for merged tasks, "■ stopped" for the stopped one. Collapsed by default.</li></ul>
+<h3>Cannot draw</h3><ul>
+<li>The phase is not in today's board data: the clerk's run would have to report it (a report <code>status</code> line or a ledger column). Until then the strip has nothing true to draw.</li>
+<li>Needs about 58 columns; a narrower pane drops the strip to "impl ◴" text.</li></ul>`,
+})
+
+// 10. Master-detail
+DESIGNS.push({
+  name: 'Master-detail', set: 'classic', wide: true,
+  idea: 'A narrow list on the left, the focused item in full on the right. The list never grows with details; moving the focus is the only "expand" a task needs. Questions answer from the detail column.',
+  render(S, t) {
+    const L = [], R = []
+    for (const q of Q) L.push([T('? ', 'yellow b'), Btn('show:' + q.key, padText(`${q.priority} ${q.subject}`, 20), 'yellow', q.key)])
+    L.push([sp(this.set, C.state, t), T(' '), Btn('tog:' + C.key, `${caret(S, C.key)} ${C.short}`, 'b', C.key)])
+    if (S.open.has(C.key)) for (const c of CL) L.push([T(' '), sp(this.set, c.state, t), T(' '), Btn('show:' + c.key, padText(`${c.task} ${c.slug}`, 17), '', c.key)])
+    L.push([Btn('tog:done', doneLabel(S), 'gray', 'done')])
+    if (S.open.has('done')) for (const d of DN) L.push([T('  ' + spin(this.set, d.state, t) + ' ', 'gray'), Btn('show:' + d.key, padText(`${d.task} ${d.slug}`, 17), 'gray', d.key)])
+    const w = 37
+    const q = Q.find(x => x.key === S.item)
+    const c = [...CL, ...DN].find(x => x.key === S.item)
+    if (q) {
+      R.push([T(q.priority + ' question', 'yellow b')], ...wrap(q.subject, w).map(s => [T(s, 'b')]), [T('from ' + q.asker, 'd')], blank())
+      for (const o of q.options) R.push([T('OPTION ', 'd'), T(o.label, 'b')], [T('  ' + o.description, 'd')])
+      R.push(blank())
+      for (const o of q.options) R.push([Btn(`ans:${q.key}:${o.label}`, `[ ${o.label} ]`, 'white', q.key)])
+    } else if (c) {
+      R.push(...wrap(c.name, w).map(s => [T(s, 'b')]), [T(WORD[c.state], COLOR[c.state]), T(c.phase ? ' · phase ' + c.phase : '', 'd')], blank())
+      R.push([T('last ', 'd'), T(c.last)])
+      if (c.next) R.push([T('next ', 'd'), T(c.next)])
+      R.push([T('PR', 'd')], [c.pr ? Lnk(c.pr) : T('none yet', 'd')])
+      const cq = qFor(c)
+      if (cq && c.state === 'owner') R.push(blank(), [T(cq.priority + ' ', 'yellow b'), T('question open: focus it above', 'yellow')])
+    } else if (S.item === 'done') {
+      R.push([T(`Done (${DN.length})`, 'gray b')], [T('done and stopped agents; Enter', 'd')], [T('shows them in the list', 'd')])
+    } else {
+      R.push([T(C.name, 'b')], [T('under bigm', 'd')], blank(), [T(count(CL.length), '')])
+      for (const st of ['owner', 'working', 'blocked']) R.push([T(`  ${CL.filter(x => x.state === st).length} ${WORD[st]}`, COLOR[st])])
+    }
+    return cols([L, R], [24, w], T(' │ ', 'd'))
+  },
+  initial: { open: ['clanker-bruh', 'done'], focus: 'show:clerk-bruh-bundle' },
+  note: `
+<h3>Element to control</h3><ul>
+<li>Layout: one <code>Box flexDirection: 'row'</code>: a list Box (<code>width: 24</code>) and a detail Box (<code>flexGrow: 1</code>, a dim "│" <code>Text</code> column between the two).</li>
+<li>List rows: plain <code>Button</code>s (questions, clerks, done rows) and plain toggle Buttons (clanker, Done). Detail: <code>Text</code> with <code>wrap: 'wrap'</code>, PR as <code>Link</code>, and for a question one <code>Button</code> per OPTION calling <code>$.prompt.submit({ text: 'Q-&lt;id&gt;: &lt;label&gt;' })</code> in bigm.</li></ul>
+<h3>Focus and toggle</h3><ul>
+<li>Pane opened with <code>focus: true</code>; <code>autoFocus</code> on the first list row. An <code>on('ui.focus', { requestId: 'bruh-board' }, ...)</code> hook writes <code>e.element</code> to <code>$.state</code> when it is a list row; render draws that item's detail. Tab and the arrows walk the list, then the detail's answer Buttons; Enter on the clanker or Done toggles it. No letters.</li></ul>
+<h3>Done group</h3><ul>
+<li>Plain Button <code>toggle-done</code> "▸ Done (3)" at the list's foot; <code>onPress</code> stores <code>open:done</code> in <code>$.store</code>. Expanded, each done row is a list Button whose detail shows its PR. Collapsed by default.</li></ul>
+<h3>Cannot draw</h3><ul>
+<li>Needs about 64 <code>bodyColumns</code>: docked beside the transcript it must stack (detail under the list).</li>
+<li>When the ring leaves the list for an answer Button, the detail must stay: the <code>ui.focus</code> hook ignores non-list keys. A <code>Raster</code> or scrolling detail is not needed.</li></ul>`,
+})
+
+// ---- Pane runtime: state per pane, a focus ring, Enter presses ----
+let tick = 0
+const panes = []
+
+function lines(design, S) {
+  const raw = design.render(S, tick); const out = []
+  for (const line of raw) {
+    out.push(line)
+    const s = line.find(seg => seg.sel && seg.sel.key === S.selOpen)
+    if (!s) continue
+    const indent = len(line.slice(0, line.indexOf(s)))
+    for (const o of s.sel.options) out.push([T(' '.repeat(indent + 1)), Btn(`pick:${s.sel.key}|${o.value}`, `${o.value === s.sel.value ? '●' : '○'} ${o.label}`, 'cyan', s.item)])
+  }
+  return out
+}
+const esc = s => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+function draw(p) {
+  const ls = lines(p.design, p.S)
+  const ctls = []
+  for (const l of ls) for (const s of l) if (s.ctl) ctls.push(s)
+  if (!ctls.some(s => s.ctl === p.S.focus)) p.S.focus = ctls[0]?.ctl
+  p.ctls = ctls
+  p.body.innerHTML = ls.map(l => '<div class="ln">' + l.map(s => {
+    const cls = [s.cls, s.ctl ? 'ctl' : '', s.ctl && s.ctl === p.S.focus ? 'inv' : ''].filter(Boolean).join(' ')
+    const data = s.ctl ? ` data-k="${esc(s.ctl)}"` : s.link ? ` data-l="${esc(s.link)}"` : ''
+    return `<span class="${cls}"${data}>${esc(s.t)}</span>`
+  }).join('') + '</div>').join('')
+  p.log.textContent = p.S.msg ? '▸ ' + p.S.msg : ' '
+}
+function setFocus(p, key) {
+  p.S.focus = key
+  const s = p.ctls.find(x => x.ctl === key)
+  if (s && s.item !== undefined && !key.startsWith('pick:') && !key.startsWith('ans:')) p.S.item = s.item
+}
+function act(p, value) {
+  const S = p.S
+  if (value.startsWith('tog:')) { const k = value.slice(4); S.open.has(k) ? S.open.delete(k) : S.open.add(k); S.msg = `$.store.set('open:${k === 'done' ? 'done' : k}', ${S.open.has(k)})` }
+  else if (value.startsWith('open:')) { S.open.add(value.slice(5)); S.msg = `$.store.set('open:${value.slice(5)}', true)` }
+  else if (value.startsWith('hide:')) { S.open.delete(value.slice(5)); S.msg = `$.store.set('open:${value.slice(5)}', false)` }
+  else if (value.startsWith('ans:')) { const label = value.split(':').slice(2).join(':'); S.msg = `$.prompt.submit({ text: 'Q-<id>: ${label}' }) in the bigm session` }
+  else if (value.startsWith('pr:')) S.msg = `Link opens ${value.slice(3)} (OSC 8, the terminal opens it)`
+  else if (value.startsWith('show:')) { S.item = value.slice(5); S.msg = `$.state focused = ${value.slice(5)} (detail follows the focus)` }
+  else if (value === 'none') S.msg = ''
+}
+function press(p, key) {
+  const S = p.S
+  if (key.startsWith('sel:')) { S.selOpen = S.selOpen === key.slice(4) ? null : key.slice(4); return }
+  if (key.startsWith('pick:')) { const [k, v] = key.slice(5).split('|'); S.selOpen = null; act(p, v); p.S.focus = 'sel:' + k; return }
+  act(p, key)
+}
+function makePane(design, host, cap, initial) {
+  const wrapEl = document.createElement('div')
+  wrapEl.innerHTML = `<p class="cap">${esc(cap)}</p><div class="pane" tabindex="0"><div class="ptitle">bruh board ${'─'.repeat(design.wide ? 48 : 44)} mockup</div><div class="pbody"></div></div><div class="log"></div>`
+  host.appendChild(wrapEl)
+  const p = { design, el: wrapEl.querySelector('.pane'), body: wrapEl.querySelector('.pbody'), log: wrapEl.querySelector('.log'), S: { open: new Set(initial.open ?? []), focus: initial.focus, item: initial.item, selOpen: null, msg: '' }, ctls: [] }
+  draw(p)
+  if (p.S.item === undefined) setFocus(p, p.S.focus)
+  draw(p)
+  p.el.addEventListener('keydown', ev => {
+    const i = p.ctls.findIndex(s => s.ctl === p.S.focus)
+    const move = d => { const n = p.ctls.length; if (!n) return; setFocus(p, p.ctls[(i + d + n) % n].ctl); ev.preventDefault() }
+    if (ev.key === 'ArrowDown' || ev.key === 'ArrowRight' || (ev.key === 'Tab' && !ev.shiftKey)) move(1)
+    else if (ev.key === 'ArrowUp' || ev.key === 'ArrowLeft' || (ev.key === 'Tab' && ev.shiftKey)) move(-1)
+    else if (ev.key === 'Enter' || ev.key === ' ') { if (p.S.focus) press(p, p.S.focus); ev.preventDefault() }
+    else if (ev.key === 'Escape') { p.S.selOpen = null; p.el.blur() }
+    else return
+    draw(p)
+  })
+  p.body.addEventListener('click', ev => {
+    const k = ev.target.closest('[data-k]')?.dataset.k
+    const l = ev.target.closest('[data-l]')?.dataset.l
+    if (k) { setFocus(p, k); press(p, k) } else if (l) act(p, 'pr:' + l)
+    draw(p)
+  })
+  panes.push(p)
+}
+
+const EXPANDED = { open: ['clanker-bruh', 'clerk-bruh-bundle', 'q-merge', 'qs', 'done'], focus: 'tog:done' }
+const tabs = document.getElementById('tabs'), host = document.getElementById('designs')
+const sections = []
+DESIGNS.forEach((d, i) => {
+  const sec = document.createElement('section')
+  sec.className = 'design'; sec.id = 'design-' + (i + 1)
+  sec.innerHTML = `<h2>Design ${i + 1}: ${esc(d.name)} <span class="cap">spinner ${esc([...SPIN[d.set]].join(''))}</span></h2><p class="idea">${esc(d.idea)}</p><div class="pair"></div><div class="note"><b>Mapping note, design ${i + 1}</b>${d.note}</div>`
+  host.appendChild(sec)
+  const pair = sec.querySelector('.pair')
+  const a = document.createElement('div'), b = document.createElement('div')
+  pair.append(a, b)
+  makePane(d, a, 'as opened: collapsed, Done group closed', { open: [], focus: undefined })
+  makePane(d, b, 'expanded: after Enter on the clanker, a clerk, a question and Done', d.initial?.open ? d.initial : { ...EXPANDED, ...(d.initial?.focus && { focus: d.initial.focus }) })
+  sections.push(sec)
+})
+// Tabs: All, or one design at a time.
+const show = n => {
+  sections.forEach((s, i) => s.classList.toggle('hide', n !== 0 && n !== i + 1))
+  ;[...tabs.children].forEach((b, i) => b.classList.toggle('on', i === n))
+}
+;['All', ...DESIGNS.map((d, i) => `${i + 1} ${d.name}`)].forEach((label, n) => {
+  const b = document.createElement('button'); b.textContent = label; b.onclick = () => show(n); tabs.appendChild(b)
+})
+show(0)
+setInterval(() => { tick += 1; for (const p of panes) if (!p.el.closest('.hide')) draw(p) }, 500)
+</script>
+</body>
+</html>
