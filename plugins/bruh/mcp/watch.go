@@ -67,8 +67,16 @@ type repoState struct {
 	LastCall  string `json:"last_call,omitempty"`
 	LastValue string `json:"last_value,omitempty"`
 	LastAt    string `json:"last_at,omitempty"`
-	// PullChecks: monitor ID -> the pull request head SHA whose finished checks were sent to it.
-	PullChecks map[string]string `json:"pull_checks,omitempty"`
+	// PullChecks: monitor ID -> the read position of the checks of its pull request.
+	PullChecks map[string]*pullCheck `json:"pull_checks,omitempty"`
+}
+
+// pullCheck is the read position of the checks of the pull request of one monitor with number.
+type pullCheck struct {
+	SHA   string `json:"sha"`             // the head of the last read
+	Polls int    `json:"polls,omitempty"` // reads of the checks of SHA, at most maxCheckPolls
+	Sent  bool   `json:"sent,omitempty"`  // the checks event of SHA was sent
+	Error string `json:"error,omitempty"` // the text of the last error event sent to the monitor
 }
 
 type watchEvent struct {
@@ -271,13 +279,16 @@ func (w *watcher) pollRepo(ctx context.Context, r repoConfig, h codeHost, st *re
 }
 
 // emitPullChecks sends one checks event to each monitor with number when the checks of the head
-// of its pull request are done, once for each head: a new push gets a new event. It runs last in
-// pollRepo, so an error of a pull request read does not hold back the other events of the key.
+// of its pull request are done, once for each head: a new push gets a new event. Each poll reads
+// the head of an open or closed pull request (one request) and none of a merged one; it reads the
+// checks of a head only while that head is open, has no event yet, and has fewer than
+// maxCheckPolls reads. A read error goes as an error event to that monitor only, once for each new
+// text, and the other monitors are still read; so it never fails the key.
 func (w *watcher) emitPullChecks(ctx context.Context, r repoConfig, h codeHost, pc pullChecker, st *repoState, base watchEvent) error {
 	subs := w.subs
 	defer func() { w.subs = subs }()
 	if st.PullChecks == nil {
-		st.PullChecks = map[string]string{}
+		st.PullChecks = map[string]*pullCheck{}
 	}
 	ids := map[string]bool{}
 	for _, m := range slices.SortedFunc(slices.Values(subs), func(a, b monitor) int { return cmp.Compare(a.ID, b.ID) }) {
@@ -286,23 +297,57 @@ func (w *watcher) emitPullChecks(ctx context.Context, r repoConfig, h codeHost, 
 			continue
 		}
 		ids[m.ID] = true
-		sha, state, summary, err := pc.PullChecks(ctx, n)
-		if err != nil {
-			return err
+		w.subs = []monitor{m} // only this monitor: the standing and the ref monitors get no checks event
+		p := st.PullChecks[m.ID]
+		if p == nil {
+			p = &pullCheck{}
+			st.PullChecks[m.ID] = p
 		}
-		if sha == st.PullChecks[m.ID] || state == "pending" || state == "none" {
+		if slices.Contains(st.Merged, n) {
+			continue
+		}
+		state, summary, err := w.readPullChecks(ctx, pc, n, p)
+		if err != nil {
+			if err.Error() != p.Error {
+				p.Error = err.Error()
+				ev := base
+				ev.Type, ev.Number = "error", n
+				if eerr := w.emit(ev, fmt.Sprintf("watcher error on %s #%d: %s", r.Repo, n, err), h.LastCall(), "error"); eerr != nil {
+					return eerr
+				}
+			}
+			continue
+		}
+		p.Error = ""
+		if state != "success" && state != "failure" {
 			continue
 		}
 		ev := base
-		ev.Type, ev.Number, ev.SHA, ev.Checks, ev.Summary = "checks", n, sha, state, summary
-		w.subs = []monitor{m} // only this monitor: the standing and the ref monitors get no checks event
-		if err := w.emit(ev, fmt.Sprintf("checks %s %s #%d %s: %s", state, r.Repo, n, short(sha), summary), h.LastCall(), state); err != nil {
+		ev.Type, ev.Number, ev.SHA, ev.Checks, ev.Summary = "checks", n, p.SHA, state, summary
+		if err := w.emit(ev, fmt.Sprintf("checks %s %s #%d %s: %s", state, r.Repo, n, short(p.SHA), summary), h.LastCall(), state); err != nil {
 			return err
 		}
-		st.PullChecks[m.ID] = sha
+		p.Sent = true
 	}
-	maps.DeleteFunc(st.PullChecks, func(id, _ string) bool { return !ids[id] })
+	maps.DeleteFunc(st.PullChecks, func(id string, _ *pullCheck) bool { return !ids[id] })
 	return nil
+}
+
+// readPullChecks reads the head of pull request n into p, and its checks when they are due. The
+// state is "" when the checks were not read.
+func (w *watcher) readPullChecks(ctx context.Context, pc pullChecker, n int, p *pullCheck) (state, summary string, err error) {
+	sha, open, err := pc.PullHead(ctx, n)
+	if err != nil || sha == "" {
+		return "", "", err
+	}
+	if sha != p.SHA {
+		*p = pullCheck{SHA: sha, Error: p.Error}
+	}
+	if !open || p.Sent || p.Polls >= maxCheckPolls {
+		return "", "", nil
+	}
+	p.Polls++
+	return pc.PullChecks(ctx, sha)
 }
 
 // emitFeed emits the items of one feed that are newer than its read position, and moves it.

@@ -381,7 +381,6 @@ func TestInitBigmSkillHook(t *testing.T) {
 	} {
 		cmd := exec.Command("sh", "-c", h["command"].(string))
 		cmd.Stdin = strings.NewReader(c.input)
-		cmd.Env = append(os.Environ(), "HOME="+t.TempDir()) // no global skills, so bro is blocked
 		out, err := cmd.CombinedOutput()
 		code := 0
 		if err != nil {
@@ -395,6 +394,20 @@ func TestInitBigmSkillHook(t *testing.T) {
 			t.Errorf("Skill hook with %s: exit %d, output %q, want exit %d", c.input, code, out, c.code)
 		}
 	}
+}
+
+// TestMain runs the tests of the package with HOME set to an empty temporary folder, so no test
+// reads the real home folder: the Skill hook of bigm passes each skill under $HOME/.claude/skills
+// (task 34), and TestInitBigmSkillHook expects the hook to block bro.
+func TestMain(m *testing.M) {
+	home, err := os.MkdirTemp("", "bruh-test-home-")
+	if err != nil {
+		panic(err)
+	}
+	os.Setenv("HOME", home)
+	code := m.Run()
+	os.RemoveAll(home)
+	os.Exit(code)
 }
 
 // runSkillHook runs the Skill hook command with HOME set to home and returns its exit code and output.

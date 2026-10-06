@@ -9,6 +9,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -534,7 +535,7 @@ func TestMonitorPullChecksEvent(t *testing.T) {
 	// The fake has no GET /pulls/{n}: a second server answers it and sends every other path to the fake.
 	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 		if req.Method == "GET" && req.URL.Path == "/repos/owner/repo/pulls/7" {
-			_ = json.NewEncoder(w).Encode(map[string]any{"number": 7, "head": map[string]any{"sha": head}})
+			_ = json.NewEncoder(w).Encode(map[string]any{"number": 7, "state": "open", "head": map[string]any{"sha": head}})
 			return
 		}
 		fg.ServeHTTP(w, req)
@@ -587,5 +588,154 @@ func TestMonitorPullChecksEvent(t *testing.T) {
 	}
 	if got := checks("clanker-repo"); len(got) != 0 {
 		t.Errorf("checks events of the standing monitor = %+v, want none", got)
+	}
+}
+
+// pullFixture is a monitor fixture on a fake GitHub forge with GET /pulls/{n}, which the fake
+// forge has not: pulls[n] is the answer (a missing number answers 500), reads counts the reads of
+// each number. The test changes both under fg.mu.
+type pullFixture struct {
+	*monFixture
+	fg    *fakeForge
+	pulls map[int]map[string]any
+	reads map[int]int
+}
+
+func newPullFixture(t *testing.T) *pullFixture {
+	fg, r := newFakeForge(t, "github")
+	p := &pullFixture{fg: fg, pulls: map[int]map[string]any{}, reads: map[int]int{}}
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		rest, _ := strings.CutPrefix(req.URL.Path, "/repos/owner/repo/pulls/")
+		if n, err := strconv.Atoi(rest); err == nil && req.Method == "GET" {
+			fg.mu.Lock()
+			p.reads[n]++
+			ans, ok := p.pulls[n]
+			fg.mu.Unlock()
+			if !ok {
+				http.Error(w, "boom", http.StatusInternalServerError)
+				return
+			}
+			_ = json.NewEncoder(w).Encode(ans)
+			return
+		}
+		fg.ServeHTTP(w, req)
+	}))
+	t.Cleanup(srv.Close)
+	r.APIURL = srv.URL
+	p.monFixture = newMonFixture(t, "")
+	raw, _ := json.Marshal(reposConfig{Repos: []repoConfig{r}})
+	writeFile(t, filepath.Join(p.env.DataDir, "repos.json"), string(raw))
+	p.local(t, "clanker-repo")
+	fg.branches["main"] = "a1"
+	p.loop(t) // the standing baseline
+	return p
+}
+
+// set changes the pull request n and the check runs of its head under the lock of the fake.
+func (p *pullFixture) set(n int, state, sha string, runs ...fakeRun) {
+	p.fg.mu.Lock()
+	defer p.fg.mu.Unlock()
+	p.pulls[n] = map[string]any{"number": n, "state": state, "head": map[string]any{"sha": sha}}
+	p.fg.runs[sha] = runs
+}
+
+// count returns the reads of pull request n and the reads of the check runs of sha.
+func (p *pullFixture) count(n int, sha string) (pulls, runs int) {
+	p.fg.mu.Lock()
+	defer p.fg.mu.Unlock()
+	for _, c := range p.fg.calls {
+		if c == "GET /commits/"+sha+"/check-runs" {
+			runs++
+		}
+	}
+	return p.reads[n], runs
+}
+
+// events returns the events of type typ in the mailbox of key.
+func (p *pullFixture) events(t *testing.T, key, typ string) (out []watchEvent) {
+	t.Helper()
+	for _, msg := range p.mail(t, key) {
+		if _, ev := eventOf(t, msg.Body); ev.Type == typ {
+			out = append(out, ev)
+		}
+	}
+	return out
+}
+
+// A read error of one number monitor goes to that monitor only, once; the other monitor still gets
+// its checks event, and the key has no error and keeps its last good read.
+func TestMonitorPullChecksErrorStaysWithMonitor(t *testing.T) {
+	p := newPullFixture(t)
+	p.local(t, "clerk-repo-t1")
+	p.local(t, "clerk-repo-t2")
+	p.set(7, "open", "p1", fakeRun{Status: "completed", Conclusion: "success"})
+	// #8 has no answer: its read is a 500. Two monitors on #8, so one sorts before the monitor on #7.
+	p.start(t, "clerk-repo-t2", map[string]any{"source": map[string]any{"kind": "codehost", "repo": "owner/repo", "number": 8}, "reason": "a"})
+	p.start(t, "clerk-repo-t1", map[string]any{"source": map[string]any{"kind": "codehost", "repo": "owner/repo", "number": 7}, "reason": "b"})
+	p.start(t, "clerk-repo-t2", map[string]any{"source": map[string]any{"kind": "codehost", "repo": "owner/repo", "number": 8}, "reason": "c"})
+	p.loop(t)
+	if got := p.events(t, "clerk-repo-t1", "checks"); len(got) != 1 || got[0].SHA != "p1" || got[0].Checks != "success" {
+		t.Fatalf("checks events of #7 = %+v, want one success event of p1", got)
+	}
+	errs := p.events(t, "clerk-repo-t2", "error")
+	if len(errs) != 2 || errs[0].Number != 8 || errs[1].Number != 8 || errs[0].Monitor == errs[1].Monitor {
+		t.Fatalf("error events of the monitors on #8 = %+v, want one for each", errs)
+	}
+	if got := p.events(t, "clanker-repo", "error"); len(got) != 0 {
+		t.Fatalf("error events of the standing monitor = %+v, want none", got)
+	}
+	file, err := watchFile(p.env)
+	if err != nil {
+		t.Fatal(err)
+	}
+	state, err := loadWatchState(file)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if st := state["github:owner/repo"]; st.LastError != "" || st.LastAt == "" {
+		t.Fatalf("key state: last_error %q, last_at %q, want no error and a last good read", st.LastError, st.LastAt)
+	}
+	p.loop(t)
+	if got := p.events(t, "clerk-repo-t2", "error"); len(got) != 0 {
+		t.Fatalf("error events of #8 with the same text again = %+v, want none", got)
+	}
+}
+
+// The checks of a head are read at most maxCheckPolls times, not after its event, not while the
+// pull request is closed; a merged pull request is not read at all.
+func TestMonitorPullChecksReadCap(t *testing.T) {
+	p := newPullFixture(t)
+	p.local(t, "clerk-repo-t1")
+	p.set(7, "open", "p1", fakeRun{Status: "in_progress"})
+	p.start(t, "clerk-repo-t1", map[string]any{"source": map[string]any{"kind": "codehost", "repo": "owner/repo", "number": 7}, "reason": "checks"})
+	for range maxCheckPolls + 2 {
+		p.loop(t)
+	}
+	if _, runs := p.count(7, "p1"); runs != maxCheckPolls {
+		t.Fatalf("check run reads of a pending head = %d, want %d", runs, maxCheckPolls)
+	}
+	p.set(7, "open", "p2", fakeRun{Status: "completed", Conclusion: "success"})
+	for range 3 {
+		p.loop(t)
+	}
+	if _, runs := p.count(7, "p2"); runs != 1 {
+		t.Fatalf("check run reads of a head after its event = %d, want 1", runs)
+	}
+	if got := p.events(t, "clerk-repo-t1", "checks"); len(got) != 1 || got[0].SHA != "p2" {
+		t.Fatalf("checks events = %+v, want one of p2", got)
+	}
+	p.set(7, "closed", "p3", fakeRun{Status: "completed", Conclusion: "success"})
+	p.loop(t)
+	if _, runs := p.count(7, "p3"); runs != 0 {
+		t.Fatalf("check run reads of a closed pull request = %d, want 0", runs)
+	}
+	p.fg.mu.Lock()
+	p.fg.pulls[7] = &hostPull{Number: 7, State: "closed", MergedAt: "2026-10-04T12:00:00Z", MergeSHA: "m7", URL: "https://example.com/owner/repo/pull/7"}
+	p.fg.mu.Unlock()
+	p.loop(t) // the merge event; #7 is in the merged list from now on
+	before, _ := p.count(7, "")
+	p.loop(t)
+	if after, _ := p.count(7, ""); after != before {
+		t.Fatalf("reads of a merged pull request = %d, want 0", after-before)
 	}
 }

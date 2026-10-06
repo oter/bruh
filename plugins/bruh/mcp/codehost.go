@@ -145,10 +145,11 @@ type codeHost interface {
 	LastCall() string
 }
 
-// pullChecker reads the checks of the head of a pull request: the head SHA, the Checks value
-// (pending until each check is done), and the summary. Only GitHub has it.
+// pullChecker reads the head of a pull request, and the checks of that head: the Checks value
+// (pending until each check is done) and the summary. Only GitHub has it.
 type pullChecker interface {
-	PullChecks(ctx context.Context, n int) (sha, state, summary string, err error)
+	PullHead(ctx context.Context, n int) (sha string, open bool, err error)
+	PullChecks(ctx context.Context, sha string) (state, summary string, err error)
 }
 
 // httpError is a code host answer that is not 2xx.
@@ -295,25 +296,31 @@ func (g *github) Checks(ctx context.Context, sha string) (string, error) {
 	return state, err
 }
 
-// PullChecks reads the head SHA of pull request n and its checks. The state is pending while a
-// check still runs, also after another check failed, so the caller sees one result when all are
-// done. A number that is no pull request (404, an issue) has the state none.
-func (g *github) PullChecks(ctx context.Context, n int) (sha, state, summary string, err error) {
+// PullHead reads the head SHA of pull request n (one request) and whether it is open. A number
+// that is no pull request (404, an issue) has the SHA "".
+func (g *github) PullHead(ctx context.Context, n int) (sha string, open bool, err error) {
 	var p hostPull
 	if err := g.do(ctx, "GET", fmt.Sprintf("/pulls/%d", n), nil, &p); err != nil {
 		if he, ok := errors.AsType[*httpError](err); ok && he.Code == http.StatusNotFound {
-			return "", "none", "", nil
+			return "", false, nil
 		}
-		return "", "", "", err
+		return "", false, err
 	}
 	if p.Head.SHA == "" {
-		return "", "", "", fmt.Errorf("%s: no head sha", g.last)
+		return "", false, fmt.Errorf("%s: no head sha", g.last)
 	}
-	state, summary, done, err := g.checks(ctx, p.Head.SHA)
+	return p.Head.SHA, p.State == "open", nil
+}
+
+// PullChecks reads the checks of the head sha of a pull request. The state is pending while a
+// check still runs, also after another check failed, so the caller sees one result when all are
+// done.
+func (g *github) PullChecks(ctx context.Context, sha string) (state, summary string, err error) {
+	state, summary, done, err := g.checks(ctx, sha)
 	if !done && state == "failure" {
 		state = "pending"
 	}
-	return p.Head.SHA, state, summary, err
+	return state, summary, err
 }
 
 // checks reads the combined status and the check runs of sha. state is the Checks value. summary
