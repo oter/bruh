@@ -1,29 +1,36 @@
 package main
 
 import (
-	"os"
 	"strings"
 	"testing"
 )
 
 func TestParseRoleKey(t *testing.T) {
-	good := map[string]RoleKey{
-		"bigm":             {Role: "bigm"},
-		"clerk-ledger":     {Role: "ledger"},
-		"clanker-my-app":   {Role: "clanker", Project: "my-app"},
-		"clerk-my-app-t1":  {Role: "clerk", Project: "my-app", Task: "t1"},
-		"clerk-eng123-fix": {Role: "clerk", Project: "eng123", Task: "fix"},
-		"clanker-ledger":   {Role: "clanker", Project: "ledger"},
-		"clerk-ledger-t1":  {Role: "clerk", Project: "ledger", Task: "t1"},
-	}
-	for s, want := range good {
-		k, err := ParseRoleKey(s)
-		if err != nil || k != want {
-			t.Errorf("ParseRoleKey(%q) = %+v, %v; want %+v", s, k, err, want)
-		}
-		if k.String() != s {
-			t.Errorf("String() = %q, want %q", k.String(), s)
-		}
+	for _, tc := range []struct {
+		key    string
+		want   RoleKey
+		parent string
+	}{
+		{"bigm", RoleKey{Role: "bigm"}, ""},
+		{"clerk-ledger", RoleKey{Role: "ledger"}, "bigm"},
+		{"clanker-my-app", RoleKey{Role: "clanker", Project: "my-app"}, "bigm"},
+		{"clerk-my-app-t1", RoleKey{Role: "clerk", Project: "my-app", Task: "t1"}, "clanker-my-app"},
+		{"clerk-eng123-fix", RoleKey{Role: "clerk", Project: "eng123", Task: "fix"}, "clanker-eng123"},
+		{"clanker-ledger", RoleKey{Role: "clanker", Project: "ledger"}, "bigm"},
+		{"clerk-ledger-t1", RoleKey{Role: "clerk", Project: "ledger", Task: "t1"}, "clanker-ledger"},
+	} {
+		t.Run(tc.key, func(t *testing.T) {
+			k, err := ParseRoleKey(tc.key)
+			if err != nil || k != tc.want {
+				t.Errorf("ParseRoleKey(%q) = %+v, %v; want %+v", tc.key, k, err, tc.want)
+			}
+			if k.String() != tc.key {
+				t.Errorf("String() = %q, want %q", k.String(), tc.key)
+			}
+			if got := k.Parent(); got != tc.parent {
+				t.Errorf("%s.Parent() = %q, want %q", tc.key, got, tc.parent)
+			}
+		})
 	}
 	bad := []string{"", "Bigm", "bigm2", "clanker-", "clanker--a", "clanker-a-", "clerk-a", "clerk--x", "clerk-a-b-", "clerk-a-B",
 		"worker-a", "../x", "clanker-a/b", "clanker-" + strings.Repeat("a", 57)}
@@ -34,20 +41,8 @@ func TestParseRoleKey(t *testing.T) {
 	}
 }
 
-func TestRoleKeyParent(t *testing.T) {
-	for s, want := range map[string]string{
-		"bigm": "", "clerk-ledger": "bigm", "clanker-my-app": "bigm", "clerk-my-app-t1": "clanker-my-app",
-	} {
-		k, err := ParseRoleKey(s)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if got := k.Parent(); got != want {
-			t.Errorf("%s.Parent() = %q, want %q", s, got, want)
-		}
-	}
-}
-
+// EnvFromOS sets Host to hostSlug(os.Hostname()) (env.go); each slug must match projectRE,
+// because the host is a part of question IDs.
 func TestHostNormalize(t *testing.T) {
 	for name, want := range map[string]string{
 		"My_Mac.local":      "my-mac",
@@ -58,22 +53,12 @@ func TestHostNormalize(t *testing.T) {
 		".local":            "host",
 		"Über-Box":          "ber-box",
 	} {
-		if got := hostSlug(name); got != want {
+		got := hostSlug(name)
+		if got != want {
 			t.Errorf("hostSlug(%q) = %q, want %q", name, got, want)
 		}
-	}
-}
-
-func TestEnvFromOSSetsHost(t *testing.T) {
-	name, err := os.Hostname()
-	if err != nil {
-		t.Fatal(err)
-	}
-	got := EnvFromOS().Host
-	if want := hostSlug(name); got != want {
-		t.Errorf("EnvFromOS().Host = %q, want hostSlug(%q) = %q", got, name, want)
-	}
-	if !projectRE.MatchString(got) {
-		t.Errorf("EnvFromOS().Host = %q, want a match of %s", got, projectRE)
+		if !projectRE.MatchString(got) {
+			t.Errorf("hostSlug(%q) = %q, want a match of %s", name, got, projectRE)
+		}
 	}
 }

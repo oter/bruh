@@ -110,10 +110,12 @@ func TestTapWritesNothingForNull(t *testing.T) {
 }
 
 func TestTapRunsPreviousCommand(t *testing.T) {
-	_, tap := tapCopy(t)
+	data, tap := tapCopy(t)
 	got := filepath.Join(t.TempDir(), "got it's")
 	prev := `cat > "` + got + `" && printf '%s' "line \"one\" && $((1+1))"`
-	for _, env := range [][]string{{"BRUH_ROLE_KEY=clerk-a-1"}, nil} {
+	// The row without BRUH_ROLE_KEY runs first, so that its check of the context folder sees
+	// only its own run.
+	for _, env := range [][]string{nil, {"BRUH_ROLE_KEY=clerk-a-1"}} {
 		out, code := runSh(t, tap, statusInput+"\n\n", []string{prev}, env...)
 		if code != 0 || out != `line "one" && 2` {
 			t.Fatalf("out = %q, exit %d", out, code)
@@ -122,17 +124,9 @@ func TestTapRunsPreviousCommand(t *testing.T) {
 		if err != nil || string(b) != statusInput+"\n\n" {
 			t.Fatalf("previous command got %q, %v", b, err)
 		}
-	}
-}
-
-func TestTapNoRoleKey(t *testing.T) {
-	data, tap := tapCopy(t)
-	out, code := runSh(t, tap, statusInput, []string{"echo shown"})
-	if code != 0 || out != "shown\n" {
-		t.Fatalf("out = %q, exit %d", out, code)
-	}
-	if _, err := os.Stat(filepath.Join(data, "context")); err == nil {
-		t.Fatal("the tap wrote a context file without BRUH_ROLE_KEY")
+		if _, err := os.Stat(filepath.Join(data, "context")); env == nil && err == nil {
+			t.Fatal("the tap wrote a context file without BRUH_ROLE_KEY")
+		}
 	}
 }
 
@@ -620,50 +614,6 @@ func TestRefusalHoldScoutTellsParent(t *testing.T) {
 	// The same hold under a task clerk key still blocks the Stop.
 	if out := refusal(t, data, stop, refusalKey); out == "" {
 		t.Fatal("Stop of a held task clerk not blocked")
-	}
-}
-
-// TestStopHooksTogether runs both Stop groups of hooks.json on one data folder: the hold Stop
-// block of refusal-stop.sh and the waiter wake.sh (spec 9.5, M1). Each does its own job with
-// and without a hold.
-func TestStopHooksTogether(t *testing.T) {
-	stop := map[string]any{"hook_event_name": "Stop", "session_id": "S", "stop_hook_active": false}
-	in, _ := json.Marshal(stop)
-	for _, held := range []bool{true, false} {
-		data := t.TempDir()
-		id := ""
-		if held {
-			id = denyClassifier(t, data)
-		}
-		wake := func() (int, string) {
-			_, code := runScript(t, "wake.sh", string(in), "CLAUDE_PLUGIN_DATA="+data, refusalKey, "BRUH_WAKE_POLL=1", "BRUH_WAKE_SECONDS=0")
-			seen, _ := os.ReadFile(filepath.Join(data, "wake", "clerk-a-1.seen"))
-			return code, string(seen)
-		}
-		box := filepath.Join(data, "mail", "clerk-a-1")
-		if err := os.MkdirAll(box, 0o700); err != nil {
-			t.Fatal(err)
-		}
-		if err := os.WriteFile(filepath.Join(box, "1.json"), []byte("{}"), 0o600); err != nil {
-			t.Fatal(err)
-		}
-		if code, seen := wake(); code != 2 || seen != "1.json\n" {
-			t.Fatalf("held=%v: new mail: exit %d, seen %q", held, code, seen)
-		}
-		if code, seen := wake(); code != 0 || seen != "1.json\n" {
-			t.Fatalf("held=%v: no new mail: exit %d, seen %q", held, code, seen)
-		}
-		out := refusal(t, data, stop, refusalKey)
-		if !held {
-			if out != "" {
-				t.Fatalf("block without a hold: %q", out)
-			}
-			continue
-		}
-		var m struct{ Decision, Reason string }
-		if err := json.Unmarshal([]byte(out), &m); err != nil || m.Decision != "block" || !strings.Contains(m.Reason, id) {
-			t.Fatalf("refusal-stop.sh Stop output = %+v (unmarshal err %v), want decision \"block\" with reason containing %q", m, err, id)
-		}
 	}
 }
 

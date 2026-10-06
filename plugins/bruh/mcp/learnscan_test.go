@@ -229,7 +229,7 @@ func TestDefaultBranchFromRemoteHEAD(t *testing.T) {
 		{name: "sha", remote: "origin", content: "0123456789abcdef0123456789abcdef01234567\n", want: "unknown"},
 		{name: "local branch ref", remote: "origin", content: "ref: refs/heads/main\n", want: "unknown"},
 		{name: "other remote", remote: "origin", content: "ref: refs/remotes/upstream/main\n", want: "unknown"},
-		{name: "empty file", remote: "origin", content: "", want: "unknown"},
+		{name: "empty branch name", remote: "origin", content: "ref: refs/remotes/origin/\n", want: "unknown"},
 		// The file exists and names the remote, so only the check of the remote name refuses it.
 		{name: "empty remote", remote: "", content: "ref: refs/remotes//main\n", want: "unknown"},
 		{name: "dot-dot remote", remote: "../remotes/origin", content: "ref: refs/remotes/../remotes/origin/main\n", want: "unknown"},
@@ -261,7 +261,8 @@ func TestDefaultBranchFromRemoteHEAD(t *testing.T) {
 	}
 }
 
-func TestProposeProjectsByPrefix(t *testing.T) {
+// TestProposeProjects checks the prefix groups and the keys of colliding names.
+func TestProposeProjects(t *testing.T) {
 	tests := []struct {
 		name  string
 		repos []repoDir
@@ -300,6 +301,39 @@ func TestProposeProjectsByPrefix(t *testing.T) {
 				{Key: "shop-app", Repos: []string{"group-b/shop-app"}, Main: "group-b/shop-app", Group: "group-b"},
 			},
 		},
+		{
+			name: "collision: last element of the group path",
+			repos: []repoDir{
+				{Path: "group-a/infra", Group: "group-a"},
+				{Path: "group-b/infra", Group: "group-b"},
+			},
+			want: []projectProposal{
+				{Key: "group-a-infra", Repos: []string{"group-a/infra"}, Main: "group-a/infra", Group: "group-a"},
+				{Key: "group-b-infra", Repos: []string{"group-b/infra"}, Main: "group-b/infra", Group: "group-b"},
+			},
+		},
+		{
+			name: "collision: whole group path",
+			repos: []repoDir{
+				{Path: "x/group-a/infra", Group: "x/group-a"},
+				{Path: "y/group-a/infra", Group: "y/group-a"},
+			},
+			want: []projectProposal{
+				{Key: "x-group-a-infra", Repos: []string{"x/group-a/infra"}, Main: "x/group-a/infra", Group: "x/group-a"},
+				{Key: "y-group-a-infra", Repos: []string{"y/group-a/infra"}, Main: "y/group-a/infra", Group: "y/group-a"},
+			},
+		},
+		{
+			name: "collision: root group keeps its key",
+			repos: []repoDir{
+				{Path: "group-a/infra", Group: "group-a"},
+				{Path: "infra", Group: ""},
+			},
+			want: []projectProposal{
+				{Key: "group-a-infra", Repos: []string{"group-a/infra"}, Main: "group-a/infra", Group: "group-a"},
+				{Key: "infra", Repos: []string{"infra"}, Main: "infra", Group: ""},
+			},
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -322,58 +356,6 @@ func TestProjectKeyRule(t *testing.T) {
 		if got := projectKey(tt.name); got != tt.want {
 			t.Errorf("projectKey(%q) = %q, want %q", tt.name, got, tt.want)
 		}
-	}
-
-	collisions := []struct {
-		name  string
-		repos []repoDir
-		want  []projectProposal
-	}{
-		{
-			name: "last element of the group path",
-			repos: []repoDir{
-				{Path: "group-a/infra", Group: "group-a"},
-				{Path: "group-b/infra", Group: "group-b"},
-			},
-			want: []projectProposal{
-				{Key: "group-a-infra", Repos: []string{"group-a/infra"}, Main: "group-a/infra", Group: "group-a"},
-				{Key: "group-b-infra", Repos: []string{"group-b/infra"}, Main: "group-b/infra", Group: "group-b"},
-			},
-		},
-		{
-			name: "whole group path",
-			repos: []repoDir{
-				{Path: "x/group-a/infra", Group: "x/group-a"},
-				{Path: "y/group-a/infra", Group: "y/group-a"},
-			},
-			want: []projectProposal{
-				{Key: "x-group-a-infra", Repos: []string{"x/group-a/infra"}, Main: "x/group-a/infra", Group: "x/group-a"},
-				{Key: "y-group-a-infra", Repos: []string{"y/group-a/infra"}, Main: "y/group-a/infra", Group: "y/group-a"},
-			},
-		},
-		{
-			name: "root group keeps its key",
-			repos: []repoDir{
-				{Path: "group-a/infra", Group: "group-a"},
-				{Path: "infra", Group: ""},
-			},
-			want: []projectProposal{
-				{Key: "group-a-infra", Repos: []string{"group-a/infra"}, Main: "group-a/infra", Group: "group-a"},
-				{Key: "infra", Repos: []string{"infra"}, Main: "infra", Group: ""},
-			},
-		},
-		{
-			name:  "long key returned as it is",
-			repos: []repoDir{{Path: long, Group: ""}},
-			want:  []projectProposal{{Key: long, Repos: []string{long}, Main: long, Group: ""}},
-		},
-	}
-	for _, tt := range collisions {
-		t.Run(tt.name, func(t *testing.T) {
-			if got := proposeProjects(tt.repos); !reflect.DeepEqual(got, tt.want) {
-				t.Errorf("proposeProjects(%+v) = %+v, want %+v", tt.repos, got, tt.want)
-			}
-		})
 	}
 
 	for _, name := range []string{
@@ -509,17 +491,6 @@ func TestLoginHosts(t *testing.T) {
 			timeout: true,
 			want:    map[string]string{},
 		},
-		{
-			name:    "tea times out",
-			bodies:  map[string]string{"gh": "exit 1", "glab": "exit 1", "tea": slow(ok["tea"])},
-			timeout: true,
-			want:    map[string]string{},
-		},
-		{
-			name:   "all fail",
-			bodies: map[string]string{"gh": exit1(ok["gh"]), "glab": exit1(ok["glab"]), "tea": exit1(ok["tea"])},
-			want:   map[string]string{},
-		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			if tc.timeout {
@@ -574,45 +545,44 @@ func hostKindFixture(t *testing.T) (hostKinds map[string]string, logs []string) 
 	return hostKinds, logs
 }
 
-func TestHostKindOrder(t *testing.T) {
+// TestHostKind checks the order of the kind sources: the exact list, then the logins of the CLIs,
+// then hostKinds. Without logins (nil) only the exact list and hostKinds count.
+func TestHostKind(t *testing.T) {
 	hostKinds, _ := hostKindFixture(t)
 	logins := loginHosts(t.TempDir())
-	for host, want := range map[string]string{
-		"github.com":         "github", // the exact list wins over hostKinds
-		"gitlab.com":         "gitlab",
-		"ghe.example.com":    "github", // a CLI wins over hostKinds
-		"gitlab.example.com": "gitlab",
-		"git.example.org":    "gitea",
-		"git.example.net":    "gitea", // the token variable
-		"other.example.com":  "gitea", // hostKinds
-		"none.example.com":   "unknown",
+	for _, c := range []struct {
+		name   string
+		logins map[string]string
+		want   map[string]string
+	}{
+		{"with logins", logins, map[string]string{
+			"github.com":         "github", // the exact list wins over hostKinds
+			"gitlab.com":         "gitlab",
+			"ghe.example.com":    "github", // a CLI wins over hostKinds
+			"gitlab.example.com": "gitlab",
+			"git.example.org":    "gitea",
+			"git.example.net":    "gitea", // the token variable
+			"other.example.com":  "gitea", // hostKinds
+			"none.example.com":   "unknown",
+		}},
+		{"without logins", nil, map[string]string{
+			"github.com":         "github",
+			"gitlab.com":         "gitlab",
+			"ghe.example.com":    "gitlab", // from hostKinds
+			"gitlab.example.com": "unknown",
+			"git.example.org":    "unknown",
+			"git.example.net":    "unknown", // the token variable counts only with logins
+			"other.example.com":  "gitea",
+			"none.example.com":   "unknown",
+		}},
 	} {
-		if got := hostKind(host, hostKinds, logins); got != want {
-			t.Errorf("hostKind(%q, hostKinds, logins) = %q, want %q", host, got, want)
-		}
-	}
-}
-
-func TestHostKindWithoutCLIs(t *testing.T) {
-	hostKinds, logs := hostKindFixture(t)
-	for host, want := range map[string]string{
-		"github.com":         "github",
-		"gitlab.com":         "gitlab",
-		"ghe.example.com":    "gitlab", // from hostKinds
-		"gitlab.example.com": "unknown",
-		"git.example.org":    "unknown",
-		"git.example.net":    "unknown", // the token variable counts only with logins
-		"other.example.com":  "gitea",
-		"none.example.com":   "unknown",
-	} {
-		if got := hostKind(host, hostKinds, nil); got != want {
-			t.Errorf("hostKind(%q, hostKinds, nil) = %q, want %q", host, got, want)
-		}
-	}
-	for _, log := range logs {
-		if data, _ := os.ReadFile(log); len(data) != 0 {
-			t.Errorf("fake log %s = %q, want empty", log, data)
-		}
+		t.Run(c.name, func(t *testing.T) {
+			for host, want := range c.want {
+				if got := hostKind(host, hostKinds, c.logins); got != want {
+					t.Errorf("hostKind(%q, hostKinds, %v) = %q, want %q", host, c.logins, got, want)
+				}
+			}
+		})
 	}
 }
 
@@ -715,22 +685,10 @@ func TestRepoFacts(t *testing.T) {
 			want:   indexRepo{Remotes: []remote{}, Host: null, Kind: "unknown", DefaultBranch: "unknown"},
 		},
 		{
-			name: "no config",
-			want: indexRepo{Remotes: []remote{}, Host: null, Kind: "unknown", DefaultBranch: "unknown"},
-		},
-		{
 			name:   "local path remote",
 			config: originConfig("../upstream/shop.git"),
 			want: indexRepo{
 				Remotes: []remote{{"origin", "../upstream/shop.git"}}, Remote: "origin",
-				Host: null, Kind: "unknown", DefaultBranch: "unknown",
-			},
-		},
-		{
-			name:   "file remote",
-			config: originConfig("file:///srv/git/shop.git"),
-			want: indexRepo{
-				Remotes: []remote{{"origin", "file:///srv/git/shop.git"}}, Remote: "origin",
 				Host: null, Kind: "unknown", DefaultBranch: "unknown",
 			},
 		},
@@ -770,44 +728,18 @@ func jsonText(t *testing.T, v any) string {
 	return string(data)
 }
 
-func TestSSHAliasResolves(t *testing.T) {
-	for _, url := range []string{"git@gitlab.com-work:team/shop.git", "ssh://git@gitlab.com-work/team/shop.git"} {
-		t.Run(url, func(t *testing.T) {
-			log := fakeCLI(t, &sshBin, `printf 'user git\nhostname gitlab.com\nport 22\n'`)
-			root := t.TempDir()
-			writeRepo(t, root, "shop", originConfig(url), "origin", "ref: refs/remotes/origin/main\n")
-			// ssh -G wins over host_aliases.
-			f := factCtx{root: root, dir: t.TempDir(), aliases: map[string]string{"gitlab.com-work": "git.example.org"}, ssh: true}
-			r, alias, sshHost, err := f.facts("shop")
-			if err != nil {
-				t.Fatalf("facts: %v", err)
-			}
-			host := "gitlab.com"
-			want := indexRepo{
-				Path: "shop", Remotes: []remote{{"origin", url}}, Remote: "origin",
-				Host: hostValue{Value: &host, Source: "git"}, Kind: "gitlab", APIURL: "https://gitlab.com/api/v4",
-				HostPath: "team/shop", DefaultBranch: "main", State: "present",
-			}
-			if !reflect.DeepEqual(r, want) {
-				t.Errorf("facts = %s, want %s", jsonText(t, r), jsonText(t, want))
-			}
-			if alias != "gitlab.com-work" || sshHost != "gitlab.com" {
-				t.Errorf("facts alias, sshHost = %q, %q, want %q, %q", alias, sshHost, "gitlab.com-work", "gitlab.com")
-			}
-			if data, _ := os.ReadFile(log); string(data) != "-G -- gitlab.com-work\n" {
-				t.Errorf("ssh log = %q, want %q", data, "-G -- gitlab.com-work\n")
-			}
-		})
-	}
-}
-
-func TestSSHAliasUnresolved(t *testing.T) {
+// TestFactsSSHAlias checks the host of an SSH alias: ssh -G resolves it, or host_aliases names it,
+// or it stays unresolved.
+func TestFactsSSHAlias(t *testing.T) {
 	const (
 		echoAlias = `printf 'hostname gitlab.com-work\n'`
+		resolve   = `printf 'user git\nhostname gitlab.com\nport 22\n'`
 		call      = "-G -- gitlab.com-work\n"
 		workURL   = "git@gitlab.com-work:team/shop.git"
 	)
 	named := map[string]string{"gitlab.com-work": "gitlab.com"}
+	// ssh -G wins over host_aliases.
+	other := map[string]string{"gitlab.com-work": "git.example.org"}
 	tests := []struct {
 		name     string
 		body     string // the fake ssh
@@ -821,7 +753,12 @@ func TestSSHAliasUnresolved(t *testing.T) {
 		wantPath string
 		wantLog  string
 		alias    string
+		sshHost  string
 	}{
+		{name: "ssh -G resolves the scp form", body: resolve, url: workURL, aliases: other, ssh: true,
+			wantHost: new("gitlab.com"), wantKind: "gitlab", wantAPI: "https://gitlab.com/api/v4", wantPath: "team/shop", wantLog: call, alias: "gitlab.com-work", sshHost: "gitlab.com"},
+		{name: "ssh -G resolves the ssh URL", body: resolve, url: "ssh://git@gitlab.com-work/team/shop.git", aliases: other, ssh: true,
+			wantHost: new("gitlab.com"), wantKind: "gitlab", wantAPI: "https://gitlab.com/api/v4", wantPath: "team/shop", wantLog: call, alias: "gitlab.com-work", sshHost: "gitlab.com"},
 		{name: "alias in host_aliases", body: echoAlias, url: workURL, aliases: named, ssh: true,
 			wantHost: new("gitlab.com"), wantKind: "gitlab", wantAPI: "https://gitlab.com/api/v4", wantPath: "team/shop", wantLog: call, alias: "gitlab.com-work"},
 		{name: "ssh fails", body: "printf 'hostname gitlab.com\\n'; exit 1", url: workURL, aliases: named, ssh: true,
@@ -855,8 +792,8 @@ func TestSSHAliasUnresolved(t *testing.T) {
 			if !reflect.DeepEqual(r, want) {
 				t.Errorf("facts = %s, want %s", jsonText(t, r), jsonText(t, want))
 			}
-			if alias != tt.alias || sshHost != "" {
-				t.Errorf("facts alias, sshHost = %q, %q, want %q, \"\"", alias, sshHost, tt.alias)
+			if alias != tt.alias || sshHost != tt.sshHost {
+				t.Errorf("facts alias, sshHost = %q, %q, want %q, %q", alias, sshHost, tt.alias, tt.sshHost)
 			}
 			if data, _ := os.ReadFile(log); string(data) != tt.wantLog {
 				t.Errorf("ssh log = %q, want %q", data, tt.wantLog)

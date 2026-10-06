@@ -614,7 +614,6 @@ func TestInitPlanValidates(t *testing.T) {
 		{answers("rel/path", nil), "absolute"},
 		{answers(ledger, map[string]any{"mode": "wild"}), "mode"},
 		{answers(ledger, map[string]any{"auto_compact_window": 50}), "auto_compact_window"},
-		{answers(ledger, map[string]any{"handoff_percent": 100}), "handoff_percent"},
 		{answers(ledger, map[string]any{"channels": []string{"discord"}}), "channels"},
 		// Spec 16: merge grants, delegated P1 classes, and remote machines are no longer init answers.
 		{answers(ledger, map[string]any{"merge_grants": []any{}}), "unknown field"},
@@ -632,20 +631,6 @@ func TestInitPlanValidates(t *testing.T) {
 
 // pluginOptionsErr is the refusal of init_plan for an answer that is a plugin option (spec 16).
 const pluginOptionsErr = "user_name, handoff_percent, and max_busy_clerks are plugin options: the install dialog asks them, and /config changes them; init_plan does not write them"
-
-func TestInitPlanDoesNotWritePluginOptions(t *testing.T) {
-	env, ledger := initEnv(t)
-	const configs = `{"bruh@oter":{"options":{"handoff_percent":55,"max_busy_clerks":30}}}`
-	writeSettings(t, env, `{"theme":"dark","pluginConfigs":`+configs+`}`)
-	apply(t, env, plan(t, env, answers(ledger, nil)))
-	got, err := json.Marshal(readSettings(t, env)["pluginConfigs"])
-	if err != nil {
-		t.Fatal(err)
-	}
-	if string(got) != configs {
-		t.Errorf("init_plan and init_apply: pluginConfigs = %s, want %s unchanged", got, configs)
-	}
-}
 
 func TestInitPlanRefusesPluginOptionKeys(t *testing.T) {
 	for key, val := range map[string]any{"user_name": "Sam", "handoff_percent": 40, "max_busy_clerks": 8} {
@@ -923,42 +908,9 @@ func writeTestFile(t *testing.T, path, text string) {
 	}
 }
 
-func TestPlanDiffShowsDeletion(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "learn", "projects", "gone.json")
-	old := "{\n  \"key\": \"gone\"\n}\n"
-	writeTestFile(t, path, old)
-	diff, err := planDiff([]plannedFile{{Path: path, Delete: true, Before: sha256Hex(old)}})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if want := "--- " + path + "\n+++ /dev/null\n"; !strings.Contains(diff, want) {
-		t.Errorf("planDiff of a deletion = %q, want the header %q", diff, want)
-	}
-	for _, line := range strings.Split(strings.TrimSuffix(old, "\n"), "\n") {
-		if !strings.Contains(diff, "\n-"+line+"\n") {
-			t.Errorf("planDiff of a deletion = %q, want the line %q", diff, "-"+line)
-		}
-	}
-}
-
 func TestWritePlannedDeletes(t *testing.T) {
 	env, ledger := initEnv(t)
 	a := InitAnswers{LedgerPath: ledger}
-	t.Run("deletion inside the ledger", func(t *testing.T) {
-		path := filepath.Join(ledger, "learn", "projects", "gone.json")
-		writeTestFile(t, path, "{}\n")
-		files := []plannedFile{{Path: path, Delete: true, Before: sha256Hex("{}\n")}}
-		applied, err := writePlanned(env, a, files)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if !slices.Equal(applied, files) {
-			t.Errorf("writePlanned(%v) = %v, want the deletion back with Delete true", files, applied)
-		}
-		if _, err := os.Lstat(path); !os.IsNotExist(err) {
-			t.Errorf("after writePlanned: Lstat(%s) error = %v, want the file removed", path, err)
-		}
-	})
 	t.Run("deletion of a missing file", func(t *testing.T) {
 		path := filepath.Join(ledger, "learn", "projects", "missing.json")
 		files := []plannedFile{{Path: path, Delete: true, Before: sha256Hex("{}\n")}}

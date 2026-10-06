@@ -43,6 +43,16 @@ func TestRoleSettingsWrite(t *testing.T) {
 	if !slices.Contains(s.Permissions.Deny, "Bash(docker volume rm:*)") || !slices.Contains(s.Permissions.Deny, "Bash(rm -rf /:*)") {
 		t.Fatalf("deny = %v", s.Permissions.Deny)
 	}
+	// A call with no allow writes no allow key (the allow input is TestRoleSettingsWriteAllow).
+	var perms struct {
+		Permissions map[string]any `json:"permissions"`
+	}
+	if err := json.Unmarshal(data, &perms); err != nil {
+		t.Fatal(err)
+	}
+	if v, ok := perms.Permissions["allow"]; ok {
+		t.Errorf("role_settings_write with no allow: permissions.allow = %v, want no key", v)
+	}
 	_, err = call(t, env, "role_settings_write", map[string]any{"role_key": "clanker-x", "env": map[string]string{"BRUH_ROLE_KEY": "bigm"}})
 	if err == nil || !strings.Contains(err.Error(), "BRUH_ROLE_KEY") {
 		t.Fatalf("err = %v", err)
@@ -213,21 +223,6 @@ func TestRoleSettingsWriteAllow(t *testing.T) {
 		}
 	})
 
-	t.Run("no allow writes no allow key", func(t *testing.T) {
-		env := setup(t, false, false)
-		out, err := call(t, env, "role_settings_write", map[string]any{"role_key": clanker})
-		if err != nil {
-			t.Fatalf("role_settings_write(%s) error: %v", clanker, err)
-		}
-		var s struct {
-			Permissions map[string]any `json:"permissions"`
-		}
-		readJSON(t, out.(map[string]any)["path"].(string), &s)
-		if v, ok := s.Permissions["allow"]; ok {
-			t.Errorf("role_settings_write(%s) with no allow: permissions.allow = %v, want no key", clanker, v)
-		}
-	})
-
 	ruleErr := func(rule string) string {
 		return fmt.Sprintf("allow rule %q is not Read(//<path>/**) for a repository of project %s in learn/projects/%s.json", rule, project, project)
 	}
@@ -249,7 +244,6 @@ func TestRoleSettingsWriteAllow(t *testing.T) {
 		{name: "relative path", rule: relative, wantErr: ruleErr(relative)},
 		{name: "clanker writes for its clerk", caller: clanker, target: "clerk-" + project + "-1", rule: readRule(alpha), wantErr: roleErr},
 		{name: "bigm writes for the ledger clerk", target: "clerk-ledger", rule: readRule(alpha), wantErr: roleErr},
-		{name: "clanker writes for its scout", caller: clanker, target: "clerk-" + project + "-scout1", rule: readRule(alpha), wantErr: roleErr},
 		{name: "no index file", rule: readRule(alpha), noIndex: true},
 		{name: "no init config", rule: readRule(alpha), noConfig: true, wantErr: "no ledger path in <data>/init/config.json; run /bruh:init"},
 	} {

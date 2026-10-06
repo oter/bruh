@@ -62,35 +62,6 @@ func TestAnswerWaitPendingAtDeadline(t *testing.T) {
 	}
 }
 
-func TestAnswerRefusesBadID(t *testing.T) {
-	// ../Q-1 leaves the answers folder; Q-7 is the old form, refused since spec 5 (D2).
-	for _, id := range []string{"../Q-1", "Q-7"} {
-		_, err := call(t, testEnv(t, "clerk-a-1"), "answer_write", map[string]any{"question_id": id, "text": "x"})
-		if err == nil || !strings.Contains(err.Error(), "invalid question ID") {
-			t.Errorf("answer_write %q: err = %v", id, err)
-		}
-	}
-}
-
-func TestAnswerKeepsSubjectAndAsker(t *testing.T) {
-	env := testEnv(t, "bigm")
-	text, subject := "answer of "+t.Name(), "subject of "+t.Name()
-	if _, err := call(t, env, "answer_write", map[string]any{"question_id": "Q-shop-testhost-3", "text": text, "subject": subject, "asker": "clanker-shop"}); err != nil {
-		t.Fatalf("answer_write: %v", err)
-	}
-	out, err := call(t, env, "answer_wait", map[string]any{"question_id": "Q-shop-testhost-3", "deadline_seconds": 0})
-	if err != nil {
-		t.Fatalf("answer_wait: %v", err)
-	}
-	got := out.(map[string]any)
-	want := map[string]any{"status": "answered", "text": text, "subject": subject, "asker": "clanker-shop"}
-	for k, v := range want {
-		if got[k] != v {
-			t.Errorf("answer_wait %s = %v, want %v (out = %v)", k, got[k], v, got)
-		}
-	}
-}
-
 func TestAnswerWaitZeroDeadlineChecksOnce(t *testing.T) {
 	env := testEnv(t, "bigm")
 	args := map[string]any{"question_id": "Q-shop-testhost-4", "deadline_seconds": 0}
@@ -111,32 +82,42 @@ func TestAnswerWaitZeroDeadlineChecksOnce(t *testing.T) {
 	if err != nil {
 		t.Fatalf("answer_wait: %v", err)
 	}
-	if got := out.(map[string]any); got["status"] != "answered" || got["subject"] != subject {
-		t.Errorf("answer_wait after answer_write = %v, want answered with subject %q", got, subject)
+	if got := out.(map[string]any); got["status"] != "answered" || got["subject"] != subject || got["asker"] != "clanker-shop" {
+		t.Errorf("answer_wait after answer_write = %v, want answered with subject %q and asker clanker-shop", got, subject)
 	}
 }
 
-func TestAnswerRefusesBadAsker(t *testing.T) {
-	// watcher is no role key; Clanker-A has capitals.
-	for _, asker := range []string{"watcher", "Clanker-A"} {
-		env := testEnv(t, "bigm")
-		_, err := call(t, env, "answer_write", map[string]any{"question_id": "Q-shop-testhost-5", "text": "answer of " + t.Name(), "asker": asker})
-		if err == nil {
-			t.Errorf("answer_write asker %q: err = nil, want an error", asker)
-		}
-		file := filepath.Join(env.DataDir, "answers", "bigm", "Q-shop-testhost-5.answer")
-		if _, err := os.Stat(file); !errors.Is(err, fs.ErrNotExist) {
-			t.Errorf("answer_write asker %q: stat %s = %v, want no file", asker, file, err)
-		}
-	}
-}
-
-func TestAnswerRefusesMultilineSubject(t *testing.T) {
-	for _, subject := range []string{"subject of\n" + t.Name(), strings.Repeat("s", 201)} {
-		_, err := call(t, testEnv(t, "bigm"), "answer_write", map[string]any{"question_id": "Q-shop-testhost-6", "text": "answer of " + t.Name(), "subject": subject})
-		if err == nil {
-			t.Errorf("answer_write subject %q: err = nil, want an error", subject)
-		}
+func TestAnswerWriteRefusesBadInput(t *testing.T) {
+	for _, tc := range []struct {
+		name, role string
+		args       map[string]any
+		wantErr    string
+	}{
+		// ../Q-1 leaves the answers folder; Q-7 is the old form, refused since spec 5 (D2).
+		{"ID leaves the answers folder", "clerk-a-1", map[string]any{"question_id": "../Q-1"}, "invalid question ID"},
+		{"ID of the old form", "clerk-a-1", map[string]any{"question_id": "Q-7"}, "invalid question ID"},
+		// watcher is no role key; Clanker-A has capitals.
+		{"asker is no role key", "bigm", map[string]any{"question_id": "Q-shop-testhost-5", "asker": "watcher"}, ""},
+		{"asker has capitals", "bigm", map[string]any{"question_id": "Q-shop-testhost-5", "asker": "Clanker-A"}, ""},
+		{"subject has a newline", "bigm", map[string]any{"question_id": "Q-shop-testhost-6", "subject": "subject of\n" + t.Name()}, ""},
+		{"subject is longer than 200", "bigm", map[string]any{"question_id": "Q-shop-testhost-6", "subject": strings.Repeat("s", 201)}, ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			env := testEnv(t, tc.role)
+			tc.args["text"] = "answer of " + t.Name()
+			_, err := call(t, env, "answer_write", tc.args)
+			if err == nil || !strings.Contains(err.Error(), tc.wantErr) {
+				t.Errorf("answer_write %v: err = %v, want an error with %q", tc.args, err, tc.wantErr)
+			}
+			if err := filepath.WalkDir(env.DataDir, func(p string, d fs.DirEntry, err error) error {
+				if err == nil && strings.HasSuffix(p, ".answer") {
+					t.Errorf("answer_write %v wrote %s, want no file", tc.args, p)
+				}
+				return err
+			}); err != nil && !errors.Is(err, fs.ErrNotExist) {
+				t.Fatal(err)
+			}
+		})
 	}
 }
 

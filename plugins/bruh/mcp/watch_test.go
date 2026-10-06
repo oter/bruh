@@ -286,20 +286,34 @@ func TestWatchReportsErrorOnce(t *testing.T) {
 	}
 }
 
+// TestRunWatchOnce runs bruh watch --once with a repos.json, which stores the state, and without
+// one: a missing repos.json must not stop the watcher, and it prints no events.
 func TestRunWatchOnce(t *testing.T) {
-	_, r := newFakeForge(t, "gitea")
-	env := testEnv(t, "bigm")
-	b, _ := json.Marshal(reposConfig{Repos: []repoConfig{r}})
-	if err := os.WriteFile(filepath.Join(env.DataDir, "repos.json"), b, 0o600); err != nil {
-		t.Fatal(err)
-	}
-	var out, errOut bytes.Buffer
-	if code := runCLI([]string{"watch", "--once", "--data", env.DataDir}, env, &out, &errOut); code != 0 {
-		t.Fatalf("exit %d: %s", code, errOut.String())
-	}
-	if _, err := os.Stat(filepath.Join(env.DataDir, "watch", "state.json")); err != nil {
-		t.Fatal(err)
-	}
+	t.Run("with repos.json", func(t *testing.T) {
+		_, r := newFakeForge(t, "gitea")
+		env := testEnv(t, "bigm")
+		b, _ := json.Marshal(reposConfig{Repos: []repoConfig{r}})
+		if err := os.WriteFile(filepath.Join(env.DataDir, "repos.json"), b, 0o600); err != nil {
+			t.Fatal(err)
+		}
+		var out, errOut bytes.Buffer
+		if code := runCLI([]string{"watch", "--once", "--data", env.DataDir}, env, &out, &errOut); code != 0 {
+			t.Fatalf("exit %d: %s", code, errOut.String())
+		}
+		if _, err := os.Stat(filepath.Join(env.DataDir, "watch", "state.json")); err != nil {
+			t.Fatal(err)
+		}
+	})
+	t.Run("without repos.json", func(t *testing.T) {
+		env := testEnv(t, "bigm")
+		var out, errOut bytes.Buffer
+		if code := runCLI([]string{"watch", "--once", "--data", env.DataDir}, env, &out, &errOut); code != 0 {
+			t.Fatalf("a missing repos.json must not stop the watcher: exit %d: %s", code, errOut.String())
+		}
+		if out.Len() != 0 {
+			t.Fatalf("no repositories, no events: %q", out.String())
+		}
+	})
 }
 
 func review(id int64, at time.Time, login, state, body string) hostComment {
@@ -414,17 +428,6 @@ func TestWatchDoesNotRepeatPushAfterError(t *testing.T) {
 	}
 	if pushes != 1 {
 		t.Fatalf("%d push events", pushes)
-	}
-}
-
-func TestRunWatchWithoutReposWaitsForThem(t *testing.T) {
-	env := testEnv(t, "bigm")
-	var out, errOut bytes.Buffer
-	if code := runCLI([]string{"watch", "--once", "--data", env.DataDir}, env, &out, &errOut); code != 0 {
-		t.Fatalf("a missing repos.json must not stop the watcher: exit %d: %s", code, errOut.String())
-	}
-	if out.Len() != 0 {
-		t.Fatalf("no repositories, no events: %q", out.String())
 	}
 }
 

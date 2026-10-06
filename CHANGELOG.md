@@ -25,6 +25,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - A scout clerk may clone a public repository and download a file for research, into `/tmp/<scout key>-*` only: `role_settings_write` adds two allow rules for the exact forms `git clone https://<url> /tmp/<scout key>-<name>` and `curl -fsSL -o /tmp/<scout key>-<name> https://<url>`, plus guard deny rules for options, quotes, variables, `..`, file URLs, redirects, and home folders. A scout still never pushes or commits.
 - `answer_write`, `mail_post`, and `question_open` replace `{now}` in the text or body with the server time, so bigm, the clankers, and the clerks run no `date -u` for these calls.
 - From a worktree, a clerk and a clanker never run `git -C <main checkout>`: they run git inside their own worktree, or read other refs through `origin/<branch>`. The `root` of a clerk's implement or review workflow is a worktree, never the main checkout.
+- The test suites are trimmed and grouped (task 33 test audit): tests that checked nothing new are cut, row tests are merged into tables that report every failing row, and five untested branches now have a test (the `handoff_percent` range, the slash rule of `lane.sh`, the empty default branch name, the empty-list guard of `remove_scratch`, and the tool names of the agents against the MCP server).
 
 ### Removed
 
