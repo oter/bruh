@@ -8,7 +8,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Added
 
-- The `/bruh-board` command opens a live pane. It shows one short line for each open P0 and P1 question, and one collapsed line for each clanker with a spinner and its task count. Press `1` to `9` to expand a clanker to its clerks (task, spinner, and state), and `a` to `z` to expand a clerk to its last done and next step; Tab and Enter reach every line, and Esc gives the keys back to the prompt. The expanded state stays in the store of the mod, its only write.
+- The `/bruh-board` command opens a live pane. It shows one short line for each open P0 and P1 question, and one collapsed line for each clanker with a spinner and its task count. Enter on a clanker expands it to its clerks (task, spinner, and state), and Enter on a clerk expands it to its name, last done, and next step. The lines have no hotkeys: Tab and the arrows move the focus, and Esc gives the keys back to the prompt. The expanded state stays in the store of the mod, its only write.
+- The `/bruh-board` pane has three designs from the same data: `cards` (bordered cards, the default), `buckets` (sections by state with soft coloured bars, a question inside the row of its clerk), and `pipeline` (a strip for each clerk across the deliver phases). Pick one in `/config` with `bruh: Board design` (the plugin option `board_design`); the open pane changes at once, with no restart.
+- The `/bruh-board` pane has a Done group at the bottom: one collapsed line with the count of the done and stopped clerks and clankers. Enter expands it to one gray line for each; nothing is deleted.
+- The `pipeline` design reads the top-level `phase` field of the report lines of a clerk (`plan`, `implement`, `review`, `fix`, `merge`, or `done`) and fills the strip up to the latest one. Without a phase line it shows `phase not reported`.
 - The `/bruh-board` pane shows answer buttons for each open question: the options of the question, or `ok` and `hold` for a refusal P0. A press sends `Q-<id>: <label>` as a prompt to bigm.
 
 ## [0.11.1] - 2026-10-05

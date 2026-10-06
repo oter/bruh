@@ -347,21 +347,28 @@ Do these steps after the release v0.11.1 is published. Let the running tasks fin
 
 Run `/bruh-board` in a session with bruh, usually bigm. It opens a live pane that refreshes about every 10 seconds. The board needs Claude Code 2.1.287 or later, because it is a mod (a hooks module, `plugins/bruh/hooks/register.js`). It opens only on the command.
 
-By default the pane shows two parts:
+The pane draws one of three designs, all from the same data. Pick it in `/config`, row `bruh: Board design` (the plugin option `board_design`). The open pane changes at once, with no restart and no new `/bruh-board`.
 
-- **Waits on you**: one short line for each open P0 or P1 question, P0 first, for example `P1 merge oter/bruh#29?`. A question is open while no answer file exists for it. Only when two open questions have the same subject, each line shows its number, for example `P1 (98) merge oter/bruh#29?`.
-- **The clankers**: one collapsed line for each project, with a spinner, the project path, and the task count, for example `1: ▸ oter/bruh · 2 tasks`.
+- `cards` (the default): each open question is a double-bordered card with its answer buttons. Each clanker is a bold card that holds one round card for each clerk. The border colour of a clerk card is its state.
+- `buckets`: for each clanker, a dim line with the project path and the task count, then one bar for each state in soft colours: WAITS ON YOU, BLOCKED, WORKING, and IDLE, in that order, and only the bars with clerks. A question of a clerk sits in the row of that clerk. The other open questions sit under a WAITS ON YOU bar on top.
+- `pipeline`: the open questions on top, as **Waits on you**, then one line for each clanker. An expanded clanker shows a strip for each clerk across the deliver phases `plan`, `implement`, `review`, `fix`, and `merge` (see the phase strip below).
+
+What the pane shows:
+
+- **The open questions**: one short line for each open P0 or P1 question, P0 first, for example `P1 merge oter/bruh#29?`. A question is open while no answer file exists for it. Only when two open questions have the same subject, each line shows its number, for example `P1 (98) merge oter/bruh#29?`.
+- **The clankers**: one collapsed line for each project, with a spinner, the project path, and the task count, for example `▸ oter/bruh · 2 tasks`.
+- **Done**: one collapsed line at the bottom, for example `▸ Done (3)`. It holds the done and stopped clerks, and each clanker whose own session and clerks are all done or stopped. Nothing is deleted: expand it to see one gray line for each, for example `✓ merge-simplify · done` or `■ tab-close · stopped`.
 
 Under each open question, the pane shows one button for each option of the question, or `ok` and `hold` for a refusal P0 without options. A press sends `Q-<id>: <label>` as a prompt into the session that shows the pane, and bigm records it as the answer of the owner. The prompt reaches only that session, so open the board in bigm.
 
-Expand a line to see more, and collapse it again with the same key:
+Expand a line to see more, and collapse it again the same way:
 
-- A clanker line expands to its clerks, one line each: the task number and slug, and the state, for example `a: ▸ task 12 fix-poller-wait-lock · working`. A clerk belongs to `clanker-<project>` by its role key `clerk-<project>-<name>`.
-- A clerk line expands to its details: `last:`, the text of the last status or result line of its report file, and `next:`, the expected deliverable of its ledger "In progress" row. Each shows only when the data exists.
+- A clanker line expands to its clerks, one line each: the task number and slug, and the state, for example `▸ task 12 fix-poller-wait-lock · working`. A clerk belongs to `clanker-<project>` by its role key `clerk-<project>-<name>`. In `buckets`, the clerks always show under their bars.
+- A clerk line expands to its details: its name, for example `oter/bruh pollerwait (clerk, task 12 fix-poller-wait-lock)`, then `last:`, the text of the last status or result line of its report file, and `next:`, the expected deliverable of its ledger "In progress" row. Each shows only when the data exists.
 
-The keys work while the pane has the keyboard. `/bruh-board` gives the pane the keyboard; Esc gives the keys back to the prompt, and Ctrl+X then Tab takes them again. Press `1` to `9` for a clanker and `a` to `z` for a clerk of an expanded clanker, in the order of the pane. An item past `9` or `z` has no key: reach it with Tab and press Enter.
+The lines have no hotkeys. `/bruh-board` gives the pane the keyboard: Tab and the arrows move the focus, and Enter expands, collapses, or answers. Esc gives the keys back to the prompt, and Ctrl+X then Tab takes them again.
 
-The pane keeps the expanded state in the store of the mod, one key for each item, so the next `/bruh-board` and your other sessions open the same lines. Each line is cut to the width of the pane and never wraps. The board shows no times, no session IDs, no run IDs, and no commit SHAs.
+The pane keeps the expanded state in the store of the mod, one key for each item and `open:done` for the Done group, so the next `/bruh-board` and your other sessions open the same lines. Each line is cut to the width of the pane and never wraps. The board shows no times, no session IDs, no run IDs, and no commit SHAs.
 
 The spinner shows who works and how. The glyphs show the role: `⣾⣽⣻⢿` for a clanker and `◐◓◑◒` for a clerk. A clanker line shows the most urgent state of the clanker and its clerks. The motion and the colour show the state:
 
@@ -372,10 +379,13 @@ The spinner shows who works and how. The glyphs show the role: `⣾⣽⣻⢿` fo
 | blocked or held | stops, red, with `!` |
 | idle | stops, dim |
 | done | `✓`, gray |
+| stopped | `■`, gray |
 
-The project path comes from `repos.json` (the MCP tool `repos_set` writes it), else the project key. The task number of a clerk comes from the ledger "In progress" row that names the clerk in its State column. The slug comes from the worktree folder of the clerk session. With neither, the line shows the name part of the role key, for example `liveui`. A clanker counts the tasks of its ledger rows and of its live clerks (the number, else the slug), also when the clanker has no session. With no task, it shows `no tasks`.
+The phase strip of `pipeline` reads one field. A line of the report file of a clerk (`<data>/reports/<role key>.jsonl`, one JSON object per line) may carry a top-level field `phase`: `plan`, `implement`, `review`, `fix`, `merge`, or `done`. The strip fills up to the phase of the latest line with such a field: green `━━━━━` for each phase before it, the spinner at it, and dim `·····` after it, so a question shows as `?` at its phase. With `done`, and for a done clerk in the Done group, the strip is all green. A stopped clerk shows `■ stopped`. With no such line, the strip shows the spinner and `····· phase not reported`. The board reads no other field and no text of a line for the phase.
 
-The board reads `claude agents --json --all` and the bruh data and ledger files. Its only write is the expanded state in its own store. To turn it off, close the pane with its close mark. That stops the refresh, and the board reads nothing until the next `/bruh-board`. There is no setting.
+The project path comes from `repos.json` (the MCP tool `repos_set` writes it), else the project key. The task number of a clerk comes from the ledger "In progress" row that names the clerk in its State column. The slug comes from the worktree folder of the clerk session. With neither, the line shows the name part of the role key, for example `liveui`. A clanker counts the tasks of its ledger rows and of its clerks (the number, else the slug), done ones too, also when the clanker has no session. With no task, it shows `no tasks`.
+
+The board reads `claude agents --json --all` and the bruh data and ledger files. Its only write is the expanded state in its own store. To turn it off, close the pane with its close mark. That stops the refresh, and the board reads nothing until the next `/bruh-board`.
 
 ## Documentation
 
