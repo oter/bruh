@@ -23,6 +23,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 - The house rule "In a worktree, no compound commands with git. Data goes through tool inputs." (item 10 of `defaults/house-rules.md`). Item 10 keeps the lane text for file reads, writes, and searches.
 - The lease guard hook, the post script of review results, and the shell wrapper of the poller. The plugin monitor `bruh-poller` runs the Go `watch` command, which polls only in bigm. A clerk posts a review result with `gh pr review` or `glab mr note create` after the yes of the owner or under a post grant.
+- The merge train (`scripts/merge-train.sh` and the `merge-train` command), the merger clerk `clerk-<project>-merge`, and `merge_method` of `repos_set`. After an owner approval (a recorded `ANSWER` or a merge grant), the clanker of the project merges with `gh pr merge <n> --repo <owner/repo> --merge --match-head-commit <sha>` (`glab` or `tea` for other hosts). Then it reads the state merged and the merge commit from the code host API. A `repos.json` file that has `merge_method` still loads.
 
 ### Fixed
 
@@ -39,7 +40,6 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 ### Removed
 
 - The git-shape guard. The hook does not deny a compound Bash command with the word git in a linked worktree, and it does not write a hold for it. The Claude Code worktree guard, permission modes, and classifier stay.
-- The merge train (`scripts/merge-train.sh` and the `merge-train` command), the merger clerk `clerk-<project>-merge`, and `merge_method` of `repos_set`. After an owner approval (a recorded `ANSWER` or a merge grant), the clanker of the project merges with `gh pr merge <n> --repo <owner/repo> --merge --match-head-commit <sha>` (`glab` or `tea` for other hosts). Then it reads the state merged and the merge commit from the code host API. A `repos.json` file that has `merge_method` still loads.
 
 ### Fixed
 
