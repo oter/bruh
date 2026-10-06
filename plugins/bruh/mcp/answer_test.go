@@ -157,3 +157,32 @@ func TestAnswerWriteClearsLinkedHold(t *testing.T) {
 		}
 	}
 }
+
+// fixedStamp is the Stamp of the clock of fixedNow.
+const fixedStamp = "2026-10-06T16:30:00.000Z"
+
+// fixedNow returns env with a clock fixed at fixedStamp.
+func fixedNow(env Env) Env {
+	env.Now = func() time.Time { return time.Date(2026, 10, 6, 16, 30, 0, 0, time.UTC) }
+	return env
+}
+
+// Task 29: answer_write replaces {now} in the text with the time that it stores, so the caller
+// passes no time and runs no date -u.
+func TestAnswerWriteFillsNow(t *testing.T) {
+	env := fixedNow(testEnv(t, "bigm"))
+	out, err := call(t, env, "answer_write", map[string]any{"question_id": "Q-shop-testhost-9", "text": "owner, {now}, terminal: yes"})
+	if err != nil {
+		t.Fatalf("answer_write: %v", err)
+	}
+	if at := out.(map[string]any)["at"]; at != fixedStamp {
+		t.Fatalf("answer_write at = %v, want %s", at, fixedStamp)
+	}
+	got, err := call(t, env, "answer_wait", map[string]any{"question_id": "Q-shop-testhost-9", "deadline_seconds": 0})
+	if err != nil {
+		t.Fatalf("answer_wait: %v", err)
+	}
+	if text, want := got.(map[string]any)["text"], "owner, "+fixedStamp+", terminal: yes"; text != want {
+		t.Errorf("answer_wait text = %q, want %q", text, want)
+	}
+}

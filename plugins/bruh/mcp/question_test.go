@@ -450,3 +450,33 @@ func TestQuestionOpenRefusesBadReplaces(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+// Task 29: question_open replaces {now} in the body with its opened_at time. The COMMAND line of
+// a hold keeps its text word for word.
+func TestQuestionOpenFillsNow(t *testing.T) {
+	env := fixedNow(testEnv(t, "clerk-a-1"))
+	out, err := call(t, env, "question_open", map[string]any{
+		"priority": "P1", "subject": "pick", "body": "asked {now}", "blocks": "x",
+		"options": []map[string]string{{"label": "a", "description": "one"}, {"label": "b", "description": "two"}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	q := out.(map[string]any)
+	if body, want := q["body"].(string), "asked "+fixedStamp+"\n"; !strings.HasPrefix(body, want) {
+		t.Errorf("question_open body = %q, want prefix %q", body, want)
+	}
+	var stored Question
+	readJSON(t, filepath.Join(env.DataDir, "questions", q["id"].(string)+".json"), &stored)
+	if stored.Body != "asked "+fixedStamp || stored.OpenedAt != fixedStamp {
+		t.Errorf("stored question = %+v, want Body %q and OpenedAt %s", stored, "asked "+fixedStamp, fixedStamp)
+	}
+	writeHold(t, env.DataDir, "H-1", "clerk-a-1", "", map[string]string{"command": "echo {now}"})
+	out, err = call(t, env, "question_open", map[string]any{"priority": "P0", "subject": "refused", "body": "at {now}", "blocks": "x", "hold": "H-1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if body, want := out.(map[string]any)["body"].(string), "at "+fixedStamp+"\n\nCOMMAND: echo {now}\n"; !strings.HasPrefix(body, want) {
+		t.Errorf("question_open(hold) body = %q, want prefix %q", body, want)
+	}
+}

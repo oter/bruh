@@ -59,7 +59,7 @@ func questionTools() []Tool {
 	return []Tool{
 		{
 			Name:        "question_open",
-			Description: "Open a question and get its ID, header line, and body. With 2 to 4 fixed answers, pass options; send the returned body, which has the OPTION lines. Send the header as the SendMessage nudge, then wait with answer_wait.",
+			Description: "Open a question and get its ID, header line, and body. With 2 to 4 fixed answers, pass options; send the returned body, which has the OPTION lines. Send the header as the SendMessage nudge, then wait with answer_wait." + nowDesc,
 			InputSchema: objectSchema(map[string]any{
 				"priority": map[string]any{"type": "string", "enum": []string{"P0", "P1", "P2"}},
 				"subject":  map[string]any{"type": "string", "description": "One line, at most 200 characters"},
@@ -86,6 +86,9 @@ func questionTools() []Tool {
 				if err != nil {
 					return nil, err
 				}
+				// Fill {now} before the hold lines are added, so that they stay word for word.
+				at := c.Env.Stamp()
+				a.Body = strings.ReplaceAll(a.Body, nowToken, at)
 				holdLines := ""
 				if a.Hold != "" {
 					h, err := readHold(c.Env, a.Hold, me)
@@ -121,7 +124,7 @@ func questionTools() []Tool {
 						} else if !errors.Is(err, fs.ErrNotExist) {
 							return err
 						}
-						q = Question{Priority: a.Priority, Subject: a.Subject, Body: a.Body, Blocks: a.Blocks, Asker: me, OpenedAt: c.Env.Stamp(), Options: a.Options, Replaces: a.Replaces}
+						q = Question{Priority: a.Priority, Subject: a.Subject, Body: a.Body, Blocks: a.Blocks, Asker: me, OpenedAt: at, Options: a.Options, Replaces: a.Replaces}
 						if a.Replaces != "" {
 							if _, err := checkID(a.Replaces, qidRE, "replaces"); err != nil {
 								return err

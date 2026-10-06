@@ -90,7 +90,7 @@ func answerTools() []Tool {
 	return []Tool{
 		{
 			Name:        "answer_write",
-			Description: "Record the answer to a question under the role key of the caller: each answer that a role sends or relays (bigm with subject and asker). It also records the answer for each question that this one replaces",
+			Description: "Record the answer to a question under the role key of the caller: each answer that a role sends or relays (bigm with subject and asker). It also records the answer for each question that this one replaces." + nowDesc,
 			InputSchema: map[string]any{
 				"type": "object",
 				"properties": map[string]any{
@@ -126,7 +126,7 @@ func answerTools() []Tool {
 					return nil, err
 				}
 				at := c.Env.Stamp()
-				data, _ := json.Marshal(answer{Text: a.Text, At: at, Subject: a.Subject, Asker: a.Asker})
+				data, _ := json.Marshal(answer{Text: strings.ReplaceAll(a.Text, nowToken, at), At: at, Subject: a.Subject, Asker: a.Asker})
 				// The answer also closes each question that this one replaces (the replaces chain of
 				// question_open), unless the caller answered that one already. seen stops a loop.
 				seen := map[string]bool{}

@@ -18,6 +18,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - The waiter does not wake an idle session at its timeout any more. It waits up to 7 days for new mail and exits in silence at its limit, so only new mail wakes the session (hook timeout 604800 seconds).
 - After a workflow run stops with `CONFLICT:`, the clerk starts a new run without `resumeFromRunId`, because a resume replays the cached stop. When the hold guard denies its next call with a hold ID, it opens a P0 with the `hold` field of `question_open`, not a P2 conflict question.
 - bigm runs only bruh skills: init adds a `PreToolUse` hook for the `Skill` tool to `<ledger>/.claude/settings.json` that blocks each other skill, and bigm sends each ask of the owner that needs a skill, research, or project work to a clanker. Run `/bruh:init` again to get the hook.
+- A scout clerk may clone a public repository and download a file for research, into `/tmp/<scout key>-*` only: `role_settings_write` adds two allow rules for the exact forms `git clone https://<url> /tmp/<scout key>-<name>` and `curl -fsSL -o /tmp/<scout key>-<name> https://<url>`, plus guard deny rules for options, quotes, variables, `..`, file URLs, and home folders. A scout still never pushes or commits.
+- `answer_write`, `mail_post`, and `question_open` replace `{now}` in the text or body with the server time, so bigm, the clankers, and the clerks run no `date -u` for these calls.
 
 ### Removed
 

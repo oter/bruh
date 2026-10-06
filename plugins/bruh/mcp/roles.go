@@ -31,7 +31,7 @@ var scoutGitWrites = []string{
 	"push", "commit", "add", "rm", "mv", "merge", "rebase", "reset", "checkout", "switch",
 	"restore", "stash", "tag", "worktree", "clean", "pull", "fetch", "apply", "cherry-pick", "revert",
 	"branch", "remote", "config", "update-ref", "symbolic-ref", "update-index", "read-tree",
-	"submodule", "sparse-checkout", "bisect", "notes", "replace", "am", "init", "clone",
+	"submodule", "sparse-checkout", "bisect", "notes", "replace", "am", "init",
 	"gc", "prune", "repack", "pack-refs", "maintenance", "filter-branch", "format-patch",
 	"reflog expire", "reflog delete",
 }
@@ -50,10 +50,53 @@ func scoutGitDeny() []string {
 	return out
 }
 
+// The two prefixes of the scout allow rules: a clone or a download into /tmp (task 28, owner
+// 2026-10-06T16:31:45Z).
+const (
+	scoutClonePrefix = "git clone https://"
+	scoutCurlPrefix  = "curl -fsSL -o /tmp/"
+)
+
+// scoutAllow returns the allow rules of the scout key: exactly one clone form and one download
+// form, into /tmp/<key>-* only. role_settings_write adds them; the caller cannot pass allow for
+// a scout.
+// ponytail: glob rules match the command text, so they are speed bumps (spec 3.6.1). A PreToolUse
+// hook that parses the destination, or sandbox filesystem.allowWrite (declined by the owner on
+// 2026-10-04, spec 3.6.1 "Not built"), is the upgrade if a real stop is needed.
+func scoutAllow(key string) []string {
+	return []string{
+		"Bash(" + scoutClonePrefix + "* /tmp/" + key + "-*)",
+		"Bash(" + scoutCurlPrefix + key + "-* https://*)",
+	}
+}
+
+// scoutGuardDeny returns the deny rules that keep the * of the scout allow rules from covering
+// more than a URL and a /tmp name. Deny wins over allow, so each command with an allow prefix
+// that holds one of these texts is denied: ".." climbs out of /tmp, "$" and "`" expand a
+// variable (a token) or run a command, quotes and "\" hide an option, " -" is any option after
+// the prefix (git clone -u or -c run a program, curl -T or -d upload a file), and "file:/" is a
+// local file URL. They match only commands that start with an allow prefix, so the other curl
+// reads still go to the classifier.
+func scoutGuardDeny() []string {
+	var out []string
+	for _, p := range []string{scoutClonePrefix, scoutCurlPrefix} {
+		// "file:/", not "file:": a rule that ends in ":*" means a trailing " *".
+		for _, x := range []string{"..", "$", "`", "'", `"`, `\`, " -", "file:/"} {
+			out = append(out, "Bash("+p+"*"+x+"*)")
+		}
+	}
+	return out
+}
+
 // scoutDeny are the deny rules that role_settings_write adds to each scout settings file, so
 // that its starter cannot leave them out (spec principle 2). The tool rules remove the tools;
 // the Bash rules match only the command text, so they are speed bumps (spec 3.6.1).
-var scoutDeny = append(scoutGitDeny(), []string{
+var scoutDeny = append(append(scoutGitDeny(), scoutGuardDeny()...), []string{
+	// A clone stays denied in the -C form, with an option before the URL, and into a home folder,
+	// where the project folders and the credentials are; so does a download into a home folder.
+	"Bash(git -C * clone)", "Bash(git -C * clone *)", "Bash(git clone -*)",
+	"Bash(git clone * ~*)", "Bash(git clone * /Users/*)", "Bash(git clone * /home/*)",
+	"Bash(curl * -o ~*)", "Bash(curl * -o /Users/*)", "Bash(curl * -o /home/*)",
 	"Edit", "Write", "NotebookEdit", "Workflow", "EnterWorktree",
 	bruhTool + "session_launch", bruhTool + "session_resume", bruhTool + "role_settings_write",
 	bruhTool + "lease_define", bruhTool + "lease_request", bruhTool + "lease_grant", bruhTool + "lease_release",
@@ -96,7 +139,7 @@ func rolesTools() []Tool {
 	return []Tool{
 		{
 			Name:        "role_settings_write",
-			Description: "Write the --settings file of a role: BRUH_ROLE_KEY, extra env values (tool accounts), deny rules, and allow rules. Only bigm passes allow, and only for a clanker key: each rule is Read(//<path>/**) for a repository of the project in learn/projects/<project>.json. A scout key clerk-<project>-scout<n> always gets the scout deny rules and is written once. Returns the absolute path.",
+			Description: "Write the --settings file of a role: BRUH_ROLE_KEY, extra env values (tool accounts), deny rules, and allow rules. Only bigm passes allow, and only for a clanker key: each rule is Read(//<path>/**) for a repository of the project in learn/projects/<project>.json. A scout key clerk-<project>-scout<n> always gets the scout deny rules and two allow rules, a clone (git clone https://<url> /tmp/<key>-<name>) and a download (curl -fsSL -o /tmp/<key>-<name> https://<url>), and is written once. Returns the absolute path.",
 			InputSchema: map[string]any{
 				"type": "object",
 				"properties": map[string]any{
@@ -145,11 +188,11 @@ func rolesTools() []Tool {
 						return nil, err
 					}
 				}
-				deny := a.Deny
+				deny, allow := a.Deny, a.Allow
 				if isScout(target) {
-					deny = append(slices.Clone(a.Deny), scoutDeny...)
+					deny, allow = append(slices.Clone(a.Deny), scoutDeny...), scoutAllow(key)
 				}
-				out, err := roleSettings(c.Env.PluginRoot, key, a.Env, deny, a.Allow)
+				out, err := roleSettings(c.Env.PluginRoot, key, a.Env, deny, allow)
 				if err != nil {
 					return nil, err
 				}
