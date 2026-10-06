@@ -6,9 +6,24 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Added
+
+- The `/bruh-board` command opens a live pane. It shows one short line for each open P0 and P1 question, and one collapsed line for each clanker with a spinner and its task count. Press `1` to `9` to expand a clanker to its clerks (task, spinner, and state), and `a` to `z` to expand a clerk to its last done and next step; Tab and Enter reach every line, and Esc gives the keys back to the prompt. The expanded state stays in the store of the mod, its only write.
+
 ### Changed
 
 - bigm gets a notice in its mailbox when a role writes a status or result report line, with a maximum of one unread notice for each role. bigm gives the owner a short update every 5 minutes while work runs.
+
+## [0.11.1] - 2026-10-05
+
+### Changed
+
+- A refusal does not stop bigm. After a refusal, the hook denies only the exact refused call of bigm, and bigm continues all other work. bigm must open the P0 before its turn ends. A held clanker or clerk stays blocked until bigm records the answer of the owner.
+- `ledger_edit` does not return a nudge. The waiter of `clerk-ledger` wakes the clerk when the DONE mail arrives, so bigm does not send a `SendMessage` nudge to `clerk-ledger`. This is also true after a hand commit and its `mail_post`.
+
+### Removed
+
+- The git-shape guard. The hook does not deny a compound Bash command with the word git in a linked worktree, and it does not write a hold for it. The Claude Code worktree guard, permission modes, and classifier stay.
 
 ### Fixed
 
@@ -96,7 +111,8 @@ This is the first release of bruh. It contains all parts of the [specification](
 - `init_plan` does not write the plugin options (`pluginConfigs`).
 - The report file `reports/watcher.jsonl` and the role key `watcher` of `report_read`.
 
-[Unreleased]: https://github.com/oter/bruh/compare/v0.11.0...HEAD
+[Unreleased]: https://github.com/oter/bruh/compare/v0.11.1...HEAD
+[0.11.1]: https://github.com/oter/bruh/compare/v0.11.0...v0.11.1
 [0.11.0]: https://github.com/oter/bruh/compare/v0.10.0...v0.11.0
 [0.10.0]: https://github.com/oter/bruh/compare/v0.9.0...v0.10.0
 [0.9.0]: https://github.com/oter/bruh/releases/tag/v0.9.0

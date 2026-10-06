@@ -372,6 +372,14 @@ test('bigm names the Slack tool, asks for the question ID, and resumes the ledge
   assert.doesNotMatch(ledger, /If `session_list` shows no live `clerk-ledger`, call `role_settings_write`/)
 })
 
+// Owner 2026-10-05: the ledger tool is automatic, and a refusal never freezes bigm.
+test('bigm sends no ledger nudge and keeps working after a refusal', () => {
+  assert.doesNotMatch(agents.bigm, /nudge\.header|push message/)
+  assert.match(agents.bigm.split('## The ledger clerk')[1].split('\n## ')[0], /Send no nudge/)
+  assert.match(agents.bigm, /A refusal never stops you/)
+  assert.doesNotMatch(agents.bigm, /every other tool stays blocked/)
+})
+
 // Spec 6.4: a post needs the yes of the owner or a post grant. The merge
 // grants table is the last part of grants.md.
 test('grants.md has the post grants and ends with the merge grants table', () => {

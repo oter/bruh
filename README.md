@@ -91,7 +91,7 @@ When the folder is empty, the init skill creates the layout: `README.md`, `mode.
 
 The Markdown files hold only the current state. When an item closes, bigm deletes its row in the commit that closes it, with the subject `close <kind>: <subject>`. Git is the history: `git log --grep` finds each closed item.
 
-bigm writes the Markdown files. It changes a table row or a key line with the tool `ledger_edit`, which commits that file and writes the DONE mail to the ledger clerk. Plugin code writes `learn/` (the init skill, and the refresh at each sweep of bigm). The init skill writes `.claude/settings.json`. bigm is the only role that commits the ledger. The ledger clerk pushes the ledger after each commit of bigm.
+bigm writes the Markdown files. It changes a table row or a key line with the tool `ledger_edit`, which commits that file and writes the DONE mail to the ledger clerk. The waiter of the ledger clerk wakes it on that mail, so bigm sends no nudge. Plugin code writes `learn/` (the init skill, and the refresh at each sweep of bigm). The init skill writes `.claude/settings.json`. bigm is the only role that commits the ledger. The ledger clerk pushes the ledger after each commit of bigm.
 
 ### 3. Run the init skill
 
@@ -277,7 +277,7 @@ Background sessions use the Claude account of the Claude Code supervisor. bruh n
 
 ### Upgrade from 0.10.0
 
-Do these steps after the release v0.11.0 is published. Let the running tasks finish first.
+Do these steps after the release v0.11.1 is published. Let the running tasks finish first.
 
 1. Update the marketplace and the plugin, in a terminal:
 
@@ -295,7 +295,7 @@ Do these steps after the release v0.11.0 is published. Let the running tasks fin
    claude plugin list
    ```
 
-   The entry of `bruh@oter` shows `Version: 0.11.0`.
+   The entry of `bruh@oter` shows `Version: 0.11.1`.
 3. Run the init skill again (step 3 of Install). It adds the allow rules of the new tools (`ledger_edit`, `monitor_start`, `monitor_stop`, `monitor_list`, `monitor_report`, and `session_tab_close`) and the new ledger parts (`monitors.md`, the table "Command grants" in `grants.md`, and the monitor keys of `mode.md`). In the ledger folder, start a session with no role key:
 
    ```bash
@@ -330,10 +330,10 @@ Do these steps after the release v0.11.0 is published. Let the running tasks fin
 5. Restart the background roles. Tell bigm:
 
    ```text
-   restart each clanker and clerk-ledger so that they run 0.11.0
+   restart each clanker and clerk-ledger so that they run 0.11.1
    ```
 
-   New clerks start on 0.11.0. A clerk that still runs keeps 0.10.0 until it ends.
+   New clerks start on 0.11.1. A clerk that still runs keeps 0.10.0 until it ends.
 6. Optional: local Orca tabs. The new plugin option `orca_local` is `auto` by default: when the Orca app 1.4.218 or later runs, each local clanker and clerk that bruh starts or resumes gets an Orca tab ("Local sessions in Orca" in step 1 of Install). To turn it off, set `orca_local` to `off` with `/config`.
 7. Check the upgrade. Wait one minute after the start of bigm. Then ask bigm:
 
@@ -341,7 +341,39 @@ Do these steps after the release v0.11.0 is published. Let the running tasks fin
    call bruh_info and monitor_list
    ```
 
-   `bruh_info` shows the version `0.11.0`. `monitor_list` exists only in 0.11.0, and it shows `poller_down` false. If `poller_down` is still true after two minutes, run `/reload-plugins` in bigm and ask again.
+   `bruh_info` shows the version `0.11.1`. `monitor_list` exists since 0.11.0, and it shows `poller_down` false. If `poller_down` is still true after two minutes, run `/reload-plugins` in bigm and ask again.
+
+## Watch bruh work
+
+Run `/bruh-board` in a session with bruh, usually bigm. It opens a live pane that refreshes about every 10 seconds. The board needs Claude Code 2.1.287 or later, because it is a mod (a hooks module, `plugins/bruh/hooks/register.js`). It opens only on the command.
+
+By default the pane shows two parts:
+
+- **Waits on you**: one short line for each open P0 or P1 question, P0 first, for example `P1 merge oter/bruh#29?`. A question is open while no answer file exists for it. Only when two open questions have the same subject, each line shows its number, for example `P1 (98) merge oter/bruh#29?`.
+- **The clankers**: one collapsed line for each project, with a spinner, the project path, and the task count, for example `1: ▸ oter/bruh · 2 tasks`.
+
+Expand a line to see more, and collapse it again with the same key:
+
+- A clanker line expands to its clerks, one line each: the task number and slug, and the state, for example `a: ▸ task 12 fix-poller-wait-lock · working`. A clerk belongs to `clanker-<project>` by its role key `clerk-<project>-<name>`.
+- A clerk line expands to its details: `last:`, the text of the last status or result line of its report file, and `next:`, the expected deliverable of its ledger "In progress" row. Each shows only when the data exists.
+
+The keys work while the pane has the keyboard. `/bruh-board` gives the pane the keyboard; Esc gives the keys back to the prompt, and Ctrl+X then Tab takes them again. Press `1` to `9` for a clanker and `a` to `z` for a clerk of an expanded clanker, in the order of the pane. An item past `9` or `z` has no key: reach it with Tab and press Enter.
+
+The pane keeps the expanded state in the store of the mod, one key for each item, so the next `/bruh-board` and your other sessions open the same lines. Each line is cut to the width of the pane and never wraps. The board shows no times, no session IDs, no run IDs, and no commit SHAs.
+
+The spinner shows who works and how. The glyphs show the role: `⣾⣽⣻⢿` for a clanker and `◐◓◑◒` for a clerk. A clanker line shows the most urgent state of the clanker and its clerks. The motion and the colour show the state:
+
+| State | Spinner |
+|---|---|
+| working | turns, green |
+| waits on you | turns slowly, yellow, with `?` |
+| blocked or held | stops, red, with `!` |
+| idle | stops, dim |
+| done | `✓`, gray |
+
+The project path comes from `repos.json` (the MCP tool `repos_set` writes it), else the project key. The task number of a clerk comes from the ledger "In progress" row that names the clerk in its State column. The slug comes from the worktree folder of the clerk session. With neither, the line shows the name part of the role key, for example `liveui`. A clanker counts the tasks of its ledger rows and of its live clerks (the number, else the slug), also when the clanker has no session. With no task, it shows `no tasks`.
+
+The board reads `claude agents --json --all` and the bruh data and ledger files. Its only write is the expanded state in its own store. To turn it off, close the pane with its close mark. That stops the refresh, and the board reads nothing until the next `/bruh-board`. There is no setting.
 
 ## Documentation
 
