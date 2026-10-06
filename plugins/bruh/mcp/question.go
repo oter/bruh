@@ -24,6 +24,7 @@ type Question struct {
 	Asker    string   `json:"asker"`
 	OpenedAt string   `json:"opened_at"`
 	Options  []Option `json:"options,omitempty"`
+	Replaces string   `json:"replaces,omitempty"`
 }
 
 // Option is one fixed answer of a P1 question (spec 14.2).
@@ -58,7 +59,7 @@ func questionTools() []Tool {
 	return []Tool{
 		{
 			Name:        "question_open",
-			Description: "Open a question and get its ID, header line, and body. With 2 to 4 fixed answers, pass options; send the returned body, which has the OPTION lines. Send the header as the SendMessage nudge, then wait with answer_wait.",
+			Description: "Open a question and get its ID, header line, and body. With 2 to 4 fixed answers, pass options; send the returned body, which has the OPTION lines. Send the header as the SendMessage nudge, then wait with answer_wait." + nowDesc,
 			InputSchema: objectSchema(map[string]any{
 				"priority": map[string]any{"type": "string", "enum": []string{"P0", "P1", "P2"}},
 				"subject":  map[string]any{"type": "string", "description": "One line, at most 200 characters"},
@@ -70,7 +71,8 @@ func questionTools() []Tool {
 					"minItems": 2,
 					"maxItems": 4,
 				},
-				"hold": map[string]any{"type": "string", "description": "The hold ID of a refusal (spec 15.1): makes the question P0 and adds the COMMAND and CATEGORY lines from the hold record"},
+				"hold":     map[string]any{"type": "string", "description": "The hold ID of a refusal (spec 15.1): makes the question P0 and adds the COMMAND and CATEGORY lines from the hold record. It also replaces your open P0 with the same COMMAND and CATEGORY lines"},
+				"replaces": map[string]any{"type": "string", "description": "The ID of an older question of yours that this one replaces (a reask): the answer of this one also closes it"},
 			}, "priority", "subject", "body", "blocks"),
 			Handler: func(c *Call, raw json.RawMessage) (any, error) {
 				me, err := c.Env.Caller()
@@ -78,19 +80,24 @@ func questionTools() []Tool {
 					return nil, err
 				}
 				a, err := decode[struct {
-					Priority, Subject, Body, Blocks, Hold string
-					Options                               []Option
+					Priority, Subject, Body, Blocks, Hold, Replaces string
+					Options                                         []Option
 				}](raw)
 				if err != nil {
 					return nil, err
 				}
+				// Fill {now} before the hold lines are added, so that they stay word for word.
+				at := c.Env.Stamp()
+				a.Body = strings.ReplaceAll(a.Body, nowToken, at)
+				holdLines := ""
 				if a.Hold != "" {
 					h, err := readHold(c.Env, a.Hold, me)
 					if err != nil {
 						return nil, err
 					}
+					holdLines = h.lines()
 					a.Priority = "P0"
-					a.Body = strings.TrimRight(a.Body, "\n") + "\n\n" + h.lines()
+					a.Body = strings.TrimRight(a.Body, "\n") + "\n\n" + holdLines
 				}
 				if !slices.Contains([]string{"P0", "P1", "P2"}, a.Priority) {
 					return nil, fmt.Errorf("invalid priority: %q", a.Priority)
@@ -117,7 +124,22 @@ func questionTools() []Tool {
 						} else if !errors.Is(err, fs.ErrNotExist) {
 							return err
 						}
-						q = Question{Priority: a.Priority, Subject: a.Subject, Body: a.Body, Blocks: a.Blocks, Asker: me, OpenedAt: c.Env.Stamp(), Options: a.Options}
+						q = Question{Priority: a.Priority, Subject: a.Subject, Body: a.Body, Blocks: a.Blocks, Asker: me, OpenedAt: at, Options: a.Options, Replaces: a.Replaces}
+						if a.Replaces != "" {
+							if _, err := checkID(a.Replaces, qidRE, "replaces"); err != nil {
+								return err
+							}
+							var old Question
+							data, err := os.ReadFile(filepath.Join(dir, a.Replaces+".json"))
+							if err == nil {
+								err = json.Unmarshal(data, &old)
+							}
+							if err != nil || old.Asker != me {
+								return fmt.Errorf("replaces %s: no question of %s", a.Replaces, me)
+							}
+						} else if holdLines != "" {
+							q.Replaces = repeatedHold(c.Env, dir, me, holdLines)
+						}
 						if !headerRE.MatchString(q.Priority + " " + questionID(me, c.Env.Host, n) + ": " + q.Subject) {
 							return fmt.Errorf("invalid subject: %q (one line, 1 to 200 characters)", a.Subject)
 						}
@@ -166,6 +188,25 @@ func questionTools() []Tool {
 			},
 		},
 		{
+			Name:        "question_list",
+			Description: "List the open P0 and P1 questions, oldest first: each question file with no answer file in any role folder. A question that a newer answered question replaces is closed",
+			InputSchema: map[string]any{"type": "object", "properties": map[string]any{}},
+			Handler: func(c *Call, _ json.RawMessage) (any, error) {
+				if _, err := c.Env.Caller(); err != nil {
+					return nil, err
+				}
+				open := []map[string]string{}
+				qs := readQuestions(filepath.Join(c.Env.DataDir, "questions"))
+				slices.SortStableFunc(qs, func(a, b Question) int { return cmp.Compare(a.OpenedAt, b.OpenedAt) })
+				for _, q := range qs {
+					if (q.Priority == "P0" || q.Priority == "P1") && !answered(c.Env, q.ID) {
+						open = append(open, map[string]string{"id": q.ID, "priority": q.Priority, "subject": q.Subject, "asker": q.Asker, "opened_at": q.OpenedAt})
+					}
+				}
+				return map[string]any{"questions": open}, nil
+			},
+		},
+		{
 			Name:        "bruh_info",
 			Description: "Return the plugin root, the data folder, the role key of this session, and the plugin version. Use the plugin root to find scripts/.",
 			InputSchema: map[string]any{"type": "object", "properties": map[string]any{}},
@@ -190,6 +231,31 @@ func questionTools() []Tool {
 			},
 		},
 	}
+}
+
+// repeatedHold returns the ID of the newest open P0 of me whose body ends with the same COMMAND
+// and CATEGORY lines (an exact match), or "": a repeat of the same refusal replaces it.
+func repeatedHold(env Env, dir, me, lines string) string {
+	var newest Question
+	for _, q := range readQuestions(dir) {
+		if q.Asker == me && q.Priority == "P0" && strings.HasSuffix(q.Body, "\n\n"+lines) && !answered(env, q.ID) && q.OpenedAt >= newest.OpenedAt {
+			newest = q
+		}
+	}
+	return newest.ID
+}
+
+// readQuestions reads each question file of dir; it skips a file that it cannot read or parse.
+func readQuestions(dir string) []Question {
+	files, _ := filepath.Glob(filepath.Join(dir, "Q-*.json")) // only ErrBadPattern; the pattern is constant
+	var qs []Question
+	for _, f := range files {
+		var q Question
+		if data, err := os.ReadFile(f); err == nil && json.Unmarshal(data, &q) == nil && q.ID != "" {
+			qs = append(qs, q)
+		}
+	}
+	return qs
 }
 
 func (q Question) header() string { return q.Priority + " " + q.ID + ": " + q.Subject }

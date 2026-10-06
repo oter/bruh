@@ -37,6 +37,21 @@ func TestMailKeepsOrderAndArchives(t *testing.T) {
 	}
 }
 
+// Task 29: mail_post replaces {now} in the body with the time of the call.
+func TestMailPostFillsNow(t *testing.T) {
+	env := fixedNow(testEnv(t, "clerk-a-1"))
+	if _, err := call(t, env, "mail_post", map[string]any{"to": "clanker-a", "header": "DONE: x", "body": "done at {now}"}); err != nil {
+		t.Fatal(err)
+	}
+	got, err := call(t, as(env, "clanker-a"), "mail_read", map[string]any{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if body, want := got.([]any)[0].(map[string]any)["body"], "done at "+fixedStamp; body != want {
+		t.Errorf("mail_read body = %q, want %q", body, want)
+	}
+}
+
 func TestMailRefusesBadInput(t *testing.T) {
 	env := testEnv(t, "bigm")
 	if _, err := call(t, env, "mail_post", map[string]any{"to": "clanker-a", "header": "STATUS: x", "body": ""}); err == nil || !strings.Contains(err.Error(), "invalid header") {
@@ -84,8 +99,8 @@ func TestMailSenderPolicy(t *testing.T) {
 		{"bigm", "clanker-a", "RULE R-1: no pushes on Friday", true},
 		{"bigm", "clerk-a-x", "RULE R-1: no pushes on Friday", true},
 		{"bigm", "clerk-ledger", "DONE: ledger commit abc1234", true},
-		{"bigm", "clerk-a-merge", "ANSWER Q-a-host-2: merge owner/a#3 approved", true},
-		{"bigm", "clerk-a-merge", "START: merge owner/a#3", true},
+		{"bigm", "clanker-a", "ANSWER Q-a-host-2: merge owner/a#3 approved", true},
+		{"bigm", "clanker-a", "START: merge owner/a#3", true},
 		{"clerk-ledger", "bigm", "P1 Q-a-host-3: push refused", true},
 		// A clerk may raise a P0 straight to bigm, and nothing else.
 		{"clerk-a-x", "bigm", "P0 Q-a-host-4: permission prompt", true},

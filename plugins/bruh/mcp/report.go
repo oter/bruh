@@ -20,6 +20,10 @@ func isRFC3339(s string) bool {
 
 var reportKinds = []string{"status", "answer", "event", "result"}
 
+// reportPhases are the values of the optional phase of a report line (task 30). The board reads
+// the field, so the names are a contract.
+var reportPhases = []string{"plan", "implement", "review", "fix", "merge", "done"}
+
 // isMailPendingEvent reports whether a line is the event "<role key> not running; mail pending"
 // of the mail procedure (clerk.md, "How to send a message"), with a valid role key.
 func isMailPendingEvent(kind, text string) bool {
@@ -40,14 +44,47 @@ type ReportLine struct {
 	Kind   string          `json:"kind"`
 	Text   string          `json:"text"`
 	Source *Source         `json:"source,omitempty"`
+	Phase  string          `json:"phase,omitempty"`
 	Event  json.RawMessage `json:"event,omitempty"` // watcher lines only
+}
+
+// notifyBigm pushes a status or result line of me to bigm as the mail "DONE: report <me>", with
+// the line as body, so the wake.sh waiter of bigm wakes it (task 17). It writes no notice while
+// one from me is still unread in the mailbox of bigm: at most one pending notice per role. bigm
+// then reads the later lines with report_read and since = the at of the body line. since is
+// inclusive, because a later line can have the same millisecond at; bigm skips the lines that it
+// already has. The lock keeps two parallel calls of one role from writing two notices.
+func notifyBigm(env Env, me string, line []byte) error {
+	header := "DONE: report " + me
+	return env.WithLock("report-notice-"+me, func() error {
+		box, err := env.Dir("mail", "bigm")
+		if err != nil {
+			return err
+		}
+		files, err := filepath.Glob(filepath.Join(box, "*.json"))
+		if err != nil {
+			return err
+		}
+		for _, file := range files {
+			data, err := os.ReadFile(file)
+			if err != nil {
+				continue // mail_read moved it
+			}
+			var m Message
+			if json.Unmarshal(data, &m) == nil && m.From == me && m.Header == header {
+				return nil
+			}
+		}
+		_, err = writeMail(env, me, "bigm", header, string(line))
+		return err
+	})
 }
 
 func reportTools() []Tool {
 	return []Tool{
 		{
 			Name:        "report_write",
-			Description: "Append one line to the report file of the calling role. A status claim (merged, deployed, live, down, out of quota) carries source: {call, value, at}. Each line of a scout clerk needs the full source, with at in RFC 3339 and value present (it can be empty), except the event '<role key> not running; mail pending'.",
+			Description: "Append one line to the report file of the calling role. A status claim (merged, deployed, live, down, out of quota) carries source: {call, value, at}. Each line of a scout clerk needs the full source, with at in RFC 3339 and value present (it can be empty), except the event '<role key> not running; mail pending'. A status or result line of a role other than bigm also puts the notice 'DONE: report <role key>' (body: the line) in the mailbox of bigm, at most one unread notice per role. The optional phase (plan, implement, review, fix, merge, done) marks the step of the task that starts; it is stored as the top-level field phase of the line.",
 			InputSchema: map[string]any{
 				"type": "object",
 				"properties": map[string]any{
@@ -56,6 +93,7 @@ func reportTools() []Tool {
 					"source": map[string]any{"type": "object", "properties": map[string]any{
 						"call": map[string]any{"type": "string"}, "value": map[string]any{"type": "string"}, "at": map[string]any{"type": "string"},
 					}},
+					"phase": map[string]any{"type": "string", "enum": reportPhases},
 				},
 				"required": []string{"kind", "text"},
 			},
@@ -72,12 +110,16 @@ func reportTools() []Tool {
 						Value *string `json:"value"` // a pointer: present but empty is valid output
 						At    string  `json:"at"`
 					} `json:"source"`
+					Phase *string `json:"phase"`
 				}](raw)
 				if err != nil {
 					return nil, err
 				}
 				if !slices.Contains(reportKinds, a.Kind) {
 					return nil, fmt.Errorf("invalid kind: %q", a.Kind)
+				}
+				if a.Phase != nil && !slices.Contains(reportPhases, *a.Phase) {
+					return nil, fmt.Errorf("invalid phase: %q", *a.Phase)
 				}
 				var src *Source
 				if s := a.Source; s != nil {
@@ -100,18 +142,32 @@ func reportTools() []Tool {
 					return nil, err
 				}
 				line := ReportLine{At: c.Env.Stamp(), From: me, Kind: a.Kind, Text: a.Text, Source: src}
+				if a.Phase != nil {
+					line.Phase = *a.Phase
+				}
 				data, _ := json.Marshal(line)
 				f, err := os.OpenFile(filepath.Join(dir, me+".jsonl"), os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
 				if err != nil {
 					return nil, err
 				}
 				_, werr := f.Write(append(data, '\n'))
-				return map[string]string{"at": line.At}, errors.Join(werr, f.Close())
+				if err := errors.Join(werr, f.Close()); err != nil {
+					return nil, err
+				}
+				out := map[string]string{"at": line.At}
+				// The line is written, so a notice error does not fail the call: a retry would
+				// duplicate the line.
+				if (a.Kind == "status" || a.Kind == "result") && me != "bigm" {
+					if err := notifyBigm(c.Env, me, data); err != nil {
+						out["notice_error"] = err.Error()
+					}
+				}
+				return out, nil
 			},
 		},
 		{
 			Name:        "report_read",
-			Description: "Read the report lines of a role, optionally only after a UTC time.",
+			Description: "Read the report lines of a role, optionally only the lines at or after a UTC time (since is inclusive: two lines can have the same millisecond at).",
 			InputSchema: map[string]any{
 				"type": "object",
 				"properties": map[string]any{
@@ -154,7 +210,7 @@ func reportTools() []Tool {
 					if err := json.Unmarshal(sc.Bytes(), &l); err != nil {
 						return nil, err
 					}
-					if a.Since == "" || l.At > a.Since {
+					if a.Since == "" || l.At >= a.Since {
 						lines = append(lines, l)
 					}
 				}

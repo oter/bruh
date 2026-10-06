@@ -290,3 +290,193 @@ func TestQuestionOpenHoldRefusals(t *testing.T) {
 		t.Fatalf("questions/ entries after refused holds = %v, want none", entries)
 	}
 }
+
+// openIDs returns the IDs that question_list returns to bigm.
+func openIDs(t *testing.T, env Env) []string {
+	t.Helper()
+	out, err := call(t, as(env, "bigm"), "question_list", map[string]any{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var ids []string
+	for _, q := range out.(map[string]any)["questions"].([]any) {
+		ids = append(ids, q.(map[string]any)["id"].(string))
+	}
+	return ids
+}
+
+func exists(t *testing.T, path string) bool {
+	t.Helper()
+	_, err := os.Stat(path)
+	return err == nil
+}
+
+// Task 24: the answer_write of a clanker to a delegated P1 closes it for bigm, and the answer_wait
+// of the clerk still reads only its own folder.
+func TestDelegatedAnswerClosesQuestion(t *testing.T) {
+	clerk := testEnv(t, "clerk-shop-x")
+	q, err := openQ(t, clerk, "which port?")
+	if err != nil {
+		t.Fatal(err)
+	}
+	p0, err := call(t, clerk, "question_open", map[string]any{"priority": "P0", "subject": "still open", "body": "b", "blocks": "x"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := call(t, clerk, "question_open", map[string]any{"priority": "P2", "subject": "a P2", "body": "b", "blocks": "x"}); err != nil {
+		t.Fatal(err)
+	}
+	id, p0id := q["id"].(string), p0.(map[string]any)["id"].(string)
+	if got := openIDs(t, clerk); !slices.Equal(got, []string{id, p0id}) {
+		t.Fatalf("question_list before the answer = %v, want [%s %s]", got, id, p0id)
+	}
+	if _, err := call(t, as(clerk, "clanker-shop"), "answer_write", map[string]any{"question_id": id, "text": "8080", "asker": "clerk-shop-x"}); err != nil {
+		t.Fatal(err)
+	}
+	if !exists(t, filepath.Join(clerk.DataDir, "answers", "clanker-shop", id+".answer")) {
+		t.Fatalf("no answer file of clanker-shop for %s", id)
+	}
+	if got := openIDs(t, clerk); !slices.Equal(got, []string{p0id}) {
+		t.Fatalf("question_list after the delegated answer = %v, want [%s]", got, p0id)
+	}
+	out, err := call(t, clerk, "answer_wait", map[string]any{"question_id": id, "deadline_seconds": 0})
+	if err != nil || out.(map[string]any)["status"] != "pending" {
+		t.Fatalf("answer_wait of the clerk = %v, %v, want pending (it reads only its own folder)", out, err)
+	}
+}
+
+// Task 24: a question that a newer one replaces closes with the answer of the newer one.
+func TestReplacedQuestionClosesWithItsReplacement(t *testing.T) {
+	clerk := testEnv(t, "clerk-a-1")
+	writeHold(t, clerk.DataDir, "H-1", "clerk-a-1", "", map[string]string{"command": "gh pr merge 7"})
+	q1, err := call(t, clerk, "question_open", map[string]any{"priority": "P0", "subject": "refused", "body": "b", "blocks": "x", "hold": "H-1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	id1 := q1.(map[string]any)["id"].(string)
+	q2, err := call(t, clerk, "question_open", map[string]any{"priority": "P0", "subject": "refused (attempt 2)", "body": "b", "blocks": "x", "replaces": id1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	id2 := q2.(map[string]any)["id"].(string)
+	if _, err := call(t, as(clerk, "bigm"), "answer_write", map[string]any{"question_id": id2, "text": "ok. Owner.", "asker": "clerk-a-1"}); err != nil {
+		t.Fatal(err)
+	}
+	for _, id := range []string{id1, id2} {
+		if !exists(t, filepath.Join(clerk.DataDir, "answers", "bigm", id+".answer")) {
+			t.Errorf("no answer file of bigm for %s", id)
+		}
+	}
+	if exists(t, filepath.Join(clerk.DataDir, "holds", "H-1.json")) {
+		t.Error("hold H-1 of the replaced P0 is still there")
+	}
+	if got := openIDs(t, clerk); len(got) != 0 {
+		t.Fatalf("question_list = %v, want none", got)
+	}
+	// An answer that the caller wrote already for a replaced question stays as it is.
+	q3, err := openQ(t, clerk, "old")
+	if err != nil {
+		t.Fatal(err)
+	}
+	id3 := q3["id"].(string)
+	if _, err := call(t, as(clerk, "bigm"), "answer_write", map[string]any{"question_id": id3, "text": "first"}); err != nil {
+		t.Fatal(err)
+	}
+	q4, err := call(t, clerk, "question_open", map[string]any{"priority": "P1", "subject": "new", "body": "b", "blocks": "x", "replaces": id3})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := call(t, as(clerk, "bigm"), "answer_write", map[string]any{"question_id": q4.(map[string]any)["id"], "text": "second"}); err != nil {
+		t.Fatal(err)
+	}
+	var a answer
+	readJSON(t, filepath.Join(clerk.DataDir, "answers", "bigm", id3+".answer"), &a)
+	if a.Text != "first" {
+		t.Errorf("answer of %s = %q, want first", id3, a.Text)
+	}
+}
+
+// Task 24: a repeat of the same refusal replaces the open P0 of the first hold.
+func TestHoldRepeatReplacesOpenP0(t *testing.T) {
+	env := testEnv(t, "clerk-a-1")
+	open := func(hold string) Question {
+		t.Helper()
+		out, err := call(t, env, "question_open", map[string]any{"priority": "P0", "subject": "refused", "body": "b", "blocks": "x", "hold": hold})
+		if err != nil {
+			t.Fatal(err)
+		}
+		var q Question
+		readJSON(t, filepath.Join(env.DataDir, "questions", out.(map[string]any)["id"].(string)+".json"), &q)
+		return q
+	}
+	writeHold(t, env.DataDir, "H-1", "clerk-a-1", "", map[string]string{"command": "gh pr merge 7"})
+	writeHold(t, env.DataDir, "H-2", "clerk-a-1", "", map[string]string{"command": "gh pr merge 7"})
+	writeHold(t, env.DataDir, "H-3", "clerk-a-1", "", map[string]string{"command": "gh pr merge 8"})
+	q1, q2, q3 := open("H-1"), open("H-2"), open("H-3")
+	if q1.Replaces != "" || q2.Replaces != q1.ID || q3.Replaces != "" {
+		t.Fatalf("replaces = %q, %q, %q, want \"\", %s, \"\"", q1.Replaces, q2.Replaces, q3.Replaces, q1.ID)
+	}
+}
+
+func TestQuestionOpenRefusesBadReplaces(t *testing.T) {
+	env := testEnv(t, "clerk-a-1")
+	other, err := openQ(t, as(env, "clerk-b-1"), "of b")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, id := range []string{other["id"].(string), "Q-a-testhost-99", "../x"} {
+		if _, err := call(t, env, "question_open", map[string]any{"priority": "P1", "subject": "s", "body": "b", "blocks": "x", "replaces": id}); err == nil {
+			t.Errorf("question_open(replaces %q) err = nil, want error", id)
+		}
+	}
+	// A hand-edited loop of replaces ends.
+	q1, err := openQ(t, env, "one")
+	if err != nil {
+		t.Fatal(err)
+	}
+	q2, err := call(t, env, "question_open", map[string]any{"priority": "P1", "subject": "two", "body": "b", "blocks": "x", "replaces": q1["id"]})
+	if err != nil {
+		t.Fatal(err)
+	}
+	file := filepath.Join(env.DataDir, "questions", q1["id"].(string)+".json")
+	var q Question
+	readJSON(t, file, &q)
+	q.Replaces = q2.(map[string]any)["id"].(string)
+	b, _ := json.Marshal(q)
+	if err := os.WriteFile(file, b, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := call(t, as(env, "bigm"), "answer_write", map[string]any{"question_id": q1["id"], "text": "x"}); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// Task 29: question_open replaces {now} in the body with its opened_at time. The COMMAND line of
+// a hold keeps its text word for word.
+func TestQuestionOpenFillsNow(t *testing.T) {
+	env := fixedNow(testEnv(t, "clerk-a-1"))
+	out, err := call(t, env, "question_open", map[string]any{
+		"priority": "P1", "subject": "pick", "body": "asked {now}", "blocks": "x",
+		"options": []map[string]string{{"label": "a", "description": "one"}, {"label": "b", "description": "two"}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	q := out.(map[string]any)
+	if body, want := q["body"].(string), "asked "+fixedStamp+"\n"; !strings.HasPrefix(body, want) {
+		t.Errorf("question_open body = %q, want prefix %q", body, want)
+	}
+	var stored Question
+	readJSON(t, filepath.Join(env.DataDir, "questions", q["id"].(string)+".json"), &stored)
+	if stored.Body != "asked "+fixedStamp || stored.OpenedAt != fixedStamp {
+		t.Errorf("stored question = %+v, want Body %q and OpenedAt %s", stored, "asked "+fixedStamp, fixedStamp)
+	}
+	writeHold(t, env.DataDir, "H-1", "clerk-a-1", "", map[string]string{"command": "echo {now}"})
+	out, err = call(t, env, "question_open", map[string]any{"priority": "P0", "subject": "refused", "body": "at {now}", "blocks": "x", "hold": "H-1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if body, want := out.(map[string]any)["body"].(string), "at "+fixedStamp+"\n\nCOMMAND: echo {now}\n"; !strings.HasPrefix(body, want) {
+		t.Errorf("question_open(hold) body = %q, want prefix %q", body, want)
+	}
+}

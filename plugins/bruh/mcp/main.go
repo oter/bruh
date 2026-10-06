@@ -14,10 +14,8 @@ import (
 	"path/filepath"
 	"regexp"
 	"slices"
-	"strconv"
 	"strings"
 	"syscall"
-	"time"
 )
 
 const usage = `usage: go run -C <plugin root>/mcp . [command]
@@ -29,9 +27,6 @@ Commands:
   role-settings <role key> write <data>/roles/<role key>.json with the defaults (never overwrites)
   watch [--data <dir>] [--once]
                            poll the code hosts of <data>/repos.json; one JSON line for each event
-  merge-train [--data <dir>] [--wait-minutes <n>] [--answer Q-<id>] <repo> <number>...
-                           merge the pull requests in order, each only with green checks,
-                           and confirm each merge by reading the code host API
 `
 
 func main() {
@@ -109,49 +104,6 @@ func runCLI(args []string, env Env, stdout, stderr io.Writer) int {
 			return fail(err)
 		}
 		return 0
-	case "merge-train":
-		fs := flag.NewFlagSet("merge-train", flag.ContinueOnError)
-		fs.SetOutput(stderr)
-		data := fs.String("data", env.DataDir, "plugin data folder")
-		waitMin := fs.Int("wait-minutes", 30, "how long to wait for pending checks of each pull request")
-		answer := fs.String("answer", "", "question ID of a P1 answer of bigm that allows these merges, when grants.md has no grant")
-		if err := fs.Parse(args[1:]); err != nil {
-			return 2
-		}
-		if fs.NArg() < 2 {
-			fmt.Fprint(stderr, usage)
-			return 2
-		}
-		env.DataDir = *data
-		var numbers []int
-		for _, a := range fs.Args()[1:] {
-			n, err := strconv.Atoi(a)
-			if err != nil || n < 1 {
-				return fail(fmt.Errorf("not a pull request number: %q", a))
-			}
-			numbers = append(numbers, n)
-		}
-		cfg, err := loadRepos(env.DataDir)
-		if err != nil {
-			return fail(err)
-		}
-		i := slices.IndexFunc(cfg.Repos, func(r repoConfig) bool { return r.Repo == fs.Arg(0) })
-		if i < 0 {
-			return fail(fmt.Errorf("%s is not in repos.json", fs.Arg(0)))
-		}
-		if err := mergeGate(env, cfg.Repos[i], *answer, numbers); err != nil {
-			return fail(err)
-		}
-		h, err := newHost(cfg.Repos[i])
-		if err != nil {
-			return fail(err)
-		}
-		ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-		defer stop()
-		if !mergeTrain(ctx, env, h, cfg.Repos[i], numbers, time.Duration(*waitMin)*time.Minute, 20*time.Second, stdout) {
-			return 1
-		}
-		return 0
 	case "role-settings":
 		if len(args) != 2 {
 			fmt.Fprint(stderr, usage)
@@ -214,7 +166,7 @@ func writeNewRoleSettings(env Env, key string) (string, error) {
 	if k.Role != "clanker" {
 		return "", fmt.Errorf("role-settings writes only clanker keys, not %s", key)
 	}
-	content, err := roleSettings(env.PluginRoot, k.String(), nil, nil, nil)
+	content, err := roleSettings(env, k.String(), nil, nil, nil)
 	if err != nil {
 		return "", err
 	}

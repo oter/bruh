@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -109,12 +110,17 @@ func TestCLIRoleSettings(t *testing.T) {
 	var s struct {
 		Env         map[string]string `json:"env"`
 		Permissions struct {
-			Deny []string `json:"deny"`
+			Deny []any `json:"deny"`
 		} `json:"permissions"`
 	}
 	readJSON(t, path, &s)
 	if s.Env["BRUH_ROLE_KEY"] != "clanker-remote-app" || len(s.Permissions.Deny) == 0 {
 		t.Fatalf("settings = %+v", s)
+	}
+	for _, rule := range mailRules(t, env) { // task 31
+		if !slices.Contains(s.Permissions.Deny, rule) {
+			t.Errorf("deny = %v, want it to contain %q", s.Permissions.Deny, rule)
+		}
 	}
 	if err := os.WriteFile(path, []byte(`{"mine":true}`), 0o600); err != nil {
 		t.Fatal(err)

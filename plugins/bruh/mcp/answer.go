@@ -37,6 +37,26 @@ func answerFile(env Env, qid string) (string, error) {
 	return filepath.Join(dir, qid+".answer"), nil
 }
 
+// answered reports whether any role folder of answers/ has an answer file for qid: bigm, the
+// asker, or the clanker that answered a delegated question (task 24).
+func answered(env Env, qid string) bool {
+	if !qidRE.MatchString(qid) {
+		return false
+	}
+	m, _ := filepath.Glob(filepath.Join(env.DataDir, "answers", "*", qid+".answer")) // only ErrBadPattern; qid has no pattern characters
+	return len(m) > 0
+}
+
+// replacedID returns the replaces field of the question file of qid, or "" when it has none.
+func replacedID(env Env, qid string) string {
+	var q Question
+	data, err := os.ReadFile(filepath.Join(env.DataDir, "questions", qid+".json"))
+	if err != nil || json.Unmarshal(data, &q) != nil {
+		return ""
+	}
+	return q.Replaces
+}
+
 // clearHolds removes each hold whose P0 is the question qid: the answer is the decision of the
 // owner (spec 15.1).
 func clearHolds(env Env, qid string) error {
@@ -70,7 +90,7 @@ func answerTools() []Tool {
 	return []Tool{
 		{
 			Name:        "answer_write",
-			Description: "Record the answer to a question under the role key of the caller: a clerk for its workflow agents; bigm for each answer that it sends, with subject and asker",
+			Description: "Record the answer to a question under the role key of the caller: each answer that a role sends or relays (bigm with subject and asker). It also records the answer for each question that this one replaces." + nowDesc,
 			InputSchema: map[string]any{
 				"type": "object",
 				"properties": map[string]any{
@@ -102,16 +122,33 @@ func answerTools() []Tool {
 						return nil, err
 					}
 				}
-				file, err := answerFile(c.Env, a.QuestionID)
-				if err != nil {
+				if _, err := answerFile(c.Env, a.QuestionID); err != nil {
 					return nil, err
 				}
 				at := c.Env.Stamp()
-				data, _ := json.Marshal(answer{Text: a.Text, At: at, Subject: a.Subject, Asker: a.Asker})
-				if err := atomicWrite(file, data); err != nil {
-					return nil, err
+				data, _ := json.Marshal(answer{Text: strings.ReplaceAll(a.Text, nowToken, at), At: at, Subject: a.Subject, Asker: a.Asker})
+				// The answer also closes each question that this one replaces (the replaces chain of
+				// question_open), unless the caller answered that one already. seen stops a loop.
+				seen := map[string]bool{}
+				for id := a.QuestionID; id != "" && !seen[id]; id = replacedID(c.Env, id) {
+					seen[id] = true
+					file, err := answerFile(c.Env, id)
+					if err != nil {
+						return nil, err
+					}
+					if id != a.QuestionID {
+						if _, err := os.Stat(file); err == nil {
+							continue
+						}
+					}
+					if err := atomicWrite(file, data); err != nil {
+						return nil, err
+					}
+					if err := clearHolds(c.Env, id); err != nil {
+						return nil, err
+					}
 				}
-				return map[string]string{"at": at}, clearHolds(c.Env, a.QuestionID)
+				return map[string]string{"at": at}, nil
 			},
 		},
 		{

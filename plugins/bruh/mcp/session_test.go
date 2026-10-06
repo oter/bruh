@@ -191,32 +191,36 @@ func TestSessionList(t *testing.T) {
 	if len(list) != 2 || list[1].(map[string]any)["role_key"] != "clanker-a" {
 		t.Fatalf("list = %v", list)
 	}
+	// unread_mail counts the .json files directly in the mailbox, not the read/ ones (task 31).
+	if list[0].(map[string]any)["unread_mail"] != 0.0 || list[1].(map[string]any)["unread_mail"] != 0.0 {
+		t.Fatalf("no mail: list = %v", list)
+	}
+	box := filepath.Join(env.DataDir, "mail", "clanker-a")
+	for _, f := range []string{"1.json", "2.json", "x.tmp", "read/3.json"} {
+		writeTestFile(t, filepath.Join(box, f), "{}")
+	}
+	out, err = call(t, env, "session_list", map[string]any{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	list = out.([]any)
+	if list[0].(map[string]any)["unread_mail"] != 0.0 || list[1].(map[string]any)["unread_mail"] != 2.0 {
+		t.Fatalf("unread_mail: list = %v", list)
+	}
 }
 
-// Final review M3: bigm may start and resume the merger clerk of any project, so that it runs the
-// merger of a remote project on its own machine. Every other caller must be the parent of the key,
-// and bigm is not the parent of a task clerk.
+// Task 19 (2026-10-05): no merger clerk, so bigm is not the parent of any clerk key and cannot start
+// or resume one. Every caller must be the parent of the key.
 func TestSessionLaunchAndResumeByBigm(t *testing.T) {
 	env := testEnv(t, "bigm")
 	cwd, _ := filepath.EvalSymlinks(t.TempDir())
 	fakeClaude(t, &env, "3e4ce000", []map[string]any{
-		{"id": "3e4ce000", "kind": "background", "name": "clerk-remote-app-merge", "sessionId": "3e4ce000-full", "state": "done", "cwd": cwd, "startedAt": 1},
+		{"id": "3e4ce000", "kind": "background", "name": "clerk-remote-app-t1", "sessionId": "3e4ce000-full", "state": "done", "cwd": cwd, "startedAt": 1},
 	})
-	if _, err := call(t, env, "role_settings_write", map[string]any{"role_key": "clerk-remote-app-merge"}); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := call(t, env, "session_launch", map[string]any{"agent": "clerk", "role_key": "clerk-remote-app-merge", "cwd": cwd}); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := call(t, env, "session_resume", map[string]any{"role_key": "clerk-remote-app-merge"}); err != nil {
-		t.Fatal(err)
-	}
-	_, err := call(t, env, "session_launch", map[string]any{"agent": "clerk", "role_key": "clerk-remote-app-t1", "cwd": cwd})
-	mustErr(t, err, "only its parent")
-	for _, caller := range []string{"clanker-other", "clerk-remote-app-x", "clerk-ledger"} {
-		_, err := call(t, as(env, caller), "session_launch", map[string]any{"agent": "clerk", "role_key": "clerk-remote-app-merge", "cwd": cwd})
+	for _, caller := range []string{"bigm", "clanker-other", "clerk-remote-app-x", "clerk-ledger"} {
+		_, err := call(t, as(env, caller), "session_launch", map[string]any{"agent": "clerk", "role_key": "clerk-remote-app-t1", "cwd": cwd})
 		mustErr(t, err, "only its parent")
-		_, err = call(t, as(env, caller), "session_resume", map[string]any{"role_key": "clerk-remote-app-merge"})
+		_, err = call(t, as(env, caller), "session_resume", map[string]any{"role_key": "clerk-remote-app-t1"})
 		mustErr(t, err, "only its parent")
 	}
 }

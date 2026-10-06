@@ -17,6 +17,13 @@ var headerRE = regexp.MustCompile(`^(P[012] ` + qidPattern + `|ANSWER ` + qidPat
 
 var mailSeq atomic.Int64
 
+// nowToken is the place of the time of the call in the text of answer_write and the body of
+// mail_post and question_open: the tool fills it, so no role runs date -u for it (task 29).
+const nowToken = "{now}"
+
+// nowDesc is the sentence about nowToken in the description of those tools.
+const nowDesc = " Write {now} where the time of this call goes; the tool fills it."
+
 type Message struct {
 	ID     string `json:"id"`
 	From   string `json:"from"`
@@ -88,7 +95,7 @@ func mailTools() []Tool {
 	return []Tool{
 		{
 			Name:        "mail_post",
-			Description: "Put a message in the durable mailbox of a role. Send only the header line as the SendMessage nudge.",
+			Description: "Put a message in the durable mailbox of a role. Send only the header line as the SendMessage nudge." + nowDesc,
 			InputSchema: map[string]any{
 				"type": "object",
 				"properties": map[string]any{
@@ -107,7 +114,8 @@ func mailTools() []Tool {
 				if err != nil {
 					return nil, err
 				}
-				msg, err := postMail(c.Env, from, a.To, a.Header, a.Body)
+				// Only here: ledger_edit, report lines, and poller events keep their text word for word.
+				msg, err := postMail(c.Env, from, a.To, a.Header, strings.ReplaceAll(a.Body, nowToken, c.Env.Stamp()))
 				if err != nil {
 					return nil, err
 				}

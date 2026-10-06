@@ -8,7 +8,38 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Added
 
-- The `/bruh-board` command opens a live pane. It shows one short line for each open P0 and P1 question, and one collapsed line for each clanker with a spinner and its task count. Press `1` to `9` to expand a clanker to its clerks (task, spinner, and state), and `a` to `z` to expand a clerk to its last done and next step; Tab and Enter reach every line, and Esc gives the keys back to the prompt. The expanded state stays in the store of the mod, its only write.
+- The `/bruh-board` command opens a live pane. It shows one short line for each open P0 and P1 question, and one collapsed line for each clanker with a spinner and its task count. Enter on a clanker expands it to its clerks (task, spinner, and state), and Enter on a clerk expands it to its name, last done, and next step. The lines have no hotkeys: Tab and the arrows move the focus, and Esc gives the keys back to the prompt. The expanded state stays in the store of the mod, its only write.
+- The `/bruh-board` pane has three designs from the same data: `cards` (bordered cards, the default), `buckets` (sections by state with soft coloured bars, a question inside the row of its clerk), and `pipeline` (a strip for each clerk across the deliver phases). Pick one in `/config` with `bruh: Board design` (the plugin option `board_design`); the open pane changes at once, with no restart.
+- The `/bruh-board` pane has a Done group at the bottom: one collapsed line with the count of the done and stopped clerks and clankers. Enter expands it to one gray line for each; nothing is deleted.
+- The `pipeline` design reads the top-level `phase` field of the report lines of a clerk (`plan`, `implement`, `review`, `fix`, `merge`, or `done`) and fills the strip up to the latest one. Without a phase line it shows `phase not reported`.
+- The `/bruh-board` pane shows answer buttons for each open question: the options of the question, or `ok` and `hold` for a refusal P0. A press sends `Q-<id>: <label>` as a prompt to bigm.
+- `report_write` takes an optional `phase` (`plan`, `implement`, `review`, `fix`, `merge`, or `done`) and stores it as the top-level field `phase` of the report line; any other value is an error. The agents of `/bruh:deliver` write `plan`, `implement`, `review`, `fix`, and `done` at each step, and `/bruh:review-and-fix` writes `review` and `fix`.
+
+### Changed
+
+- Init adds six deny rules to the start settings of bigm in `<ledger>/.claude/settings.json`: `Agent(claude-code-guide)`, `Agent(general-purpose)`, `Agent(Explore)`, `Agent(Plan)`, `WebFetch`, and `WebSearch`. bigm gets each fact from a clanker or its scout. Run `/bruh:init` again to add the rules.
+- bigm gets a notice in its mailbox when a role writes a status or result report line, with a maximum of one unread notice for each role. bigm gives the owner a short update every 5 minutes while work runs.
+- The waiter does not wake an idle session at its timeout any more. It waits up to 7 days for new mail and exits in silence at its limit, so only new mail wakes the session (hook timeout 604800 seconds).
+- After a workflow run stops with `CONFLICT:`, the clerk starts a new run without `resumeFromRunId`, because a resume replays the cached stop. When the hold guard denies its next call with a hold ID, it opens a P0 with the `hold` field of `question_open`, not a P2 conflict question.
+- bigm runs only bruh skills: init adds a `PreToolUse` hook for the `Skill` tool to `<ledger>/.claude/settings.json` that blocks each other skill, and bigm sends each ask of the owner that needs a skill, research, or project work to a clanker. Run `/bruh:init` again to get the hook.
+- A scout clerk may clone a public repository and download a file for research, into `/tmp/<scout key>-*` only: `role_settings_write` adds two allow rules for the exact forms `git clone https://<url> /tmp/<scout key>-<name>` and `curl -fsSL -o /tmp/<scout key>-<name> https://<url>`, plus guard deny rules for options, quotes, variables, `..`, file URLs, redirects, and home folders. A scout still never pushes or commits.
+- `answer_write`, `mail_post`, and `question_open` replace `{now}` in the text or body with the server time, so bigm, the clankers, and the clerks run no `date -u` for these calls.
+- From a worktree, a clerk and a clanker never run `git -C <main checkout>`: they run git inside their own worktree, or read other refs through `origin/<branch>`. The `root` of a clerk's implement or review workflow is a worktree, never the main checkout.
+
+### Removed
+
+- The house rule "In a worktree, no compound commands with git. Data goes through tool inputs." (item 10 of `defaults/house-rules.md`). Item 10 keeps the lane text for file reads, writes, and searches.
+- The lease guard hook, the post script of review results, and the shell wrapper of the poller. The plugin monitor `bruh-poller` runs the Go `watch` command, which polls only in bigm. A clerk posts a review result with `gh pr review` or `glab mr note create` after the yes of the owner or under a post grant.
+- The merge train (`scripts/merge-train.sh` and the `merge-train` command), the merger clerk `clerk-<project>-merge`, and `merge_method` of `repos_set`. After an owner approval (a recorded `ANSWER` or a merge grant), the clanker of the project merges with `gh pr merge <n> --repo <owner/repo> --merge --match-head-commit <sha>` (`glab` or `tea` for other hosts). Then it reads the state merged and the merge commit from the code host API. A `repos.json` file that has `merge_method` still loads.
+
+### Fixed
+
+- The board and bigm count a question as open only while no role folder has its answer. A clanker records each delegated or relayed answer with `answer_write`, and a replaced duplicate closes with the answer of its replacement (new `replaces` input of `question_open`; a repeat of the same refusal links its older P0 itself). bigm counts the open questions with the new tool `question_list`. Run `/bruh:init` again so that the user settings allow it.
+- A held scout clerk no longer deadlocks: it has no `question_open`, so the hold guard tells it to send `DONE: scout <subject> refused` to its clanker with `mail_post`, and the `Stop` hook lets it stop.
+- A Claude Code worktree guard refusal of a git command now sets a hold, like a classifier refusal: a `PostToolUseFailure` hook of `refusal-stop.sh` writes it, so `ExitWorktree` and another form of the refused command are denied until the answer. A guard refusal of a command with no git still sets no hold.
+- A role reads its mail only through `mail_read`: every role settings file (bigm start settings, clanker, clerk, scout) denies `Read` (which also covers Grep, Glob, and `cat`-style Bash reads) and Bash commands that name `<data>/mail`, and `session_list` gives each role an `unread_mail` count for the idle check of bigm. The rules are a speed bump, not a sandbox. Run `/bruh:init` again, and write the other role settings again, to get them.
+- `/bruh:deliver` and `/bruh:review-and-fix` close a finding by its stable ID (`F<n>`), not by file and line, so a fix that moves the line of its finding no longer leaves it open and the run ends `done`.
+- A finished one-shot role is not woken any more: the clanker runs `claude stop <id>` after it accepts a clerk result or reads the `DONE` of a scout, a clerk ends its turn after `task closed` and its `DONE: <task> closed` mail, a scout after its `DONE`, and the waiter exits at once when the last report line of its role is `task closed`.
 
 ## [0.11.1] - 2026-10-05
 

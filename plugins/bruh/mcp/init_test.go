@@ -156,8 +156,8 @@ func TestInitApplyWritesPlannedContent(t *testing.T) {
 	lenv, _ := ls["env"].(map[string]any)
 	lperms, _ := ls["permissions"].(map[string]any)
 	ldeny, _ := lperms["deny"].([]any)
-	if ls["agent"] != "bruh:bigm" || lenv["BRUH_ROLE_KEY"] != "bigm" || lenv["CLAUDE_CODE_WORKFLOW_MAX_CONCURRENT_AGENTS"] != "16" || !slices.Equal(ldeny, defaultDeny(t, env)) {
-		t.Fatalf("init_apply: ledger settings = %v, want agent bruh:bigm, BRUH_ROLE_KEY bigm, CLAUDE_CODE_WORKFLOW_MAX_CONCURRENT_AGENTS 16, deny %v", ls, defaultDeny(t, env))
+	if ls["agent"] != "bruh:bigm" || lenv["BRUH_ROLE_KEY"] != "bigm" || lenv["CLAUDE_CODE_WORKFLOW_MAX_CONCURRENT_AGENTS"] != "16" || !slices.Equal(ldeny, bigmDeny(t, env)) {
+		t.Fatalf("init_apply: ledger settings = %v, want agent bruh:bigm, BRUH_ROLE_KEY bigm, CLAUDE_CODE_WORKFLOW_MAX_CONCURRENT_AGENTS 16, deny %v", ls, bigmDeny(t, env))
 	}
 	if fi, err := os.Stat(filepath.Join(ledger, ".claude", "settings.json")); err != nil || fi.Mode().Perm() != 0o644 {
 		t.Fatalf("init_apply: ledger settings file = %v (%v), want mode 0644", fi, err)
@@ -218,6 +218,28 @@ func defaultDeny(t *testing.T, env Env) []any {
 	return d.Permissions.Deny
 }
 
+// bigmSix are the deny rules that only the bigm start settings add (owner rule R-1). The test names
+// them literally, so a change of bigmDenyRules fails it.
+var bigmSix = []any{"Agent(claude-code-guide)", "Agent(general-purpose)", "Agent(Explore)", "Agent(Plan)", "WebFetch", "WebSearch"}
+
+// mailRules are the deny rules of every role settings file on the mail folder of env (task 31),
+// written out literally from the absolute data folder, so a change of mailDeny fails the tests.
+func mailRules(t *testing.T, env Env) []any {
+	t.Helper()
+	data, err := filepath.Abs(env.DataDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return []any{"Read(/" + data + "/mail)", "Read(/" + data + "/mail/**)", "Bash(*" + data + "/mail*)"}
+}
+
+// bigmDeny returns the deny rules of the bigm start settings: the default rules, bigmSix, then
+// mailRules.
+func bigmDeny(t *testing.T, env Env) []any {
+	t.Helper()
+	return append(append(defaultDeny(t, env), bigmSix...), mailRules(t, env)...)
+}
+
 func TestInitMergesLedgerSettings(t *testing.T) {
 	env, ledger := initEnv(t)
 	deny := defaultDeny(t, env)
@@ -226,7 +248,7 @@ func TestInitMergesLedgerSettings(t *testing.T) {
 		t.Fatal(err)
 	}
 	old, _ := json.Marshal(map[string]any{"agent": "other", "env": map[string]any{"A": "1"},
-		"permissions": map[string]any{"allow": []any{"Read(x)"}, "deny": []any{"Bash(rm:*)", deny[1]}}})
+		"permissions": map[string]any{"allow": []any{"Read(x)"}, "deny": []any{"Bash(rm:*)", "WebFetch", deny[1]}}})
 	if err := os.WriteFile(file, old, 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -236,8 +258,10 @@ func TestInitMergesLedgerSettings(t *testing.T) {
 	perms, _ := s["permissions"].(map[string]any)
 	allow, _ := perms["allow"].([]any)
 	gotDeny, _ := perms["deny"].([]any)
-	// The existing rules keep their order; a default rule that is there already is not added again.
-	want := append([]any{"Bash(rm:*)", deny[1], deny[0]}, deny[2:]...)
+	// The existing rules keep their order; a default or bigm rule that is there already (deny[1],
+	// WebFetch) is not added again.
+	want := append(append(append([]any{"Bash(rm:*)", "WebFetch", deny[1], deny[0]}, deny[2:]...),
+		"Agent(claude-code-guide)", "Agent(general-purpose)", "Agent(Explore)", "Agent(Plan)", "WebSearch"), mailRules(t, env)...)
 	if s["agent"] != "bruh:bigm" || lenv["A"] != "1" || lenv["BRUH_ROLE_KEY"] != "bigm" || lenv["CLAUDE_CODE_WORKFLOW_MAX_CONCURRENT_AGENTS"] != "16" ||
 		!slices.Equal(allow, []any{"Read(x)"}) || !slices.Equal(gotDeny, want) {
 		t.Fatalf("init_apply over %s: ledger settings = %v, want agent bruh:bigm, env A 1 plus the defaults, allow [Read(x)], deny %v", old, s, want)
@@ -262,8 +286,11 @@ func TestInitEmptyLedgerSettings(t *testing.T) {
 	lenv, _ := s["env"].(map[string]any)
 	perms, _ := s["permissions"].(map[string]any)
 	deny, _ := perms["deny"].([]any)
-	if s["agent"] != "bruh:bigm" || lenv["BRUH_ROLE_KEY"] != "bigm" || !slices.Equal(deny, defaultDeny(t, env)) {
-		t.Fatalf("init_apply over an empty file: ledger settings = %v, want agent bruh:bigm, BRUH_ROLE_KEY bigm, deny %v", s, defaultDeny(t, env))
+	if s["agent"] != "bruh:bigm" || lenv["BRUH_ROLE_KEY"] != "bigm" || !slices.Equal(deny, bigmDeny(t, env)) {
+		t.Fatalf("init_apply over an empty file: ledger settings = %v, want agent bruh:bigm, BRUH_ROLE_KEY bigm, deny %v", s, bigmDeny(t, env))
+	}
+	if g := skillGroups(t, ledger); len(g) != 1 {
+		t.Fatalf("init_apply over an empty file: Skill hook groups = %v, want one", g)
 	}
 }
 
@@ -279,6 +306,8 @@ func TestInitRefusesBadLedgerSettings(t *testing.T) {
 		{name: "env is not an object", text: `{"env":"x"}`},
 		{name: "permissions is not an object", text: `{"permissions":[]}`},
 		{name: "deny is not an array", text: `{"permissions":{"deny":{}}}`},
+		{name: "hooks is not an object", text: `{"hooks":[]}`},
+		{name: "PreToolUse is not an array", text: `{"hooks":{"PreToolUse":{}}}`},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			if err := os.WriteFile(file, []byte(c.text), 0o644); err != nil {
@@ -292,6 +321,78 @@ func TestInitRefusesBadLedgerSettings(t *testing.T) {
 				t.Errorf("init_plan with the ledger settings %s: file = %s, want it unchanged", c.text, b)
 			}
 		})
+	}
+}
+
+// skillGroups returns the PreToolUse hook groups of the ledger settings with the matcher Skill.
+func skillGroups(t *testing.T, ledger string) []map[string]any {
+	t.Helper()
+	hooks, _ := ledgerSettings(t, ledger)["hooks"].(map[string]any)
+	pre, _ := hooks["PreToolUse"].([]any)
+	var out []map[string]any
+	for _, g := range pre {
+		if g := g.(map[string]any); g["matcher"] == "Skill" {
+			out = append(out, g)
+		}
+	}
+	return out
+}
+
+// Task 27: the bigm start settings block each skill except bruh:* with a PreToolUse hook, and an
+// existing file keeps its own hooks.
+func TestInitBigmSkillHook(t *testing.T) {
+	if _, err := exec.LookPath("jq"); err != nil {
+		t.Fatal("jq is not on PATH: the Skill hook of bigm needs it")
+	}
+	env, ledger := initEnv(t)
+	file := filepath.Join(ledger, ".claude", "settings.json")
+	if err := os.MkdirAll(filepath.Dir(file), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	own := `{"hooks":{"Stop":[{"hooks":[{"type":"command","command":"true"}]}],"PreToolUse":[{"matcher":"Bash","hooks":[{"type":"command","command":"true"}]}]}}`
+	if err := os.WriteFile(file, []byte(own), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	apply(t, env, plan(t, env, answers(ledger, nil)))
+	hooks := ledgerSettings(t, ledger)["hooks"].(map[string]any)
+	if pre := hooks["PreToolUse"].([]any); len(pre) != 2 || pre[0].(map[string]any)["matcher"] != "Bash" || hooks["Stop"] == nil {
+		t.Fatalf("hooks = %v, want the own Stop and Bash groups kept and one more group", hooks)
+	}
+	groups := skillGroups(t, ledger)
+	if len(groups) != 1 {
+		t.Fatalf("Skill hook groups = %v, want one", groups)
+	}
+	h := groups[0]["hooks"].([]any)[0].(map[string]any)
+	if h["type"] != "command" || h["command"] != bigmSkillHook {
+		t.Fatalf("Skill hook = %v, want the command %q", h, bigmSkillHook)
+	}
+	if d := plan(t, env, answers(ledger, nil))["diff"]; d != "" {
+		t.Fatalf("second init_plan: diff = %q, want empty", d)
+	}
+	// The written command blocks a skill of another plugin (exit 2) and lets a bruh skill pass.
+	for _, c := range []struct {
+		input string
+		code  int
+	}{
+		{`{"tool_name":"Skill","tool_input":{"skill":"mattpocock-skills:grilling"}}`, 2},
+		{`{"tool_name":"Skill","tool_input":{"skill":"bro"}}`, 2},
+		{`{"tool_name":"Skill","tool_input":{}}`, 2},
+		{`{"tool_name":"Skill","tool_input":{"skill":"bruh:implement"}}`, 0},
+	} {
+		cmd := exec.Command("sh", "-c", h["command"].(string))
+		cmd.Stdin = strings.NewReader(c.input)
+		out, err := cmd.CombinedOutput()
+		code := 0
+		if err != nil {
+			ee, ok := err.(*exec.ExitError)
+			if !ok {
+				t.Fatal(err)
+			}
+			code = ee.ExitCode()
+		}
+		if code != c.code || (code == 2) != strings.Contains(string(out), "send the ask to a clanker") {
+			t.Errorf("Skill hook with %s: exit %d, output %q, want exit %d", c.input, code, out, c.code)
+		}
 	}
 }
 

@@ -24,34 +24,28 @@ type gitlab struct {
 
 // glMergeRequest is the part of a GitLab merge request that hostPull needs.
 type glMergeRequest struct {
-	IID                 int    `json:"iid"`
-	State               string `json:"state"`
-	Draft               bool   `json:"draft"`
-	SHA                 string `json:"sha"`
-	MergeCommitSHA      string `json:"merge_commit_sha"`
-	SquashCommitSHA     string `json:"squash_commit_sha"`
-	WebURL              string `json:"web_url"`
-	UpdatedAt           string `json:"updated_at"`
-	MergedAt            string `json:"merged_at"`
-	DetailedMergeStatus string `json:"detailed_merge_status"`
+	IID             int    `json:"iid"`
+	State           string `json:"state"`
+	MergeCommitSHA  string `json:"merge_commit_sha"`
+	SquashCommitSHA string `json:"squash_commit_sha"`
+	WebURL          string `json:"web_url"`
+	UpdatedAt       string `json:"updated_at"`
+	MergedAt        string `json:"merged_at"`
 }
 
 func (m glMergeRequest) pull() hostPull {
 	p := hostPull{
-		Number:              m.IID,
-		State:               m.State,
-		Merged:              m.State == "merged",
-		Draft:               m.Draft,
-		MergeSHA:            cmp.Or(m.MergeCommitSHA, m.SquashCommitSHA),
-		URL:                 m.WebURL,
-		UpdatedAt:           m.UpdatedAt,
-		MergedAt:            m.MergedAt,
-		DetailedMergeStatus: cmp.Or(m.DetailedMergeStatus, "missing"), // a missing field does not merge (G8)
+		Number:    m.IID,
+		State:     m.State,
+		Merged:    m.State == "merged",
+		MergeSHA:  cmp.Or(m.MergeCommitSHA, m.SquashCommitSHA),
+		URL:       m.WebURL,
+		UpdatedAt: m.UpdatedAt,
+		MergedAt:  m.MergedAt,
 	}
 	if m.State == "opened" {
 		p.State = "open"
 	}
-	p.Head.SHA = m.SHA
 	return p
 }
 
@@ -165,14 +159,6 @@ func (g *gitlab) MergedPulls(ctx context.Context) ([]hostPull, error) {
 	return out, nil
 }
 
-func (g *gitlab) Pull(ctx context.Context, n int) (hostPull, error) {
-	var m glMergeRequest
-	if err := g.api(ctx, fmt.Sprintf("merge_requests/%d", n), nil, &m); err != nil {
-		return hostPull{}, err
-	}
-	return m.pull(), nil
-}
-
 // Checks maps the state of the newest pipeline of sha: success is green, failed is red, and
 // each other state is pending.
 func (g *gitlab) Checks(ctx context.Context, sha string) (string, error) {
@@ -192,18 +178,6 @@ func (g *gitlab) Checks(ctx context.Context, sha string) (string, error) {
 		return "failure", nil
 	}
 	return "pending", nil
-}
-
-func (g *gitlab) Merge(ctx context.Context, n int, sha, method string) error {
-	body, err := json.Marshal(struct {
-		SHA    string `json:"sha"`
-		Squash bool   `json:"squash,omitempty"`
-	}{sha, method == "squash"})
-	if err != nil {
-		return err
-	}
-	return g.api(ctx, fmt.Sprintf("merge_requests/%d/merge", n), bytes.NewReader(body), nil,
-		"-X", "PUT", "-H", "Content-Type: application/json", "--input", "-")
 }
 
 func (g *gitlab) LastCall() string {

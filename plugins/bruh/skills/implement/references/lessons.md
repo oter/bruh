@@ -54,9 +54,9 @@ Plan one such pass for each merge request of this size.
 
 ## Posts on the pull request
 
-- **glab rejects bracketed field names in a JSON body.** `-f 'position[new_line]=42'` is an error, not a nested field. `post-findings.sh` builds each payload whole with `jq` and sends it with `--input`. The text of a finding never goes through the shell.
-- **A rejected inline position becomes one general comment.** GitLab answers 400 and GitHub answers 422 when the position is not in the diff. The script then posts the same body as a general comment that names `file:line`.
-- **A workflow cannot write files, and an agent in a workflow must not post.** An agent that posted from inside a workflow refused twice, because it saw the latest chat message of the owner. The workflows now return the result, and a session posts it with `post-findings.sh` after the yes of the owner or under a post grant.
+- **glab rejects bracketed field names in a JSON body.** `-f 'position[new_line]=42'` is an error, not a nested field. Build each payload whole with `jq` and send it with `--input`, so that the text of a finding never goes through the shell.
+- **A rejected inline position becomes one general comment.** GitLab answers 400 and GitHub answers 422 when the position is not in the diff. Post the same body as a general comment that names `file:line`.
+- **A workflow cannot write files, and an agent in a workflow must not post.** An agent that posted from inside a workflow refused twice, because it saw the latest chat message of the owner. The workflows now return the result, and a session posts it with `gh pr review` or `glab mr note create` after the yes of the owner or under a post grant.
 
 ## The house rules are review lenses
 

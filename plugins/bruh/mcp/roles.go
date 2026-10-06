@@ -31,7 +31,7 @@ var scoutGitWrites = []string{
 	"push", "commit", "add", "rm", "mv", "merge", "rebase", "reset", "checkout", "switch",
 	"restore", "stash", "tag", "worktree", "clean", "pull", "fetch", "apply", "cherry-pick", "revert",
 	"branch", "remote", "config", "update-ref", "symbolic-ref", "update-index", "read-tree",
-	"submodule", "sparse-checkout", "bisect", "notes", "replace", "am", "init", "clone",
+	"submodule", "sparse-checkout", "bisect", "notes", "replace", "am", "init",
 	"gc", "prune", "repack", "pack-refs", "maintenance", "filter-branch", "format-patch",
 	"reflog expire", "reflog delete",
 }
@@ -50,10 +50,55 @@ func scoutGitDeny() []string {
 	return out
 }
 
+// The two prefixes of the scout allow rules: a clone or a download into /tmp (task 28, owner
+// 2026-10-06T16:31:45Z).
+const (
+	scoutClonePrefix = "git clone https://"
+	scoutCurlPrefix  = "curl -fsSL -o /tmp/"
+)
+
+// scoutAllow returns the allow rules of the scout key: exactly one clone form and one download
+// form, into /tmp/<key>-* only. role_settings_write adds them; the caller cannot pass allow for
+// a scout.
+// ponytail: glob rules match the command text, so they are speed bumps (spec 3.6.1). A PreToolUse
+// hook that parses the destination, or sandbox filesystem.allowWrite (declined by the owner on
+// 2026-10-04, spec 3.6.1 "Not built"), is the upgrade if a real stop is needed.
+func scoutAllow(key string) []string {
+	return []string{
+		"Bash(" + scoutClonePrefix + "* /tmp/" + key + "-*)",
+		"Bash(" + scoutCurlPrefix + key + "-* https://*)",
+	}
+}
+
+// scoutGuardDeny returns the deny rules that keep the * of the scout allow rules from covering
+// more than a URL and a /tmp name. Deny wins over allow, so each command with an allow prefix
+// that holds one of these texts is denied: ".." climbs out of /tmp, "$" and "`" expand a
+// variable (a token) or run a command, quotes and "\" hide an option, " -" is any option after
+// the prefix (git clone -u or -c run a program, curl -T or -d upload a file), "file:/" is a
+// local file URL, and ">" redirects the output into another file (a project folder too). A
+// compound command needs no guard: Claude Code splits it at &&, ||, ;, |, &, and newlines, and
+// each part must match an allow rule on its own. They match only commands that start with an
+// allow prefix, so the other curl reads still go to the classifier.
+func scoutGuardDeny() []string {
+	var out []string
+	for _, p := range []string{scoutClonePrefix, scoutCurlPrefix} {
+		// "file:/", not "file:": a rule that ends in ":*" means a trailing " *".
+		for _, x := range []string{"..", "$", "`", "'", `"`, `\`, " -", "file:/", ">"} {
+			out = append(out, "Bash("+p+"*"+x+"*)")
+		}
+	}
+	return out
+}
+
 // scoutDeny are the deny rules that role_settings_write adds to each scout settings file, so
 // that its starter cannot leave them out (spec principle 2). The tool rules remove the tools;
 // the Bash rules match only the command text, so they are speed bumps (spec 3.6.1).
-var scoutDeny = append(scoutGitDeny(), []string{
+var scoutDeny = append(append(scoutGitDeny(), scoutGuardDeny()...), []string{
+	// A clone stays denied in the -C form, with an option before the URL, and into a home folder,
+	// where the project folders and the credentials are; so does a download into a home folder.
+	"Bash(git -C * clone)", "Bash(git -C * clone *)", "Bash(git clone -*)",
+	"Bash(git clone * ~*)", "Bash(git clone * /Users/*)", "Bash(git clone * /home/*)",
+	"Bash(curl * -o ~*)", "Bash(curl * -o /Users/*)", "Bash(curl * -o /home/*)",
 	"Edit", "Write", "NotebookEdit", "Workflow", "EnterWorktree",
 	bruhTool + "session_launch", bruhTool + "session_resume", bruhTool + "role_settings_write",
 	bruhTool + "lease_define", bruhTool + "lease_request", bruhTool + "lease_grant", bruhTool + "lease_release",
@@ -96,7 +141,7 @@ func rolesTools() []Tool {
 	return []Tool{
 		{
 			Name:        "role_settings_write",
-			Description: "Write the --settings file of a role: BRUH_ROLE_KEY, extra env values (tool accounts), deny rules, and allow rules. Only bigm passes allow, and only for a clanker key: each rule is Read(//<path>/**) for a repository of the project in learn/projects/<project>.json. A scout key clerk-<project>-scout<n> always gets the scout deny rules and is written once. Returns the absolute path.",
+			Description: "Write the --settings file of a role: BRUH_ROLE_KEY, extra env values (tool accounts), deny rules, and allow rules. Only bigm passes allow, and only for a clanker key: each rule is Read(//<path>/**) for a repository of the project in learn/projects/<project>.json. A scout key clerk-<project>-scout<n> always gets the scout deny rules and two allow rules, a clone (git clone https://<url> /tmp/<key>-<name>) and a download (curl -fsSL -o /tmp/<key>-<name> https://<url>), and is written once. Returns the absolute path.",
 			InputSchema: map[string]any{
 				"type": "object",
 				"properties": map[string]any{
@@ -127,7 +172,7 @@ func rolesTools() []Tool {
 				}
 				key := target.String()
 				if target.Parent() != me && (me != "bigm" || !bigmActsFor(target)) {
-					return nil, fmt.Errorf("%s cannot write the role settings of %s; only its parent %q can (bigm too for its own key and a merger clerk)", me, key, target.Parent())
+					return nil, fmt.Errorf("%s cannot write the role settings of %s; only its parent %q can (bigm too for its own key)", me, key, target.Parent())
 				}
 				if _, ok := a.Env["BRUH_ROLE_KEY"]; ok {
 					return nil, errors.New("env must not set BRUH_ROLE_KEY; role_key sets it")
@@ -145,11 +190,11 @@ func rolesTools() []Tool {
 						return nil, err
 					}
 				}
-				deny := a.Deny
+				deny, allow := a.Deny, a.Allow
 				if isScout(target) {
-					deny = append(slices.Clone(a.Deny), scoutDeny...)
+					deny, allow = append(slices.Clone(a.Deny), scoutDeny...), scoutAllow(key)
 				}
-				out, err := roleSettings(c.Env.PluginRoot, key, a.Env, deny, a.Allow)
+				out, err := roleSettings(c.Env, key, a.Env, deny, allow)
 				if err != nil {
 					return nil, err
 				}
@@ -178,10 +223,36 @@ func rolesTools() []Tool {
 
 const telegramPlugin = "telegram@claude-plugins-official"
 
-// roleSettings builds a role settings file: the plugin defaults, the extra env values and
-// deny rules, the allow rules when extraAllow is not empty, and BRUH_ROLE_KEY.
-func roleSettings(pluginRoot, key string, extraEnv map[string]string, extraDeny, extraAllow []string) ([]byte, error) {
-	data, err := os.ReadFile(filepath.Join(pluginRoot, "defaults", "role-settings.json"))
+// mailDeny returns the deny rules that keep each role out of the mail folder of dataDir, so a
+// role reads its mail only through mail_read (task 31). Per the permission docs, the Read rules
+// (with // for an absolute path) also cover Grep, Glob, and the Bash file commands that Claude
+// Code recognizes (cat, head, tail, sed, tee, < redirects); the Bash rule covers the other Bash
+// reads that name the folder, such as grep, less, find, and ls. A Read deny also blocks Edit and
+// Write there; no role writes mail with them (mail_post writes in the MCP server). The MCP server
+// and the hook scripts read the folder as their own processes, which the rules do not gate.
+// ponytail: a speed bump, not a sandbox: a relative or quoted path, a glob, or a script gets past
+// it; the upgrade is the OS sandbox of Claude Code.
+func mailDeny(dataDir string) ([]string, error) {
+	if dataDir == "" {
+		return nil, errors.New("BRUH_DATA is not set")
+	}
+	abs, err := filepath.Abs(dataDir)
+	if err != nil {
+		return nil, err
+	}
+	m := filepath.Join(abs, "mail")
+	return []string{"Read(/" + m + ")", "Read(/" + m + "/**)", "Bash(*" + m + "*)"}, nil
+}
+
+// roleSettings builds a role settings file: the plugin defaults, the extra deny rules, the mail
+// deny rules (mailDeny), the extra env values, the allow rules when extraAllow is not empty, and
+// BRUH_ROLE_KEY.
+func roleSettings(e Env, key string, extraEnv map[string]string, extraDeny, extraAllow []string) ([]byte, error) {
+	mail, err := mailDeny(e.DataDir)
+	if err != nil {
+		return nil, err
+	}
+	data, err := os.ReadFile(filepath.Join(e.PluginRoot, "defaults", "role-settings.json"))
 	if err != nil {
 		return nil, err
 	}
@@ -210,7 +281,7 @@ func roleSettings(pluginRoot, key string, extraEnv map[string]string, extraDeny,
 			}
 		}
 	}
-	for _, d := range extraDeny {
+	for _, d := range slices.Concat(extraDeny, mail) {
 		if !slices.Contains(deny, d) {
 			deny = append(deny, d)
 		}

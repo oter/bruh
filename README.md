@@ -21,7 +21,7 @@ You talk to one session, bigm. bigm keeps the status of all work in a private le
 |---|---|---|---|---|
 | bigm | Long-lived | You | All projects. Keeps the ledger and the "Owed to owner" list. | No |
 | Clanker | Long-lived | bigm | One project. Knows the full picture of that project. Divides the work into tasks. | No |
-| Clerk | One task | A clanker | One task. Starts workflows, pushes the branch, and reports with evidence. A scout clerk only reads the sources for one question and reports each fact with its source. | No |
+| Clerk | One task | A clanker | One task. Starts workflows, pushes the branch, and reports with evidence. A scout clerk reads the sources for one question, may clone a public repository or download files into `/tmp` for research, and reports each fact with its source. | No |
 | Workflow | One run | A clerk | One step of a task: plan, implement, review, and fix. | Yes |
 
 Each role runs as a plugin agent (`bruh:bigm`, `bruh:clanker`, `bruh:clerk`). The work runs in the `/bruh:deliver` workflow.
@@ -56,7 +56,7 @@ The skill `/bruh:implement` is the procedure for each code change and each revie
 | `/bruh:review-and-fix` | Reviews an own change with several lenses and the gates, refutes each finding, and fixes the confirmed findings one area at a time |
 | `/bruh:review-only` | Reviews and refutes a pull request of another author, and changes nothing |
 
-No workflow posts on a pull request. A workflow returns its findings. You post them with `scripts/post-findings.sh` (GitLab through `glab`, GitHub through `gh`): run it with `--dry-run` first, then with `--yes` in your own session. For a host other than `gitlab.com` or `github.com`, add `--hostname <host>`. In a role session, a clerk saves the result with the MCP tool `result_save` and posts only with your approval, which bigm relays as `ANSWER Q-<id>: post <owner/repo>#<number> at <head SHA> approved` (`--answer Q-<id>`), or under a post grant in `grants.md` of the ledger. Each post starts with "Agent review" and carries the marker line `<!-- bruh:<role key> -->`. A rerun posts only the comments that are not on the pull request yet.
+No workflow posts on a pull request. A workflow returns its findings. After your yes, they are posted with plain `gh pr review --comment --body-file <file>` on GitHub or `glab mr note create` on GitLab. For a self-hosted server, the `--repo` value names the host. In a role session, a clerk saves the result with the MCP tool `result_save` and posts only with your approval, which bigm relays as `ANSWER Q-<id>: post <owner/repo>#<number> at <head SHA> approved`, or under a post grant in `grants.md` of the ledger. Each post ends with the marker line `<!-- bruh:<role key> -->`.
 
 In a role session, a clerk runs the skill. In your own session, you are the orchestrator: start with `/bruh:implement` and answer the questions of the session.
 
@@ -250,7 +250,7 @@ Run one bigm at a time. Each other `claude` in the ledger folder is a second big
 
 The ledger settings file holds the role key, the env values, and the deny rules of bigm. If you installed bruh before this file existed, run `/bruh:init` again (step 3) to write it. bigm stays an interactive session. Do not start it with `--bg`.
 
-bigm starts a clanker for each project that has work. Tell bigm what to do. For a project that init learned, bigm takes the repositories from `learn/projects/<key>.json`, and records them with the `repos_set` tool of bruh, so that the watcher (the poller in the plugin monitor of bigm) and the merge train know them. Tell bigm the code host repositories (`owner/name` and the host: GitHub, GitLab, or Gitea) only for a project on a remote machine.
+bigm starts a clanker for each project that has work. Tell bigm what to do. For a project that init learned, bigm takes the repositories from `learn/projects/<key>.json`, and records them with the `repos_set` tool of bruh, so that the watcher (the poller in the plugin monitor of bigm) knows them. After your approval (an answer to a merge question, or a merge grant), the clanker of the project merges the pull request with `gh pr merge --match-head-commit` (or `glab` or `tea` with the head SHA) and confirms the merge at the code host API. Tell bigm the code host repositories (`owner/name` and the host: GitHub, GitLab, or Gitea) only for a project on a remote machine.
 
 ### 8. Check the requirements
 
@@ -262,9 +262,9 @@ bigm starts a clanker for each project that has work. Tell bigm what to do. For 
 | `jq` | The hook scripts |
 | `git` | Worktrees, branches, and the ledger |
 | `rsync` | The lanes of `/bruh:implement-tickets` (`scripts/lane.sh`) |
-| `glab` | GitLab repositories: the pick, the status, the watcher, the merge train, and the posts (`scripts/post-findings.sh`) |
-| `gh` | GitHub repositories |
-| `tea` or a `BRUH_GITEA_TOKEN_<HOST>` variable | Gitea repositories |
+| `glab` | GitLab repositories: the pick, the status, the watcher, the merges of the clanker (`glab mr merge`), and the posts (`glab mr note create`) |
+| `gh` | GitHub repositories, the merges of the clanker (`gh pr merge`), and the posts (`gh pr review`) |
+| `tea` or a `BRUH_GITEA_TOKEN_<HOST>` variable | Gitea repositories; the merges of the clanker need `tea` (`tea api`) |
 | `ssh` | Remotes with an SSH host alias (`ssh -G` finds the host) |
 | Orca | Remote machines; optional for local viewer tabs (app 1.4.218 or later) |
 | Bun | The Telegram channel plugin only |
@@ -347,19 +347,28 @@ Do these steps after the release v0.11.1 is published. Let the running tasks fin
 
 Run `/bruh-board` in a session with bruh, usually bigm. It opens a live pane that refreshes about every 10 seconds. The board needs Claude Code 2.1.287 or later, because it is a mod (a hooks module, `plugins/bruh/hooks/register.js`). It opens only on the command.
 
-By default the pane shows two parts:
+The pane draws one of three designs, all from the same data. Pick it in `/config`, row `bruh: Board design` (the plugin option `board_design`). The open pane changes at once, with no restart and no new `/bruh-board`.
 
-- **Waits on you**: one short line for each open P0 or P1 question, P0 first, for example `P1 merge oter/bruh#29?`. A question is open while no answer file exists for it. Only when two open questions have the same subject, each line shows its number, for example `P1 (98) merge oter/bruh#29?`.
-- **The clankers**: one collapsed line for each project, with a spinner, the project path, and the task count, for example `1: ▸ oter/bruh · 2 tasks`.
+- `cards` (the default): each open question is a double-bordered card with its answer buttons. Each clanker is a bold card that holds one round card for each clerk. The border colour of a clerk card is its state.
+- `buckets`: for each clanker, a dim line with the project path and the task count, then one bar for each state in soft colours: WAITS ON YOU, BLOCKED, WORKING, and IDLE, in that order, and only the bars with clerks. A question of a clerk sits in the row of that clerk. The other open questions sit under a WAITS ON YOU bar on top.
+- `pipeline`: the open questions on top, as **Waits on you**, then one line for each clanker. An expanded clanker shows a strip for each clerk across the deliver phases `plan`, `implement`, `review`, `fix`, and `merge` (see the phase strip below).
 
-Expand a line to see more, and collapse it again with the same key:
+What the pane shows:
 
-- A clanker line expands to its clerks, one line each: the task number and slug, and the state, for example `a: ▸ task 12 fix-poller-wait-lock · working`. A clerk belongs to `clanker-<project>` by its role key `clerk-<project>-<name>`.
-- A clerk line expands to its details: `last:`, the text of the last status or result line of its report file, and `next:`, the expected deliverable of its ledger "In progress" row. Each shows only when the data exists.
+- **The open questions**: one short line for each open P0 or P1 question, P0 first, for example `P1 merge oter/bruh#29?`. A question is open while no answer file exists for it. Only when two open questions have the same subject, each line shows its number, for example `P1 (98) merge oter/bruh#29?`.
+- **The clankers**: one collapsed line for each project, with a spinner, the project path, and the task count, for example `▸ oter/bruh · 2 tasks`.
+- **Done**: one collapsed line at the bottom, for example `▸ Done (3)`. It holds the done and stopped clerks, and each clanker whose own session and clerks are all done or stopped. Nothing is deleted: expand it to see one gray line for each, for example `✓ merge-simplify · done` or `■ tab-close · stopped`.
 
-The keys work while the pane has the keyboard. `/bruh-board` gives the pane the keyboard; Esc gives the keys back to the prompt, and Ctrl+X then Tab takes them again. Press `1` to `9` for a clanker and `a` to `z` for a clerk of an expanded clanker, in the order of the pane. An item past `9` or `z` has no key: reach it with Tab and press Enter.
+Under each open question, the pane shows one button for each option of the question, or `ok` and `hold` for a refusal P0 without options. A press sends `Q-<id>: <label>` as a prompt into the session that shows the pane, and bigm records it as the answer of the owner. The prompt reaches only that session, so open the board in bigm.
 
-The pane keeps the expanded state in the store of the mod, one key for each item, so the next `/bruh-board` and your other sessions open the same lines. Each line is cut to the width of the pane and never wraps. The board shows no times, no session IDs, no run IDs, and no commit SHAs.
+Expand a line to see more, and collapse it again the same way:
+
+- A clanker line expands to its clerks, one line each: the task number and slug, and the state, for example `▸ task 12 fix-poller-wait-lock · working`. A clerk belongs to `clanker-<project>` by its role key `clerk-<project>-<name>`. In `buckets`, the clerks always show under their bars.
+- A clerk line expands to its details: its name, for example `oter/bruh pollerwait (clerk, task 12 fix-poller-wait-lock)`, then `last:`, the text of the last status or result line of its report file, and `next:`, the expected deliverable of its ledger "In progress" row. Each shows only when the data exists.
+
+The lines have no hotkeys. `/bruh-board` gives the pane the keyboard: Tab and the arrows move the focus, and Enter expands, collapses, or answers. Esc gives the keys back to the prompt, and Ctrl+X then Tab takes them again.
+
+The pane keeps the expanded state in the store of the mod, one key for each item and `open:done` for the Done group, so the next `/bruh-board` and your other sessions open the same lines. Each line is cut to the width of the pane and never wraps. The board shows no times, no session IDs, no run IDs, and no commit SHAs.
 
 The spinner shows who works and how. The glyphs show the role: `⣾⣽⣻⢿` for a clanker and `◐◓◑◒` for a clerk. A clanker line shows the most urgent state of the clanker and its clerks. The motion and the colour show the state:
 
@@ -370,10 +379,13 @@ The spinner shows who works and how. The glyphs show the role: `⣾⣽⣻⢿` fo
 | blocked or held | stops, red, with `!` |
 | idle | stops, dim |
 | done | `✓`, gray |
+| stopped | `■`, gray |
 
-The project path comes from `repos.json` (the MCP tool `repos_set` writes it), else the project key. The task number of a clerk comes from the ledger "In progress" row that names the clerk in its State column. The slug comes from the worktree folder of the clerk session. With neither, the line shows the name part of the role key, for example `liveui`. A clanker counts the tasks of its ledger rows and of its live clerks (the number, else the slug), also when the clanker has no session. With no task, it shows `no tasks`.
+The phase strip of `pipeline` reads one field. A line of the report file of a clerk (`<data>/reports/<role key>.jsonl`, one JSON object per line) may carry a top-level field `phase`: `plan`, `implement`, `review`, `fix`, `merge`, or `done`. The strip fills up to the phase of the latest line with such a field: green `━━━━━` for each phase before it, the spinner at it, and dim `·····` after it, so a question shows as `?` at its phase. With `done`, and for a done clerk in the Done group, the strip is all green, unless the clerk waits on a question or is blocked: then the `?` or `!` sits at `merge`. A stopped clerk shows `■ stopped`. With no such line, the strip shows the spinner and `····· phase not reported`. The board reads no other field and no text of a line for the phase.
 
-The board reads `claude agents --json --all` and the bruh data and ledger files. Its only write is the expanded state in its own store. To turn it off, close the pane with its close mark. That stops the refresh, and the board reads nothing until the next `/bruh-board`. There is no setting.
+The project path comes from `repos.json` (the MCP tool `repos_set` writes it), else the project key. The task number of a clerk comes from the ledger "In progress" row that names the clerk in its State column. The slug comes from the worktree folder of the clerk session. With neither, the line shows the name part of the role key, for example `liveui`. A clanker counts the tasks of its ledger rows and of its clerks (the number, else the slug), done ones too, also when the clanker has no session. With no task, it shows `no tasks`.
+
+The board reads `claude agents --json --all` and the bruh data and ledger files. Its only write is the expanded state in its own store. To turn it off, close the pane with its close mark. That stops the refresh, and the board reads nothing until the next `/bruh-board`.
 
 ## Documentation
 

@@ -29,7 +29,8 @@ const answers = A.answers && typeof A.answers === 'object' ? A.answers : {}
 let head = base
 let tests = { ran: 0, passed: 0, failed: 0, skipped: 0 }
 const deviations = []
-const found = new Map() // key -> {file, line, summary, state, gate}
+const found = new Map() // key -> {id, file, line, summary, state, gate}
+let seq = 0 // the last finding ID: a finding gets F<n> when it first enters found and keeps it
 const refuted = new Set() // keys of refuted review findings; gate findings never go here
 
 const norm = (file) => String(file || '').replace(/^(\.\/)+/, '')
@@ -105,15 +106,20 @@ const ASK = `Questions: when you need a decision that the task, the plan, the ho
 4. If it returns answered, use the answer text and continue.
 5. If it returns pending, stop at once and do no more work. Return your result with question set to the id and the header of the question, and the body that question_open returned (with its OPTION lines).`
 
+// Task 30: an agent at the start of a step writes the phase of the task to the report of the
+// clerk, so the board shows the step. Kind event: no notice to bigm.
+const PHASE = (p) => `First call the bruh MCP tool report_write (mcp__plugin_bruh_bruh__report_write; load it with ToolSearch) with kind event, text "phase ${p}", and phase "${p}". If the call fails, go on. Then do this step.`
+
 const QUESTION = {
   type: 'object',
   properties: { id: { type: 'string' }, header: { type: 'string' }, body: { type: 'string' } },
   required: ['id', 'header', 'body'],
 }
-const LOCATION = {
+// A fixed finding: its ID closes it; file and line are for display only (a fix can move the line).
+const FIXED = {
   type: 'object',
-  properties: { file: { type: 'string' }, line: { type: 'integer' } },
-  required: ['file', 'line'],
+  properties: { id: { type: 'string' }, file: { type: 'string' }, line: { type: 'integer' } },
+  required: ['id'],
 }
 const FINDINGS = {
   type: 'object',
@@ -183,12 +189,13 @@ const FIX = {
   type: 'object',
   properties: {
     head_sha: { type: 'string' },
-    fixed: { type: 'array', items: LOCATION },
+    fixed: { type: 'array', items: FIXED },
     deviations: { type: 'array', items: { type: 'string' } },
     question: QUESTION,
   },
   required: ['head_sha', 'fixed', 'deviations'],
 }
+const DONE = { type: 'object', properties: { ok: { type: 'boolean' } }, required: ['ok'] }
 const VERDICT = {
   type: 'object',
   properties: { confirmed: { type: 'boolean' }, reason: { type: 'string' } },
@@ -308,6 +315,7 @@ phase('Plan')
 const plan = await askable(
   'plan',
   `Step: plan. Do not edit files in this step.
+${PHASE('plan')}
 1. Read the task, the code, and the guides of the project.
 2. Pin the base SHA: run \`git cat-file -e ${base}^{commit}\` and \`git merge-base --is-ancestor ${base} HEAD\`. If one fails, return stop = true with the reason.
 3. Write a plan: numbered steps, and for each step a written STOP condition (the observation that makes the implementer stop instead of guessing).
@@ -324,6 +332,7 @@ phase('Implement')
 const impl = await askable(
   'implement',
   `Step: implement.
+${PHASE('implement')}
 
 Plan:
 ${plan.value.plan}
@@ -350,7 +359,7 @@ for (let round = 1; ; round++) {
   phase('Review')
   log(`Review round ${round} of ${cap}`)
   const [adv, inv, gates] = await parallel([
-    () => agent(`${CONTEXT}\n\nStep: adversarial review, round ${round}. Do not edit files.\n${DIFF}\nTry to refute the change: find where it is wrong, where it is incomplete, and where it does not meet the acceptance criteria. Report each finding with the file, the line of the problem, and a summary. Report nothing that you cannot show in the code.`, { label: `adversarial ${round}`, effort: 'low', schema: FINDINGS }),
+    () => agent(`${CONTEXT}\n\nStep: adversarial review, round ${round}. Do not edit files.\n${PHASE('review')}\n${DIFF}\nTry to refute the change: find where it is wrong, where it is incomplete, and where it does not meet the acceptance criteria. Report each finding with the file, the line of the problem, and a summary. Report nothing that you cannot show in the code.`, { label: `adversarial ${round}`, effort: 'low', schema: FINDINGS }),
     () => agent(`${CONTEXT}\n\nStep: invariant check, round ${round}. Do not edit files.\n${DIFF}\nDo not trust the claims of the author. List the invariants that the code must keep, from the code, the tests, and the docs. Verify each invariant against the changed code. Report each broken invariant as a finding with the file, the line, and a summary.`, { label: `invariants ${round}`, effort: 'low', schema: FINDINGS }),
     () => agent(`${CONTEXT}\n\nStep: gates, round ${round}. Do not edit files.\n${DIFF}\nRun each gate command, in this order:\n${bullets(gateCommands)}\nEach gate is required: it must exit 0. These gates are test suites and must run tests:\n${bullets(testGates)}\nA gate that is not a test suite (for example lint or build) returns 0 for each count when its output has no test count. Return exactly one result for each gate command above, with the command text unchanged, and run no other gate. For each gate, return its exit code and how many tests ran, passed, failed, and were skipped. Read the counts from the output; do not estimate. For each failed or skipped test, give the file and the line of the test, a summary, and the kind (failed or skipped). When a gate fails or skips a test, return the last 40 lines of its output in output_tail; otherwise return an empty output_tail. Return tests with the totals of all gates, and head_sha from \`git rev-parse HEAD\`.`, { label: `gates ${round}`, effort: 'low', schema: GATES }),
   ])
@@ -388,7 +397,8 @@ for (let round = 1; ; round++) {
   let dead = 0
   candidates.forEach((f, i) => {
     const k = key(f)
-    const entry = { file: f.file, line: f.line, summary: f.summary, gate: f.gate }
+    const prior = found.get(k)
+    const entry = { id: prior ? prior.id : `F${++seq}`, file: f.file, line: f.line, summary: f.summary, gate: f.gate }
     if (!verdicts[i]) {
       dead++
       found.set(k, { ...entry, state: 'open' })
@@ -404,7 +414,11 @@ for (let round = 1; ; round++) {
   // A gate failure is a fact of this round: at the end of the run it stays
   // open even when its refuter did not confirm it.
   const open = [...found.entries()].filter(([, f]) => f.state === 'open')
-  if (!open.length && clean(gates)) return result('done')
+  if (!open.length && clean(gates)) {
+    // The phase line is a board mark, not evidence: a dead agent does not change the status.
+    await agent(`${CONTEXT}\n\nStep: phase done. Do not edit files. Do nothing else.\n${PHASE('done')}\nReturn ok = true.`, { label: 'phase done', effort: 'low', schema: DONE })
+    return result('done')
+  }
   if (round >= cap) {
     for (const f of gateNow) found.get(key(f)).state = 'open'
     return result('findings_left')
@@ -415,27 +429,28 @@ for (let round = 1; ; round++) {
   phase('Fix')
   const areas = new Map()
   for (const [, f] of open) areas.set(area(f), [...(areas.get(area(f)) || []), f])
+  let first = true
   for (const [name, batch] of areas) {
     const fix = await askable(
       `fix ${name}`,
-      `Step: fix these confirmed findings of the area ${name}:
-${batch.map((f) => `- ${f.file}:${f.line}: ${f.summary}`).join('\n')}
+      `${first ? `${PHASE('fix')}\n` : ''}Step: fix these confirmed findings of the area ${name}:
+${batch.map((f) => `- [${f.id}] ${f.file}:${f.line}: ${f.summary}`).join('\n')}
 
 1. Fix each finding at its root. Edit only the files that the task lists.
 2. Commit your work on the branch ${branch}.
-3. Return fixed with the file and the line of each finding that you fixed, deviations with each deviation and its reason, and head_sha from \`git rev-parse HEAD\`.`,
+3. Return fixed with the ID (the [F<n>] before the finding) of each finding that you fixed, and its file and line now, deviations with each deviation and its reason, and head_sha from \`git rev-parse HEAD\`.`,
       FIX,
     )
     if (fix.failed) return fail(fix.failed)
     if (fix.stop) return stop(fix.stop)
     if (fix.question) return asked(fix)
+    first = false
     deviations.push(...list(fix.value.deviations))
     if (fix.value.head_sha) head = fix.value.head_sha
-    // Only a fix that the fixer reports makes a finding fixed.
-    for (const loc of fix.value.fixed || []) {
-      for (const f of found.values()) {
-        if (f.state === 'open' && f.file === norm(loc.file) && f.line === loc.line) f.state = 'fixed'
-      }
+    // Only a fix that the fixer reports makes a finding fixed. The ID closes it, because the fix
+    // can move the line of the finding (task 32).
+    for (const x of fix.value.fixed || []) {
+      for (const f of batch) if (f.state === 'open' && f.id === x.id) f.state = 'fixed'
     }
   }
 }

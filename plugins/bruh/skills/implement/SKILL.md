@@ -25,7 +25,7 @@ Each arrow is a workflow of this plugin or a short manual step. Each workflow ta
 | `/bruh:review-and-fix` | Review, refute, and fix an own change (phase 4) |
 | `/bruh:review-only` | Review and refute a change of another author (phase 4) |
 
-The scripts are `${CLAUDE_PLUGIN_ROOT}/scripts/lane.sh` and `${CLAUDE_PLUGIN_ROOT}/scripts/post-findings.sh`. Example `args` are in `references/example-args.md`.
+The script is `${CLAUDE_PLUGIN_ROOT}/scripts/lane.sh`. Example `args` are in `references/example-args.md`.
 
 ## Who is the orchestrator
 
@@ -103,27 +103,21 @@ For a change of another author, run `/bruh:review-only` with `args = {root, base
 
 ## Post a review
 
-A workflow never posts (spec 6.1). A post goes out under an account of the owner, so it is on the list "Never without the owner". The script `post-findings.sh` needs a cover for each post, and it checks the cover by structure:
+A workflow never posts (spec 6.1). A post goes out under an account of the owner, so it is on the list "Never without the owner". Each post needs a cover:
 
-- In a manual session of the owner (no `BRUH_ROLE_KEY`): `--yes`, after the owner said yes to this post in the terminal.
-- In a role session: `--answer Q-<id>`, with the message of bigm `ANSWER Q-<id>: post <owner/repo>#<number> at <head SHA> approved` in the mailbox of the caller, or a row of the section "Post grants" of `grants.md` for the role key, the host, and the repository. `--yes` is refused.
+- In a manual session of the owner (no `BRUH_ROLE_KEY`): the owner said yes to this post in the terminal.
+- In a role session: the message of bigm `ANSWER Q-<id>: post <owner/repo>#<number> at <head SHA> approved` in the mailbox of the caller, for the `head_sha` of the result, or a row of the section "Post grants" of `grants.md` for the role key, the host, and the repository. A clerk follows "Posts" of its agent file.
 
 1. Save the result of the workflow. Use the MCP tool `result_save` (`name`, for example `review-only-42`, and the result object); it returns the path. It works in a manual session too: without `BRUH_ROLE_KEY`, it saves under `<data>/results/owner/`. Never write a result file yourself (principle 3).
-2. Run the dry run and show its output to the owner (in a role session, put it in the question to the clanker):
+2. Write the body with the Write tool to a temporary file: the summary (the lenses, the confirmed and the refuted counts), then each confirmed finding with its `file:line`. For `/bruh:review-and-fix`, add what is fixed and what is open. End the file with the marker line `<!-- bruh:<role key> -->` (`<!-- bruh:owner -->` in a manual session). The watcher uses the marker to tell agent posts from human posts. Show the body to the owner (in a role session, put it in the question to the clanker).
+3. With the cover in place, post it with the plain CLI of the code host:
 
    ```bash
-   sh ${CLAUDE_PLUGIN_ROOT}/scripts/post-findings.sh --dry-run gitlab <group/project> <merge request number> <result path>
-   sh ${CLAUDE_PLUGIN_ROOT}/scripts/post-findings.sh --dry-run github <owner/repo> <pull request number> <result path>
+   gh pr review <pull request number> --repo <owner/repo> --comment --body-file <file>
+   glab mr note create <merge request number> --repo <group/project> < <file>
    ```
 
-3. Post with the cover in place of `--dry-run`: `--yes` in a manual session; `--data <data_dir>` (a post grant) or `--data <data_dir> --answer Q-<id>` in a role session. Without a cover, the script refuses (exit code 3).
-
-The script posts one summary note (the lenses, the confirmed and the refuted counts, and one line for each lens), then one comment for each confirmed finding on its line. For `/bruh:review-and-fix`, it also posts a note of the fixes: what is fixed and what is open. Each body starts and ends with the marker line `<!-- bruh:<role key> -->` (`<!-- bruh:owner -->` in a manual session), and the first text is "Agent review". The watcher uses the marker to tell agent posts from human posts.
-
-- A line that is not in the diff becomes a general comment that names `file:line`. A finding of a later review round is a general comment too, because its line is in the fixed tree.
-- If the pull request moved past the reviewed head, each finding becomes a general comment, and the summary says so.
-- A body that is already on the pull request is not posted again. A rerun after a partial failure posts only what is missing. If the script cannot read all the comments that are on the pull request, it posts nothing.
-- The script refuses a result with `status` `stopped` or `question`: that review is not complete.
+Do not post a result with `status` `stopped` or `question`: that review is not complete.
 
 ## Phase 5: Report
 
@@ -141,7 +135,7 @@ Read `references/lessons.md` before the first run. The short list:
 - **Measure coverage over the module path, not `./...`.** In CI, the module cache can be in the project folder, and `./...` then adds it to the denominator.
 - **An emulator harness must fail in CI, not skip.** A `TestMain` that exits 0 without Docker makes CI measure nothing.
 - **Keep the full suite under one minute.** Then the gate after each fix batch costs almost nothing.
-- **glab rejects bracketed field names in a JSON body.** `-f 'position[new_line]=...'` fails. `post-findings.sh` builds each payload whole with `jq` and sends it with `--input`.
+- **glab rejects bracketed field names in a JSON body.** `-f 'position[new_line]=...'` fails. Build each payload whole with `jq` and send it with `--input`.
 
 ## Single-change brief
 

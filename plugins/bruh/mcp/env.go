@@ -16,7 +16,7 @@ import (
 const stampLayout = "2006-01-02T15:04:05.000Z"
 
 // qidPattern is the one pattern of a question ID Q-<project>-<host>-<n> (spec 5, decision D2).
-// headerRE, qidRE, and approvalRE use it; the Slack module and post-findings.sh keep copies.
+// headerRE and qidRE use it; the Slack module keeps a copy.
 const qidPattern = `Q-[a-z0-9]+(?:-[a-z0-9]+)+-[0-9]+`
 
 var (
@@ -215,9 +215,22 @@ func (e Env) WithLock(name string, fn func() error) error {
 }
 
 // bigmActsFor reports whether bigm may write the role settings of k, start it, or resume it
-// without being its parent: its own key, and the merger clerk of any project, which runs on
-// the machine of bigm also for a remote project. Every other key belongs to its parent, so
-// bigm does not get past the busy-clerk cap or the leases of a clanker.
+// without being its parent: only its own key. Every other key belongs to its parent, so bigm
+// does not get past the busy-clerk cap or the leases of a clanker.
 func bigmActsFor(k RoleKey) bool {
-	return k.Role == "bigm" || (k.Role == "clerk" && k.Task == "merge")
+	return k.Role == "bigm"
+}
+
+// tableCells splits a Markdown table row at the pipes that are not escaped, and trims the cells.
+// A cell in backticks counts without them.
+func tableCells(line string) []string {
+	line = strings.TrimSpace(line)
+	if !strings.HasPrefix(line, "|") {
+		return nil
+	}
+	parts := strings.Split(strings.ReplaceAll(strings.Trim(line, "|"), `\|`, "\x00"), "|")
+	for i, p := range parts {
+		parts[i] = strings.Trim(strings.TrimSpace(strings.ReplaceAll(p, "\x00", "|")), "`")
+	}
+	return parts
 }

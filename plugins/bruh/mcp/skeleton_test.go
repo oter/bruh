@@ -123,7 +123,7 @@ func TestUserConfig(t *testing.T) {
 		t.Fatalf("defaults = %v", p.UserConfig)
 	}
 	keys := slices.Sorted(maps.Keys(p.UserConfig))
-	wantKeys := []string{"handoff_percent", "max_busy_clerks", "orca_local", "slack_bot_token", "slack_channel_id", "slack_owner_user_id", "user_name"}
+	wantKeys := []string{"board_design", "handoff_percent", "max_busy_clerks", "orca_local", "slack_bot_token", "slack_channel_id", "slack_owner_user_id", "user_name"}
 	if !slices.Equal(keys, wantKeys) {
 		t.Errorf("userConfig keys = %v, want %v", keys, wantKeys)
 	}

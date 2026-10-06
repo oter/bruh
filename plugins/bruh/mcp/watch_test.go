@@ -86,7 +86,7 @@ func TestWatchBaselineThenEvents(t *testing.T) {
 			ctx := context.Background()
 			now := time.Now()
 			f.branches["main"] = "aaaaaaa1"
-			f.addPull(1, "old")
+			f.addPull(1)
 			f.pulls[1].State, f.pulls[1].Merged, f.pulls[1].MergedAt = "closed", true, "2026-01-01T00:00:00Z"
 			f.comments = []hostComment{comment(1, now.Add(-time.Hour), "sam", "old comment", 1)}
 			if err := w.pollAll(ctx, cfg, hosts); err != nil {
@@ -99,7 +99,7 @@ func TestWatchBaselineThenEvents(t *testing.T) {
 			f.branches["main"] = "bbbbbbb2"
 			f.branches["fix"] = "ccccccc3"
 			f.statuses["ccccccc3"] = fakeStatus{"failure", 1}
-			f.addPull(2, "ccccccc3")
+			f.addPull(2)
 			f.pulls[2].State, f.pulls[2].Merged, f.pulls[2].MergedAt, f.pulls[2].MergeSHA = "closed", true, "2026-09-30T10:00:00Z", "m2"
 			f.comments = append(f.comments, comment(2, now.Add(time.Minute), "sam", "Why?", 2), comment(3, now.Add(2*time.Minute), "bot", "Done.\n<!-- bruh:clerk-repo-t1 -->", 2))
 			if err := w.pollAll(ctx, cfg, hosts); err != nil {
@@ -288,7 +288,7 @@ func TestWatchReportsErrorOnce(t *testing.T) {
 
 func TestRunWatchOnce(t *testing.T) {
 	_, r := newFakeForge(t, "gitea")
-	env := testEnv(t, "")
+	env := testEnv(t, "bigm")
 	b, _ := json.Marshal(reposConfig{Repos: []repoConfig{r}})
 	if err := os.WriteFile(filepath.Join(env.DataDir, "repos.json"), b, 0o600); err != nil {
 		t.Fatal(err)
@@ -312,7 +312,7 @@ func TestWatchSeesReviews(t *testing.T) {
 	for _, kind := range []string{"github", "gitea"} {
 		f, w, out, cfg, hosts := watchSetup(t, kind)
 		ctx := context.Background()
-		f.addPull(7, "h7")
+		f.addPull(7)
 		if err := w.pollAll(ctx, cfg, hosts); err != nil {
 			t.Fatal(err)
 		}
@@ -418,7 +418,7 @@ func TestWatchDoesNotRepeatPushAfterError(t *testing.T) {
 }
 
 func TestRunWatchWithoutReposWaitsForThem(t *testing.T) {
-	env := testEnv(t, "")
+	env := testEnv(t, "bigm")
 	var out, errOut bytes.Buffer
 	if code := runCLI([]string{"watch", "--once", "--data", env.DataDir}, env, &out, &errOut); code != 0 {
 		t.Fatalf("a missing repos.json must not stop the watcher: exit %d: %s", code, errOut.String())
@@ -476,7 +476,7 @@ func TestWatchFractionalTimeEmitsOnce(t *testing.T) {
 }
 
 func TestWatchGitLabBaselineThenEvents(t *testing.T) {
-	r := repoConfig{Repo: "group/sub/shop", Host: "gitlab", APIURL: "https://gitlab.example.com/api/v4", Project: "shop", MergeMethod: "merge"}
+	r := repoConfig{Repo: "group/sub/shop", Host: "gitlab", APIURL: "https://gitlab.example.com/api/v4", Project: "shop"}
 	h, err := newHost(r)
 	if err != nil {
 		t.Fatalf("newHost: %v", err)
@@ -573,5 +573,32 @@ func TestWatchGitLabBaselineThenEvents(t *testing.T) {
 	}
 	if got := events(t, bytes.NewBuffer(b)); !slices.Equal(got, all) {
 		t.Errorf("events in reports/clanker-shop.jsonl = %+v, want %+v", got, all)
+	}
+}
+
+// TestWatchOnlyInBigm: the plugin monitor bruh-poller runs the watch command in each session,
+// and only bigm polls. Each other session exits 0 in silence and creates nothing.
+func TestWatchOnlyInBigm(t *testing.T) {
+	for _, key := range []string{"", "clanker-app"} {
+		dir := filepath.Join(t.TempDir(), "data")
+		var out, errOut bytes.Buffer
+		if code := runCLI([]string{"watch", "--data", dir}, Env{RoleKey: key}, &out, &errOut); code != 0 || out.Len()+errOut.Len() != 0 {
+			t.Fatalf("role key %q: exit %d, out %q, err %q", key, code, out.String(), errOut.String())
+		}
+		if _, err := os.Stat(dir); !errors.Is(err, fs.ErrNotExist) {
+			t.Fatalf("role key %q: data folder: %v", key, err)
+		}
+		// The check is in runWatch itself, so each caller of the watch command gets it.
+		if err := runWatch(t.Context(), Env{RoleKey: key, DataDir: dir}, &out, false); err != nil || out.Len() != 0 {
+			t.Fatalf("role key %q: runWatch: %v, out %q", key, err, out.String())
+		}
+		if _, err := os.Stat(dir); !errors.Is(err, fs.ErrNotExist) {
+			t.Fatalf("role key %q: runWatch made the data folder: %v", key, err)
+		}
+	}
+	var out, errOut bytes.Buffer
+	if code := runCLI([]string{"watch", "--no-such-flag"}, Env{RoleKey: "bigm"}, &out, &errOut); code != 2 ||
+		!strings.Contains(errOut.String(), "flag provided but not defined: -no-such-flag") {
+		t.Fatalf("bigm with a bad flag: exit %d, err %q", code, errOut.String())
 	}
 }
