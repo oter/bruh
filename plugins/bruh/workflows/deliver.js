@@ -25,6 +25,9 @@ const testGates = list(A.test_gates)
 const cap = Number.isInteger(A.round_cap) && A.round_cap >= 1 ? A.round_cap : 2
 const deadline = typeof A.deadline_seconds === 'number' && A.deadline_seconds > 0 ? A.deadline_seconds : 3600
 const answers = A.answers && typeof A.answers === 'object' ? A.answers : {}
+const isPath = (p) => typeof p === 'string' && p.startsWith('/') && !/['\n]/.test(p)
+// The guides folder of the task (an absolute path with INDEX.md), or '' for none.
+const guides = typeof A.guides === 'string' ? A.guides.trim().replace(/\/+$/, '') : ''
 
 let head = base
 let tests = { ran: 0, passed: 0, failed: 0, skipped: 0 }
@@ -68,6 +71,7 @@ if (!Array.isArray(A.gates)) problems.push('args.gates is not a list')
 else if (!gateCommands.length) problems.push('args.gates is empty; a run without a required suite cannot prove the change')
 if (A.test_gates !== undefined && !Array.isArray(A.test_gates)) problems.push('args.test_gates is not a list')
 else if (testGates.some((c) => !gateCommands.includes(c))) problems.push('args.test_gates has a command that is not in args.gates')
+if (guides && !isPath(guides)) problems.push('args.guides is not empty and not an absolute path')
 if (problems.length) return stop(problems.join('; '))
 
 const bullets = (xs) => (xs.length ? xs.map((x) => `- ${x}`).join('\n') : '(none)')
@@ -98,6 +102,15 @@ Rules of this run:
 
 const DIFF = `Review the change with \`git diff ${base} HEAD\`, against the pinned base SHA.
 Never diff against origin/main or another moving ref.`
+
+// With a guides folder, the reviewers and the refuters cite its rules. Without one, both
+// strings are '' and the prompts stay byte for byte, so resumeFromRunId keeps its cache.
+const GUIDES = guides
+  ? `\nGUIDES ARE MANDATORY: before you read the diff, read ${guides}/INDEX.md and each guide file that it names for the files of the diff, in full. A review without them is invalid. Cite the guide file and the rule ID or heading for each finding, or a house rule, or a concrete failing scenario. Drop a finding that has none of them. If a technology of the diff has no guide, say so; do not review it from memory. The accepted deviations of ${guides}/INDEX.md are not findings.`
+  : ''
+const REFUTE_GUIDES = guides
+  ? `${GUIDES}\nRead the cited guide rule under ${guides}/. Refute a finding that cites no guide rule, no house rule, and no concrete failing scenario.`
+  : ''
 
 const ASK = `Questions: when you need a decision that the task, the plan, the house rules, and the code do not answer, do not guess.
 1. Call the bruh MCP tool question_open (mcp__plugin_bruh_bruh__question_open; load it with ToolSearch) with priority (P0, P1, or P2: your estimate), subject (one line), body (the question, the options ranked, and your recommendation), and blocks (the work that waits for the answer), and options (2 to 4, each a label and a description) when the question has fixed answers.
@@ -359,8 +372,8 @@ for (let round = 1; ; round++) {
   phase('Review')
   log(`Review round ${round} of ${cap}`)
   const [adv, inv, gates] = await parallel([
-    () => agent(`${CONTEXT}\n\nStep: adversarial review, round ${round}. Do not edit files.\n${PHASE('review')}\n${DIFF}\nTry to refute the change: find where it is wrong, where it is incomplete, and where it does not meet the acceptance criteria. Report each finding with the file, the line of the problem, and a summary. Report nothing that you cannot show in the code.`, { label: `adversarial ${round}`, effort: 'low', schema: FINDINGS }),
-    () => agent(`${CONTEXT}\n\nStep: invariant check, round ${round}. Do not edit files.\n${DIFF}\nDo not trust the claims of the author. List the invariants that the code must keep, from the code, the tests, and the docs. Verify each invariant against the changed code. Report each broken invariant as a finding with the file, the line, and a summary.`, { label: `invariants ${round}`, effort: 'low', schema: FINDINGS }),
+    () => agent(`${CONTEXT}\n\nStep: adversarial review, round ${round}. Do not edit files.\n${PHASE('review')}\n${DIFF}${GUIDES}\nTry to refute the change: find where it is wrong, where it is incomplete, and where it does not meet the acceptance criteria. Report each finding with the file, the line of the problem, and a summary. Report nothing that you cannot show in the code.`, { label: `adversarial ${round}`, effort: 'low', schema: FINDINGS }),
+    () => agent(`${CONTEXT}\n\nStep: invariant check, round ${round}. Do not edit files.\n${DIFF}${GUIDES}\nDo not trust the claims of the author. List the invariants that the code must keep, from the code, the tests, and the docs. Verify each invariant against the changed code. Report each broken invariant as a finding with the file, the line, and a summary.`, { label: `invariants ${round}`, effort: 'low', schema: FINDINGS }),
     () => agent(`${CONTEXT}\n\nStep: gates, round ${round}. Do not edit files.\n${DIFF}\nRun each gate command, in this order:\n${bullets(gateCommands)}\nEach gate is required: it must exit 0. These gates are test suites and must run tests:\n${bullets(testGates)}\nA gate that is not a test suite (for example lint or build) returns 0 for each count when its output has no test count. Return exactly one result for each gate command above, with the command text unchanged, and run no other gate. For each gate, return its exit code and how many tests ran, passed, failed, and were skipped. Read the counts from the output; do not estimate. For each failed or skipped test, give the file and the line of the test, a summary, and the kind (failed or skipped). When a gate fails or skips a test, return the last 40 lines of its output in output_tail; otherwise return an empty output_tail. Return tests with the totals of all gates, and head_sha from \`git rev-parse HEAD\`.`, { label: `gates ${round}`, effort: 'low', schema: GATES }),
   ])
   if (!adv || !inv || !gates) return fail(`a review check of round ${round} did not return a result`)
@@ -388,7 +401,7 @@ for (let round = 1; ; round++) {
   const candidates = [...fresh.values()]
   log(`Round ${round}: ${candidates.length} findings, one refuter each`)
   const verdicts = await parallel(candidates.map((f) => () => agent(
-    `${CONTEXT}\n\nStep: refute one finding. Do not edit files.\n${DIFF}\nFinding: ${f.file}:${f.line}: ${f.summary}\n${f.gate ? `This finding comes from the gate command \`${f.gate}\`. Run it again. Confirm the finding only when the new run still shows the failure or the skip.\n` : ''}Try to refute the finding against the code. Confirm it only when you can show it. When you are not sure, return confirmed = false.`,
+    `${CONTEXT}\n\nStep: refute one finding. Do not edit files.\n${DIFF}${REFUTE_GUIDES}\nFinding: ${f.file}:${f.line}: ${f.summary}\n${f.gate ? `This finding comes from the gate command \`${f.gate}\`. Run it again. Confirm the finding only when the new run still shows the failure or the skip.\n` : ''}Try to refute the finding against the code. Confirm it only when you can show it. When you are not sure, return confirmed = false.`,
     { label: `refute ${f.file}:${f.line}`, effort: 'low', schema: VERDICT },
   )))
 

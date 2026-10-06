@@ -346,7 +346,7 @@ Agent-derived, accepted 2026-09-30.
 
 Agent-derived, accepted 2026-09-30, except where tagged. `deliver` adapts two scripts of the setup of the owner: `implement-tickets.js` for stages 1 and 2, and `review-and-fix.js` for stages 3 and 4.
 
-Inputs in `args`: the task, the acceptance criteria, the base SHA, the gate commands of the project, the house rules file, the guides index of the project, the deliberate choices that reviewers must not flag, the answer folder and deadline, and the review-round cap.
+Inputs in `args`: the task, the acceptance criteria, the base SHA, the gate commands of the project, the house rules file, the guides folder of the task (an absolute path with `INDEX.md`, or empty), the deliberate choices that reviewers must not flag, the answer folder and deadline, and the review-round cap.
 
 1. **Plan.** Read the task, the code, and the guides of the project. Pin the base SHA. Write a plan with written STOP conditions for each step. Send each open question through section 6.2.
 2. **Implement.** Implement the plan. Record deviations from the plan, and stop at a conflict instead of guessing.
@@ -359,6 +359,7 @@ Inputs in `args`: the task, the acceptance criteria, the base SHA, the gate comm
 4. **Fix.** Fix the confirmed findings in batches by area, one batch at a time, because parallel fixers in one tree collide. Then review again.
 
 - The review-round cap is a runtime setting with default 2. If findings are left after the last round, the run stops and the clerk raises a P1. Owner decision 2026-09-27 (two rounds) and 2026-09-29 (runtime setting).
+- The guides folder: when `args.guides` is an absolute folder, both reviewers and every refuter get the rule "GUIDES ARE MANDATORY": read `INDEX.md` and the guides that it names for the files of the diff, and cite for each finding a guide file and rule, a house rule, or a concrete failing scenario; the accepted deviations of `INDEX.md` are not findings. The 2 lenses stay, and no other step gets the rule. An empty `args.guides` gives the prompts of before. The clerk builds the folder for each task: it picks the guides from `skills/implement/references/guide-sources.md` by the file types of the task, fetches each one fresh into `/tmp/<clerk key>-guides/`, and writes `INDEX.md` with the file globs and the source URL of each guide. No guide file ships in the plugin. Owner decision 2026-10-06 (task 36, reuse the guides folder). A house rule as a citation, and a stop of the run when `args.guides` is not empty and not an absolute path: agent-derived, needs owner decision.
 - A failed step that costs money or cannot be undone is never retried automatically.
 - Each finding gets a stable ID (`F<n>`) when it first enters the findings of the run, and keeps it in later rounds. The fixer gets each finding as `[F<n>] file:line`, reports the IDs that it fixed, and the run closes the findings of the batch by ID. `file:line` stays for display and for the dedupe of new findings. `/bruh:review-and-fix` does the same, and its fix check reports by ID too. The result keeps its fields, with no ID. bigm decision 2026-10-06T17:14Z (task 32, R-4), after a run ended `findings_left` because a fix moved the line of its finding.
 - The init skill adds the allow rule `Workflow(bruh:deliver)`.

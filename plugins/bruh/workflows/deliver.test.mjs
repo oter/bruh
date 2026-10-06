@@ -512,3 +512,57 @@ test('a stopped or findings_left run writes no phase done', async () => {
     assert.ok(!phasesOf(r.calls).includes('done'))
   }
 })
+
+// Task 36: the guides folder of the task reaches only the two reviewers and the refuters.
+const guideHandlers = {
+  adversarial: (p, o, n) => ({ findings: n === 1 ? [finding('src/a.go', 1)] : [] }),
+  refute: () => ({ confirmed: true, reason: 'shown' }),
+}
+const reviewWords = ['adversarial', 'invariants', 'refute']
+
+test('deliver with a guides folder puts GUIDES ARE MANDATORY into both reviewers and the refuter', async () => {
+  const { result, byWord, calls } = await run(guideHandlers, baseArgs({ guides: '/tmp/clerk-x-guides/' }))
+  assert.equal(result.status, 'done')
+  assert.equal(byWord('adversarial').length, 2)
+  assert.equal(byWord('invariants').length, 2)
+  assert.equal(byWord('refute').length, 1)
+  for (const w of reviewWords) {
+    for (const c of byWord(w)) {
+      assert.ok(c.prompt.includes('GUIDES ARE MANDATORY'), `${c.opts.label} has no guides rule`)
+      assert.ok(c.prompt.includes('/tmp/clerk-x-guides/INDEX.md'), `${c.opts.label} does not name INDEX.md`)
+    }
+  }
+  assert.ok(byWord('refute')[0].prompt.includes('Read the cited guide rule under /tmp/clerk-x-guides/.'))
+  for (const c of calls.filter((x) => !reviewWords.includes(x.word))) {
+    assert.ok(!c.prompt.includes('GUIDES ARE MANDATORY'), `${c.opts.label} got the guides rule`)
+  }
+})
+
+test('deliver without a guides folder leaves the review prompts unchanged', async () => {
+  const empty = await run(guideHandlers, baseArgs({ guides: '' }))
+  const none = await run(guideHandlers, baseArgs({ guides: undefined }))
+  for (const r of [empty, none]) {
+    assert.equal(r.result.status, 'done')
+    for (const c of r.calls) {
+      assert.ok(!c.prompt.includes('GUIDES ARE MANDATORY'), `${c.opts.label} got the guides rule`)
+      assert.ok(!c.prompt.includes('Read the cited guide rule'), `${c.opts.label} got the refuter guides rule`)
+      assert.ok(c.prompt.includes('Guides index of the project:\n(none)\n'), `${c.opts.label} does not show (none)`)
+    }
+  }
+  for (const w of reviewWords) {
+    assert.deepEqual(empty.byWord(w).map((c) => c.prompt), none.byWord(w).map((c) => c.prompt))
+  }
+  // Without guides, the diff text goes straight into the lens text, as before task 36.
+  assert.ok(empty.byWord('adversarial')[0].prompt.includes('another moving ref.\nTry to refute the change'))
+  assert.ok(empty.byWord('invariants')[0].prompt.includes('another moving ref.\nDo not trust the claims'))
+  assert.ok(empty.byWord('refute')[0].prompt.includes('another moving ref.\nFinding: src/a.go:1: '))
+})
+
+test('a guides value that is not an absolute path stops the run before any agent', async () => {
+  for (const bad of ['guides', 'docs/guides', "/tmp/x'y"]) {
+    const { result, calls } = await run({}, baseArgs({ guides: bad }))
+    assert.equal(result.status, 'stopped')
+    assert.equal(calls.length, 0)
+    assert.match(result.deviations[0], /^STOP: .*args\.guides/)
+  }
+})

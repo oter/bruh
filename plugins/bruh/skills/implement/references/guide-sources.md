@@ -76,6 +76,15 @@ Pick the guides for each technology of the diff. When a technology has no row he
 | OWASP ASVS 5.0 | <https://github.com/OWASP/ASVS/tree/master/5.0/en> | numbered requirements to cite for each finding |
 | OWASP Top 10 | <https://owasp.org/Top10/> | the lens list of a security reviewer |
 
+## Design principles
+
+| Guide | Source | Use for |
+|---|---|---|
+| Go Proverbs (Rob Pike) | <https://go-proverbs.github.io/> | Go idioms: small interfaces, "a little copying is better than a little dependency", "clear is better than clever" |
+| Effective Go | <https://go.dev/doc/effective_go> | idiomatic Go design: interfaces, embedding, errors |
+| DRY and orthogonality (Hunt and Thomas, The Pragmatic Programmer) | <https://www.artima.com/articles/orthogonality-and-the-dry-principle> | one authoritative representation of each piece of knowledge; no coupling of unrelated parts |
+| SOLID (Robert C. Martin) | <http://butunclebob.com/ArticleS.UncleBob.PrinciplesOfOod> (HTTP only: get it with `curl -L`, because WebFetch upgrades to HTTPS and the host refuses it), <https://blog.cleancoder.com/uncle-bob/2014/05/08/SingleReponsibilityPrinciple.html>, <https://blog.cleancoder.com/uncle-bob/2020/10/18/Solid-Relevance.html> | SRP, OCP, LSP, ISP, and DIP |
+
 ## Decisions and docs
 
 | Guide | Source | Use for |
