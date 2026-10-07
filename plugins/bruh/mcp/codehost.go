@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"maps"
 	"net/http"
 	"net/url"
 	"os"
@@ -128,6 +129,9 @@ type hostPull struct {
 	MergeSHA  string `json:"merge_commit_sha"`
 	URL       string `json:"html_url"`
 	UpdatedAt string `json:"updated_at"`
+	Head      struct {
+		SHA string `json:"sha"`
+	} `json:"head"`
 }
 
 // codeHost is the part of a code host API that the watcher uses.
@@ -140,6 +144,21 @@ type codeHost interface {
 	Checks(ctx context.Context, sha string) (string, error) // success, pending, failure, or none
 	LastCall() string
 }
+
+// pullChecker reads the head of a pull request, and the checks of that head: the Checks value
+// (pending until each check is done) and the summary. Only GitHub has it.
+type pullChecker interface {
+	PullHead(ctx context.Context, n int) (sha string, open bool, err error)
+	PullChecks(ctx context.Context, sha string) (state, summary string, err error)
+}
+
+// httpError is a code host answer that is not 2xx.
+type httpError struct {
+	Code int
+	msg  string
+}
+
+func (e *httpError) Error() string { return e.msg }
 
 // rest is a small JSON client for one repository.
 type rest struct {
@@ -182,7 +201,7 @@ func (c *rest) do(ctx context.Context, method, p string, body, out any) error {
 		return err
 	}
 	if resp.StatusCode/100 != 2 {
-		return fmt.Errorf("%s: %s: %s", c.last, resp.Status, bytes.TrimSpace(data[:min(len(data), 300)]))
+		return &httpError{resp.StatusCode, fmt.Sprintf("%s: %s: %s", c.last, resp.Status, bytes.TrimSpace(data[:min(len(data), 300)]))}
 	}
 	if out == nil {
 		return nil
@@ -273,12 +292,50 @@ func (g *github) MergedPulls(ctx context.Context) ([]hostPull, error) {
 // Checks combines the commit statuses and the check runs. The combined status is "pending"
 // when no status exists, so it counts only when total_count is above 0.
 func (g *github) Checks(ctx context.Context, sha string) (string, error) {
+	state, _, _, err := g.checks(ctx, sha)
+	return state, err
+}
+
+// PullHead reads the head SHA of pull request n (one request) and whether it is open. A number
+// that is no pull request (404, an issue) has the SHA "".
+func (g *github) PullHead(ctx context.Context, n int) (sha string, open bool, err error) {
+	var p hostPull
+	if err := g.do(ctx, "GET", fmt.Sprintf("/pulls/%d", n), nil, &p); err != nil {
+		if he, ok := errors.AsType[*httpError](err); ok && he.Code == http.StatusNotFound {
+			return "", false, nil
+		}
+		return "", false, err
+	}
+	if p.Head.SHA == "" {
+		return "", false, fmt.Errorf("%s: no head sha", g.last)
+	}
+	return p.Head.SHA, p.State == "open", nil
+}
+
+// PullChecks reads the checks of the head sha of a pull request. The state is pending while a
+// check still runs, also after another check failed, so the caller sees one result when all are
+// done.
+func (g *github) PullChecks(ctx context.Context, sha string) (state, summary string, err error) {
+	state, summary, done, err := g.checks(ctx, sha)
+	if !done && state == "failure" {
+		state = "pending"
+	}
+	return state, summary, err
+}
+
+// checks reads the combined status and the check runs of sha. state is the Checks value. summary
+// counts the statuses and the check runs by their exact state, conclusion, or else status, with
+// the keys sorted: "12 checks: 1 failure, 11 success". done is false while one of them runs.
+func (g *github) checks(ctx context.Context, sha string) (state, summary string, done bool, err error) {
 	var st struct {
 		State      string `json:"state"`
 		TotalCount int    `json:"total_count"`
+		Statuses   []struct {
+			State string `json:"state"`
+		} `json:"statuses"`
 	}
 	if err := g.do(ctx, "GET", "/commits/"+url.PathEscape(sha)+"/status", nil, &st); err != nil {
-		return "", err
+		return "", "", false, err
 	}
 	type checkRun struct {
 		Status     string  `json:"status"`
@@ -292,20 +349,19 @@ func (g *github) Checks(ctx context.Context, sha string) (string, error) {
 			CheckRuns  []checkRun `json:"check_runs"`
 		}
 		if err := g.do(ctx, "GET", fmt.Sprintf("/commits/%s/check-runs?per_page=100&page=%d", url.PathEscape(sha), page), nil, &runs); err != nil {
-			return "", err
+			return "", "", false, err
 		}
 		all, total = append(all, runs.CheckRuns...), runs.TotalCount
 		if len(all) >= total || len(runs.CheckRuns) == 0 || page == 50 {
 			break
 		}
 	}
-	if st.TotalCount == 0 && len(all) == 0 && total == 0 {
-		return "none", nil
+	counts := map[string]int{}
+	for _, s := range st.Statuses {
+		counts[s.State]++
 	}
+	failed := st.TotalCount > 0 && st.State == "failure"
 	pending := st.TotalCount > 0 && st.State == "pending"
-	if st.TotalCount > 0 && st.State == "failure" {
-		return "failure", nil
-	}
 	if len(all) < total {
 		pending = true // runs that could not be read are never green
 	}
@@ -313,14 +369,32 @@ func (g *github) Checks(ctx context.Context, sha string) (string, error) {
 		switch {
 		case r.Status != "completed" || r.Conclusion == nil:
 			pending = true
-		case *r.Conclusion != "success" && *r.Conclusion != "neutral" && *r.Conclusion != "skipped":
-			return "failure", nil
+			counts[r.Status]++
+		default:
+			counts[*r.Conclusion]++
+			failed = failed || *r.Conclusion != "success" && *r.Conclusion != "neutral" && *r.Conclusion != "skipped"
 		}
 	}
-	if pending {
-		return "pending", nil
+	n, parts := 0, []string{}
+	for _, k := range slices.Sorted(maps.Keys(counts)) {
+		n += counts[k]
+		parts = append(parts, fmt.Sprintf("%d %s", counts[k], k))
 	}
-	return "success", nil
+	summary = fmt.Sprintf("%d checks", n)
+	if n > 0 {
+		summary += ": " + strings.Join(parts, ", ")
+	}
+	switch {
+	case st.TotalCount == 0 && len(all) == 0 && total == 0:
+		state = "none"
+	case failed:
+		state = "failure"
+	case pending:
+		state = "pending"
+	default:
+		state = "success"
+	}
+	return state, summary, !pending, nil
 }
 
 type gitea struct{ rest }

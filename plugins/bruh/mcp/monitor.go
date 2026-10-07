@@ -485,7 +485,7 @@ func monitorTools() []Tool {
 	return []Tool{
 		{
 			Name:        "monitor_start",
-			Description: "Start a monitor on an external state that your next step waits on (spec 9.5). source: {kind: codehost, repo, ref?, number?} for a repository of repos_set; {kind: command, argv, items, id, version, title?} for a read-only CLI that prints JSON and has a command grant in grants.md; {kind: mcp, server, tool, args?, items, id, version, title?} for a tool that you poll yourself with a CronCreate task and monitor_report. items, id, version, and title are JSON pointers. hours defaults to monitor_default_hours of mode.md. The first poll is the baseline; events reach your mailbox as DONE: event <project>: <subject>.",
+			Description: "Start a monitor on an external state that your next step waits on (spec 9.5). source: {kind: codehost, repo, ref?, number?} for a repository of repos_set; {kind: command, argv, items, id, version, title?} for a read-only CLI that prints JSON and has a command grant in grants.md; {kind: mcp, server, tool, args?, items, id, version, title?} for a tool that you poll yourself with a CronCreate task and monitor_report. items, id, version, and title are JSON pointers. hours defaults to monitor_default_hours of mode.md. The first poll is the baseline; events reach your mailbox as DONE: event <project>: <subject>. With number, a codehost monitor also gets one checks event when the checks of the pull request head finish, once for each head (GitHub only).",
 			InputSchema: objectSchema(map[string]any{
 				"source": map[string]any{"type": "object"}, "project": str, "reason": str,
 				"hours": map[string]any{"type": "integer", "minimum": 1},

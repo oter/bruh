@@ -41,6 +41,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - A role reads its mail only through `mail_read`: every role settings file (bigm start settings, clanker, clerk, scout) denies `Read` (which also covers Grep, Glob, and `cat`-style Bash reads) and Bash commands that name `<data>/mail`, and `session_list` gives each role an `unread_mail` count for the idle check of bigm. The rules are a speed bump, not a sandbox. Run `/bruh:init` again, and write the other role settings again, to get them.
 - `/bruh:deliver` and `/bruh:review-and-fix` close a finding by its stable ID (`F<n>`), not by file and line, so a fix that moves the line of its finding no longer leaves it open and the run ends `done`.
 - A finished one-shot role is not woken any more: the clanker runs `claude stop <id>` after it accepts a clerk result or reads the `DONE` of a scout, a clerk ends its turn after `task closed` and its `DONE: <task> closed` mail, a scout after its `DONE`, and the waiter exits at once when the last report line of its role is `task closed`.
+- bigm also loads the global skills of the owner (the names under `~/.claude/skills` that have a `SKILL.md`, such as `bro`); the `Skill` hook still blocks each skill of another plugin. Run `/bruh:init` again, which replaces the old `Skill` hook.
+- A codehost monitor with `number` sends one `checks` event when the checks of the pull request head finish, success or failure, with a count of the results (GitHub only), so a clerk that waits on CI gets an event.
 
 ## [0.11.1] - 2026-10-05
 
