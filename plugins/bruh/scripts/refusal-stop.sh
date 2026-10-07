@@ -1,6 +1,7 @@
 #!/bin/sh
 # Hook for PermissionDenied, PostToolUseFailure (Bash, Monitor), PreToolUse (all tools), and Stop:
-# a refusal stops the session (spec 15.1). PermissionDenied writes a hold record. So does a
+# a refusal stops the session (spec 15.1). PermissionDenied writes a hold record, except a
+# no-verdict denial (spec 15.1.1). So does a
 # PostToolUseFailure whose error has the two fixed fragments of the documented template of the
 # Claude Code worktree guard (errors.md, "Command blocked by the worktree isolation checks") for a
 # command with the word git; a guard refusal of a command with no git is a report event only
@@ -47,7 +48,11 @@ deny() {
 
 case $(field .hook_event_name) in
 PermissionDenied)
-	write_hold permission_denied "$(field .reason)" > /dev/null
+	# A no-verdict denial is a failed check, not a refusal: its two reason forms are fixed vendor text
+	# (hooks.md, "PermissionDenied input"). No hold, so the allowed single retry goes through (spec 15.1.1).
+	printf '%s' "$input" | jq -e '.reason == "Classifier unavailable"
+		or (.reason | type == "string" and startswith("Auto mode could not evaluate this action"))' > /dev/null 2>&1 ||
+		write_hold permission_denied "$(field .reason)" > /dev/null
 	;;
 PostToolUseFailure)
 	# The guard refusal reaches no permission event: the Bash tool throws it before the spawn.

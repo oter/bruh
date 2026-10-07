@@ -557,6 +557,30 @@ func TestRefusalNoRoleKey(t *testing.T) {
 	}
 }
 
+// TestRefusalNoVerdictNoHold (task 38): a no-verdict PermissionDenied (the two fixed reason forms
+// of hooks.md, "PermissionDenied input") writes no hold, so the single retry of the same call is
+// allowed; a classifier refusal of the same call still writes a hold and denies the retry.
+func TestRefusalNoVerdictNoHold(t *testing.T) {
+	data := t.TempDir()
+	for _, reason := range []string{"Classifier unavailable", "Auto mode could not evaluate this action and is blocking it for safety. Try again."} {
+		refusal(t, data, map[string]any{
+			"hook_event_name": "PermissionDenied", "session_id": "S", "tool_name": "Bash",
+			"tool_input": map[string]string{"command": "gh pr merge 7"}, "tool_use_id": "tu-1", "reason": reason,
+		}, refusalKey)
+	}
+	if h := holdFiles(t, data); len(h) != 0 {
+		t.Fatalf("no-verdict denials: got holds %v, want none", h)
+	}
+	retry := preTool("S", "Bash", "gh pr merge 7", "")
+	if out := refusal(t, data, retry, refusalKey); out != "" {
+		t.Fatalf("retry after a no-verdict denial: got output %q, want \"\" (allowed)", out)
+	}
+	id := denyClassifier(t, data)
+	if r := denyReason(t, refusal(t, data, retry, refusalKey)); !strings.Contains(r, id) {
+		t.Fatalf("retry after a classifier refusal: got reason %q, want a deny with the hold %s", r, id)
+	}
+}
+
 func TestRefusalStopBlock(t *testing.T) {
 	data := t.TempDir()
 	stop := map[string]any{"hook_event_name": "Stop", "session_id": "S", "stop_hook_active": false}

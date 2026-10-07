@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.12.0] - 2026-10-07
+
 ### Added
 
 - The `/bruh-board` command opens a live pane. It shows one short line for each open P0 and P1 question, and one collapsed line for each clanker with a spinner and its task count. Enter on a clanker expands it to its clerks (task, spinner, and state), and Enter on a clerk expands it to its name, last done, and next step. The lines have no hotkeys: Tab and the arrows move the focus, and Esc gives the keys back to the prompt. The expanded state stays in the store of the mod, its only write.
@@ -43,6 +45,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - A finished one-shot role is not woken any more: the clanker runs `claude stop <id>` after it accepts a clerk result or reads the `DONE` of a scout, a clerk ends its turn after `task closed` and its `DONE: <task> closed` mail, a scout after its `DONE`, and the waiter exits at once when the last report line of its role is `task closed`.
 - bigm also loads the global skills of the owner (the names under `~/.claude/skills` that have a `SKILL.md`, such as `bro`); the `Skill` hook still blocks each skill of another plugin. Run `/bruh:init` again, which replaces the old `Skill` hook.
 - A codehost monitor with `number` sends one `checks` event when the checks of the pull request head finish, success or failure, with a count of the results (GitHub only), so a clerk that waits on CI gets an event.
+- A no-verdict denial of the auto mode classifier (`reason` `Classifier unavailable`, or one that starts with `Auto mode could not evaluate this action`) sets no hold any more, so the single retry that Claude Code allows is not denied. A classifier refusal still sets a hold.
 
 ## [0.11.1] - 2026-10-05
 
@@ -141,7 +144,8 @@ This is the first release of bruh. It contains all parts of the [specification](
 - `init_plan` does not write the plugin options (`pluginConfigs`).
 - The report file `reports/watcher.jsonl` and the role key `watcher` of `report_read`.
 
-[Unreleased]: https://github.com/oter/bruh/compare/v0.11.1...HEAD
+[Unreleased]: https://github.com/oter/bruh/compare/v0.12.0...HEAD
+[0.12.0]: https://github.com/oter/bruh/compare/v0.11.1...v0.12.0
 [0.11.1]: https://github.com/oter/bruh/compare/v0.11.0...v0.11.1
 [0.11.0]: https://github.com/oter/bruh/compare/v0.10.0...v0.11.0
 [0.10.0]: https://github.com/oter/bruh/compare/v0.9.0...v0.10.0
