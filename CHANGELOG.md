@@ -17,6 +17,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Changed
 
+- `/bruh:deliver` takes a guides folder in `args.guides` (an absolute path with `INDEX.md`): its two reviewers and its refuters must cite a guide rule, a house rule, or a failing scenario for each finding. The clerk builds the folder for each task from `guide-sources.md`, which has a new Design principles section (Go Proverbs, Effective Go, DRY, SOLID), into `/tmp/<clerk key>-guides/`.
 - Init adds six deny rules to the start settings of bigm in `<ledger>/.claude/settings.json`: `Agent(claude-code-guide)`, `Agent(general-purpose)`, `Agent(Explore)`, `Agent(Plan)`, `WebFetch`, and `WebSearch`. bigm gets each fact from a clanker or its scout. Run `/bruh:init` again to add the rules.
 - bigm gets a notice in its mailbox when a role writes a status or result report line, with a maximum of one unread notice for each role. bigm gives the owner a short update every 5 minutes while work runs.
 - The waiter does not wake an idle session at its timeout any more. It waits up to 7 days for new mail and exits in silence at its limit, so only new mail wakes the session (hook timeout 604800 seconds).

@@ -54,7 +54,7 @@ A `DONE: reask Q-<n> - <subject>` from your clanker or from `bigm` is a `reask` 
 
 With `clerk-ledger`, skip this section and go to "The ledger clerk". With `clerk-<project>-scout<n>`, skip this section and go to "The scout clerk".
 
-1. Call `mail_read`. Your start message has the header `START: <subject>`, and it comes from your clanker. It has these items: the task, the acceptance criteria, the project context that the task needs, the role key of your clanker, the text of `priorities.md` and `rules.md`, the base SHA, the files that the task will touch, the known overlaps with other tasks, the task branch, the gate commands and which of them run tests, the house rules text, the guides index, the deliberate choices, the answer deadline in seconds, the review-round cap, and the delivery form (a branch or a pull request). If an item is missing, open a P2 question to your clanker and wait for the answer.
+1. Call `mail_read`. Your start message has the header `START: <subject>`, and it comes from your clanker. It has these items: the task, the acceptance criteria, the project context that the task needs, the role key of your clanker, the text of `priorities.md` and `rules.md`, the base SHA, the files that the task will touch, the known overlaps with other tasks, the task branch, the gate commands and which of them run tests, the house rules text, the deliberate choices, the answer deadline in seconds, the review-round cap, and the delivery form (a branch or a pull request). If an item is missing, open a P2 question to your clanker and wait for the answer.
 2. Call `bruh_info`.
 3. Check the base SHA: `git cat-file -e <base SHA>^{commit}`. If it fails, open a P2 question and wait.
 4. Make your own worktree with `EnterWorktree`. Then, in the worktree, run `git switch -c <branch> <base SHA>`. Record the worktree path and the branch in your report file with `report_write` (kind `status`).
@@ -62,7 +62,13 @@ With `clerk-ledger`, skip this section and go to "The ledger clerk". With `clerk
 
 ## Run the workflow
 
-1. At the first launch only, build `args` for `/bruh:deliver` from the start message:
+1. At the first launch only, build the guides folder of the task (owner decision 2026-10-06, task 36). The folder is `/tmp/<your role key>-guides/`, and `args.guides` is its absolute path.
+   - Pick the guides from `<plugin_root>/skills/implement/references/guide-sources.md` by the file types of the files that the task will touch (for example `.go` gives the Go rows), plus the rows of "Design principles" that fit those files.
+   - Fetch each guide fresh into the folder, one file for each guide: with WebFetch (ask for the page as Markdown), or with `curl -L` on a raw GitHub URL or on a URL that the row marks as HTTP only. The first line of each file is `Source: <url>, fetched <time from date -u +%Y-%m-%dT%H:%M:%SZ>`. Write each file with the Write tool.
+   - Write `/tmp/<your role key>-guides/INDEX.md`: a table from file globs (for example `**/*.go`) to the guide files, with the source URL of each guide, and then the accepted deviations: the deliberate choices of the start message. When no row fits the files of the task, still write `INDEX.md` and say so in it.
+   - Never put a guide file into the project. The deliver reviewers and refuters read the folder; a finding then cites a guide rule, a house rule, or a concrete failing scenario.
+   - Before each relaunch, check that `INDEX.md` is still in the folder. When the folder is gone, build it again at the same path first: the stored `args` stay byte for byte.
+2. At the first launch only, build `args` for `/bruh:deliver` from the start message:
 
    ```json
    {
@@ -73,7 +79,7 @@ With `clerk-ledger`, skip this section and go to "The ledger clerk". With `clerk
      "gates": ["<gate command>"],
      "test_gates": ["<gate command that runs tests>"],
      "house_rules": "<the house rules text>",
-     "guides": "<the guides index, or empty>",
+     "guides": "/tmp/<your role key>-guides",
      "deliberate": ["<choice that reviewers must not flag>"],
      "deadline_seconds": 3600,
      "round_cap": 2
@@ -81,11 +87,11 @@ With `clerk-ledger`, skip this section and go to "The ledger clerk". With `clerk
    ```
 
    `deadline_seconds` and `round_cap` come from the start message. `test_gates` lists each gate command of the start message that runs tests (for example `go test ./...`), and not a lint or build command. Each gate must exit 0, and each gate of `test_gates` must also run at least one test.
-2. Store the exact JSON text of `args` before the launch: `report_write` with kind `event` and the text `deliver args: <the JSON text>`. A relaunch uses this stored text byte for byte. Never build `args` again from the start message: one changed byte changes every prompt, and then no agent result is cached.
-3. Run the Workflow tool with the workflow `bruh:deliver` (the slash command `/bruh:deliver`) and this `args` object. Record the run ID in your report file.
-4. Verify (spec 6.1, covered by the smoke test of spec 20): a clerk that a script started can launch `/bruh:deliver`, and a relaunch with `resumeFromRunId` works for this plugin workflow. If the Workflow tool refuses or asks for an opt-in, do not try another form. Send a P0 to your clanker with the exact refusal.
-5. While the run works, answer the questions of its agents (see "Questions of workflow agents").
-6. Read the result. Its `status` is `done`, `question`, `findings_left`, or `stopped`.
+3. Store the exact JSON text of `args` before the launch: `report_write` with kind `event` and the text `deliver args: <the JSON text>`. A relaunch uses this stored text byte for byte. Never build `args` again from the start message: one changed byte changes every prompt, and then no agent result is cached.
+4. Run the Workflow tool with the workflow `bruh:deliver` (the slash command `/bruh:deliver`) and this `args` object. Record the run ID in your report file.
+5. Verify (spec 6.1, covered by the smoke test of spec 20): a clerk that a script started can launch `/bruh:deliver`, and a relaunch with `resumeFromRunId` works for this plugin workflow. If the Workflow tool refuses or asks for an opt-in, do not try another form. Send a P0 to your clanker with the exact refusal.
+6. While the run works, answer the questions of its agents (see "Questions of workflow agents").
+7. Read the result. Its `status` is `done`, `question`, `findings_left`, or `stopped`.
 
 ### Result `done`
 

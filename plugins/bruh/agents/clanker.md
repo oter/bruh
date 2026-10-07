@@ -80,7 +80,7 @@ To bigm when you run on a remote machine (your start message has the line `remot
    - the task branch;
    - the gate commands, and which of them run tests (a test suite, not lint or build);
    - the text of `house-rules.md` (read it from `<plugin_root>/defaults/house-rules.md`);
-   - the guides index of the project, or empty;
+   - no guides index: the clerk builds the guides folder of the task itself (clerk.md, "Run the workflow", step 1);
    - the deliberate choices that reviewers must not flag;
    - the answer deadline in seconds (default 3600);
    - the review-round cap;
