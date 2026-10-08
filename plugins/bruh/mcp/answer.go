@@ -37,14 +37,19 @@ func answerFile(env Env, qid string) (string, error) {
 	return filepath.Join(dir, qid+".answer"), nil
 }
 
-// answered reports whether any role folder of answers/ has an answer file for qid: bigm, the
-// asker, or the clanker that answered a delegated question (task 24).
-func answered(env Env, qid string) bool {
+// answerFiles returns the answer files for qid in each role folder of answers/, in name order:
+// bigm, the asker, or the clanker that answered a delegated question (task 24).
+func answerFiles(env Env, qid string) []string {
 	if !qidRE.MatchString(qid) {
-		return false
+		return nil
 	}
 	m, _ := filepath.Glob(filepath.Join(env.DataDir, "answers", "*", qid+".answer")) // only ErrBadPattern; qid has no pattern characters
-	return len(m) > 0
+	return m
+}
+
+// answered reports whether any role folder of answers/ has an answer file for qid.
+func answered(env Env, qid string) bool {
+	return len(answerFiles(env, qid)) > 0
 }
 
 // replacedID returns the replaces field of the question file of qid, or "" when it has none.
@@ -153,7 +158,7 @@ func answerTools() []Tool {
 		},
 		{
 			Name:        "answer_wait",
-			Description: `Wait for the answer to a question. Returns {"status":"answered","text","at"} (and subject and asker when the file has them) or {"status":"pending"} at the deadline. With deadline_seconds 0, it checks once: answered or pending`,
+			Description: `Wait for the answer to a question: the answer file of the caller, else the answer that any role (bigm, a clanker, the asker) wrote for the ID, the first in name order. Returns {"status":"answered","text","at"} (and subject and asker when the file has them) or {"status":"pending"} at the deadline. With deadline_seconds 0, it checks once: answered or pending`,
 			InputSchema: map[string]any{
 				"type": "object",
 				"properties": map[string]any{
@@ -183,6 +188,12 @@ func answerTools() []Tool {
 				lastProgress := time.Now()
 				for {
 					data, err := os.ReadFile(file)
+					if errors.Is(err, fs.ErrNotExist) {
+						// No own copy: take the answer that another role wrote for the ID (task 41).
+						if m := answerFiles(c.Env, a.QuestionID); len(m) > 0 {
+							data, err = os.ReadFile(m[0])
+						}
+					}
 					if err == nil {
 						var ans answer
 						if err := json.Unmarshal(data, &ans); err != nil {

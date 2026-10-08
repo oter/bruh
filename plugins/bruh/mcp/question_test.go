@@ -370,8 +370,8 @@ func exists(t *testing.T, path string) bool {
 	return err == nil
 }
 
-// Task 24: the answer_write of a clanker to a delegated P1 closes it for bigm, and the answer_wait
-// of the clerk still reads only its own folder.
+// Task 24: the answer_write of a clanker to a delegated P1 closes it for bigm. Task 41: the
+// answer_wait of the clerk gets the answer of the clanker or of bigm, and its own copy first.
 func TestDelegatedAnswerClosesQuestion(t *testing.T) {
 	clerk := testEnv(t, "clerk-shop-x")
 	q, err := openQ(t, clerk, "which port?")
@@ -398,10 +398,29 @@ func TestDelegatedAnswerClosesQuestion(t *testing.T) {
 	if got := openIDs(t, clerk); !slices.Equal(got, []string{p0id}) {
 		t.Fatalf("question_list after the delegated answer = %v, want [%s]", got, p0id)
 	}
-	out, err := call(t, clerk, "answer_wait", map[string]any{"question_id": id, "deadline_seconds": 0})
-	if err != nil || out.(map[string]any)["status"] != "pending" {
-		t.Fatalf("answer_wait of the clerk = %v, %v, want pending (it reads only its own folder)", out, err)
+	wait := func(qid, want string) map[string]any {
+		t.Helper()
+		out, err := call(t, clerk, "answer_wait", map[string]any{"question_id": qid, "deadline_seconds": 0})
+		if err != nil {
+			t.Fatal(err)
+		}
+		m := out.(map[string]any)
+		if m["status"] != "answered" || m["text"] != want {
+			t.Fatalf("answer_wait(%s) of the clerk = %v, want answered with text %q", qid, m, want)
+		}
+		return m
 	}
+	wait(id, "8080")
+	if _, err := call(t, as(clerk, "bigm"), "answer_write", map[string]any{"question_id": p0id, "text": "go. Owner.", "subject": "still open", "asker": "clerk-shop-x"}); err != nil {
+		t.Fatal(err)
+	}
+	if m := wait(p0id, "go. Owner."); m["subject"] != "still open" || m["asker"] != "clerk-shop-x" {
+		t.Fatalf("answer_wait(%s) of the clerk = %v, want subject and asker of bigm", p0id, m)
+	}
+	if _, err := call(t, clerk, "answer_write", map[string]any{"question_id": id, "text": "8081"}); err != nil {
+		t.Fatal(err)
+	}
+	wait(id, "8081")
 }
 
 // Task 24: a question that a newer one replaces closes with the answer of the newer one.
