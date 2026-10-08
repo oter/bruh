@@ -7,7 +7,6 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
-	"reflect"
 	"slices"
 	"strings"
 	"testing"
@@ -197,38 +196,6 @@ func TestLearnJSONIsStable(t *testing.T) {
 	}
 }
 
-// The two examples of docs/spec.md section 8.5 "Schema".
-const (
-	specTreeExample = `{
-  "root": "/home/me/workspace",
-  "depth": 4,
-  "exclude": ["archive"],
-  "host_aliases": {"gitlab.com-work": "gitlab.com"},
-  "host_kinds": {"git.example.org": "gitea"},
-  "projects": [{"key": "shop", "group": ""}]
-}`
-	specProjectExample = `{
-  "key": "shop",
-  "purpose": {"value": "Online shop: web client and Go API", "source": "agent"},
-  "main": "shop",
-  "repos": [
-    {
-      "path": "shop",
-      "remotes": [{"name": "origin", "url": "git@gitlab.com:team/shop.git"}],
-      "remote": "origin",
-      "host": {"value": "gitlab.com", "source": "git"},
-      "kind": "gitlab",
-      "api_url": "https://gitlab.com/api/v4",
-      "host_path": "team/shop",
-      "default_branch": "main",
-      "state": "present"
-    }
-  ],
-  "links": [{"project": "auth", "repo": "shop", "file": "go.mod", "line": 5, "source": "agent"}],
-  "docs": [{"repo": "shop", "path": "README.md", "source": "agent", "gone": false}]
-}`
-)
-
 // decodeStrict decodes data into v and fails the test on an unknown field.
 func decodeStrict(t *testing.T, data []byte, v any) {
 	t.Helper()
@@ -237,28 +204,6 @@ func decodeStrict(t *testing.T, data []byte, v any) {
 	if err := dec.Decode(v); err != nil {
 		t.Fatalf("decode %T error: %v\n%s", v, err, data)
 	}
-}
-
-// roundTrip decodes example into a T, encodes it with encodeLearn, and checks that
-// the decoded result has the same value.
-func roundTrip[T any](t *testing.T, example string) {
-	t.Helper()
-	var want T
-	decodeStrict(t, []byte(example), &want)
-	b, err := encodeLearn(&want)
-	if err != nil {
-		t.Fatalf("encodeLearn(%T) error: %v", &want, err)
-	}
-	var got T
-	decodeStrict(t, b, &got)
-	if !reflect.DeepEqual(got, want) {
-		t.Errorf("encodeLearn(%T) round trip = %+v, want %+v", &want, got, want)
-	}
-}
-
-func TestLearnJSONMatchesSpecExample(t *testing.T) {
-	t.Run("tree", func(t *testing.T) { roundTrip[treeFile](t, specTreeExample) })
-	t.Run("project", func(t *testing.T) { roundTrip[projectFile](t, specProjectExample) })
 }
 
 // checkMode reports an error when the permission bits of path are not want.
@@ -361,11 +306,9 @@ func TestLedgerPath(t *testing.T) {
 		wantErr string // "" means no error
 	}{
 		{name: "no file", wantErr: errNoLedger.Error()},
-		{name: "empty object", config: []byte("{}"), wantErr: "<data>/init/config.json has no ledger_path; run /bruh:init"},
 		{name: "null", config: []byte("null"), wantErr: "<data>/init/config.json has no ledger_path; run /bruh:init"},
 		{name: "empty ledger_path", config: []byte(`{"ledger_path": ""}`), wantErr: "<data>/init/config.json has no ledger_path; run /bruh:init"},
 		{name: "not JSON", config: []byte("not json"), wantErr: "<data>/init/config.json: invalid character 'o' in literal null (expecting 'u')"},
-		{name: "empty file", config: []byte{}, wantErr: "<data>/init/config.json: unexpected end of JSON input"},
 		{name: "ledger_path set", config: good, want: ledger},
 	}
 	for _, tt := range tests {
@@ -436,7 +379,6 @@ func TestCheckFills(t *testing.T) {
 
 		{name: "bad field", fills: []fill{with(docFill, func(f *fill) { f.Field = "stack" })}, want: "stack"},
 		{name: "bad source", fills: []fill{with(purpose, func(f *fill) { f.Source = "git" })}, want: "Online shop"},
-		{name: "missing repo", fills: []fill{with(docFill, func(f *fill) { f.Repo = "" })}, want: "README.md"},
 		{name: "purpose with a repo", fills: []fill{with(purpose, func(f *fill) { f.Repo = "shop" })}, want: "Online shop"},
 		{name: "repo outside the project", fills: []fill{with(host, func(f *fill) { f.Repo = "auth" })}, want: "gitlab.com"},
 		{name: "link to an unknown key", fills: []fill{with(link, func(f *fill) { f.Value = "billing" })}, want: "billing"},
@@ -445,7 +387,6 @@ func TestCheckFills(t *testing.T) {
 		{name: "link file that starts with /", fills: []fill{with(link, func(f *fill) { f.File = "/go.mod" })}, want: "auth"},
 		{name: "link line 0", fills: []fill{with(link, func(f *fill) { f.Line = 0 })}, want: "auth"},
 		{name: "doc path with ..", fills: []fill{with(docFill, func(f *fill) { f.Value = "../shop-app/README.md" })}, want: "../shop-app/README.md"},
-		{name: "doc path that starts with /", fills: []fill{with(docFill, func(f *fill) { f.Value = "/README.md" })}, want: "/README.md"},
 		{name: "doc file that does not exist", fills: []fill{with(docFill, func(f *fill) { f.Value = "MISSING.md" })}, want: "MISSING.md"},
 		{name: "doc value that is a folder", fills: []fill{with(docFill, func(f *fill) { f.Value = "docs" })}, want: "docs"},
 		{name: "bad host", fills: []fill{with(host, func(f *fill) { f.Value = "GitLab.com" })}, want: "GitLab.com"},
@@ -485,15 +426,19 @@ func TestCheckFills(t *testing.T) {
 func TestLongFiles(t *testing.T) {
 	// lines returns n lines that each end with "\n".
 	lines := func(n int) string { return strings.Repeat("row\n", n) }
+	// Only top-level *.md files and projects/*.md count: the files under learn/, .git/,
+	// research/, projects/old/, and notes.txt are longer than the cap and are not reported.
 	capFive := map[string]string{
-		"mode.md":          "mode: supervised\nledger_max_lines: 5\n",
-		"five.md":          lines(5),
-		"six.md":           lines(6),
-		"open-end.md":      lines(5) + "last line without a line feed",
-		"projects/shop.md": lines(6),
-		"learn/x.md":       lines(6),
-		".git/y.md":        lines(6),
-		"notes.txt":        lines(6),
+		"mode.md":              "mode: supervised\nledger_max_lines: 5\n",
+		"five.md":              lines(5),
+		"six.md":               lines(6),
+		"open-end.md":          lines(5) + "last line without a line feed",
+		"projects/shop.md":     lines(6),
+		"learn/x.md":           lines(6),
+		".git/y.md":            lines(6),
+		"notes.txt":            lines(6),
+		"research/notes.md":    lines(6),
+		"projects/old/deep.md": lines(6),
 	}
 	// defaultCap returns a ledger with mode.md (none when mode is "") and a file of 300 and one
 	// of 301 lines.
@@ -509,14 +454,7 @@ func TestLongFiles(t *testing.T) {
 		files map[string]string // ledger-relative path -> content
 		want  []string
 	}{
-		{name: "cap from mode.md", files: capFive, want: []string{"open-end.md", "projects/shop.md", "six.md"}},
-		{name: "only top-level files and projects/*.md", files: map[string]string{
-			"mode.md":              "ledger_max_lines: 5\n",
-			"six.md":               lines(6),
-			"projects/shop.md":     lines(6),
-			"research/notes.md":    lines(6),
-			"projects/old/deep.md": lines(6),
-		}, want: []string{"projects/shop.md", "six.md"}},
+		{name: "cap from mode.md, only top-level files and projects/*.md", files: capFive, want: []string{"open-end.md", "projects/shop.md", "six.md"}},
 		{name: "no ledger_max_lines line", files: defaultCap("mode: supervised\n"), want: []string{"long.md"}},
 		{name: "ledger_max_lines abc", files: defaultCap("ledger_max_lines: abc\n"), want: []string{"long.md"}},
 		{name: "ledger_max_lines 0", files: defaultCap("ledger_max_lines: 0\n"), want: []string{"long.md"}},

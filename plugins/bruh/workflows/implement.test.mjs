@@ -49,6 +49,20 @@ const GIT_RULE = 'Never run git commit, git push, git stash, git checkout, git s
 const POST_RULE = 'Do not post outside the project'
 const Q = { id: 'Q-app-host-5', header: 'P1 Q-app-host-5: which table?', body: 'Use table A or table B?' }
 
+// Runs check on each row, whose first item is its label, and fails once with every row that
+// failed, so one failing row does not hide another.
+async function eachRow(rows, check) {
+  const failed = []
+  for (const row of rows) {
+    try {
+      await check(...row)
+    } catch (e) {
+      failed.push(`${row[0]}: ${e.message}`)
+    }
+  }
+  assert.deepEqual(failed, [], 'failed rows')
+}
+
 // ---------- shared checks ----------
 
 const BASE_ARGS = {
@@ -392,12 +406,20 @@ test('implement-tickets: a dead merge agent leaves each ticket of the wave in re
   assert.match(again.byWord('impl')[0].prompt, /Check first what is there already/)
 })
 
-test('implement-tickets: a merge that stops at a hunk merges only the applied tickets', async () => {
+test('implement-tickets: a merge that stops at a rejected hunk stops the run and merges only the applied tickets', async () => {
   const lanes = (p) => work({ workdir: `/lanes/${p.match(/start (\S+)/)[1]}` })
-  const { result } = await run('implement-tickets', itHandlers({ impl: lanes, merge: () => ({ ok: false, applied: ['t-01-a'], report: 'rejected hunk in b.go' }) }), IT({ waves: [['t-01-a.md', 't-02-b.md']] }))
-  assert.equal(result.status, 'stopped')
-  assert.deepEqual(result.tickets.map((t) => `${t.id} ${t.status}`), ['t-01-a merged', 't-02-b done'])
-  assert.deepEqual(result.remaining_waves, [['t-02-b.md']])
+  await eachRow([
+    ['with the applied tickets', { impl: lanes, merge: () => ({ ok: false, applied: ['t-01-a'], report: 'rejected hunk in b.go' }) }, IT({ waves: [['t-01-a.md', 't-02-b.md']] }), ({ result }) => {
+      assert.equal(result.status, 'stopped')
+      assert.deepEqual(result.tickets.map((t) => `${t.id} ${t.status}`), ['t-01-a merged', 't-02-b done'])
+      assert.deepEqual(result.remaining_waves, [['t-02-b.md']])
+    }],
+    ['with a report only', { merge: () => ({ ok: false, report: 'rejected hunk in a.go' }) }, IT({ waves: [['t-01-a.md', 't-02-b.md'], ['t-03-c.md']] }), ({ result, byWord }) => {
+      assert.equal(result.status, 'stopped')
+      assert.match(result.deviations.at(-1), /^STOP: .*rejected hunk/)
+      assert.equal(byWord('impl').length, 2)
+    }],
+  ], async (label, h, args, check) => check(await run('implement-tickets', itHandlers(h), args)))
 })
 
 // Fix round 3, R1: the lanes of a run are named by args.root and args.spec only.
@@ -481,19 +503,6 @@ test('implement-tickets: a dead gate agent gives gate_only, and a gate_only run 
   }
 })
 
-test('implement-tickets: an unnamed skip count of the gate is a finding', async () => {
-  const { result } = await run('implement-tickets', itHandlers({ gate: () => ({ gates: [gateResult('make test', { skipped: 2 })] }) }), IT())
-  assert.equal(result.status, 'findings_left')
-  assert.match(result.gate.findings[0].summary, /has 2 skipped/)
-})
-
-test('implement-tickets: a merge that reports a rejected hunk stops the run', async () => {
-  const { result, byWord } = await run('implement-tickets', itHandlers({ merge: () => ({ ok: false, report: 'rejected hunk in a.go' }) }), IT({ waves: [['t-01-a.md', 't-02-b.md'], ['t-03-c.md']] }))
-  assert.equal(result.status, 'stopped')
-  assert.match(result.deviations.at(-1), /^STOP: .*rejected hunk/)
-  assert.equal(byWord('impl').length, 2)
-})
-
 test('implement-tickets: a conflict stops the run', async () => {
   const { result, byWord } = await run('implement-tickets', itHandlers({ impl: () => work({ conflict: 'the ticket and the spec disagree' }) }), IT())
   assert.equal(result.status, 'stopped')
@@ -510,26 +519,26 @@ test('implement-tickets: a lane implementer that works in the shared tree is an 
 // M5: the gate rules of deliver.js.
 test('implement-tickets: the gate must cover exactly args.gates, with no failed or skipped test', async () => {
   const two = IT({ gates: ['make test', 'make lint'] })
-  const missing = await run('implement-tickets', itHandlers(), two)
-  assert.equal(missing.result.status, 'findings_left')
-  assert.match(missing.result.gate.findings[0].summary, /`make lint` has no result/)
-  const extra = await run('implement-tickets', itHandlers({ gate: () => cleanGate(['make test', 'rm -rf x']) }), IT())
-  assert.equal(extra.result.status, 'findings_left', 'an extra gate result is a finding')
-  assert.match(extra.result.gate.findings[0].summary, /not a gate of the run/)
-  const red = await run('implement-tickets', itHandlers({ gate: () => ({ gates: [gateResult('make test', { exit_code: 1, failed: 1, output_tail: 'FAIL' })] }) }), IT())
-  assert.equal(red.result.status, 'findings_left')
-  const skipped = await run('implement-tickets', itHandlers({ gate: () => ({ gates: [gateResult('make test', { skipped: 1, problems: [{ file: 'a_test.go', line: 3, summary: 'TestX skipped', kind: 'skipped' }] })] }) }), IT())
-  assert.equal(skipped.result.status, 'findings_left', 'a skipped test in a required suite is a finding')
-  assert.deepEqual(skipped.result.gate.findings.map((x) => x.file), ['a_test.go'])
-  const none = await run('implement-tickets', itHandlers({ gate: () => ({ gates: [gateResult('make test', { ran: 0, passed: 0 })] }) }), IT({ test_gates: ['make test'] }))
-  assert.equal(none.result.status, 'findings_left', 'a test gate that ran no test is a finding')
-  assert.match(none.result.gate.findings[0].summary, /ran no tests/)
-  const noTestGates = await run('implement-tickets', itHandlers({ gate: () => ({ gates: [gateResult('make test', { ran: 0, passed: 0 })] }) }), IT())
-  assert.equal(noTestGates.result.status, 'done', 'without test_gates, no gate needs a test count')
-  const ok = await run('implement-tickets', itHandlers({ gate: () => cleanGate(['make test', 'make lint']) }), two)
-  assert.equal(ok.result.status, 'done')
-  const p = ok.byWord('gate')[0].prompt
-  assert.ok(p.includes('- make test') && p.includes('- make lint'))
+  const gate = (results) => ({ gate: () => ({ gates: results }) })
+  const left = (check) => ({ result }) => {
+    assert.equal(result.status, 'findings_left')
+    check?.(result.gate.findings)
+  }
+  await eachRow([
+    ['a gate result missing', {}, two, left((fs) => assert.match(fs[0].summary, /`make lint` has no result/))],
+    ['an extra gate result', { gate: () => cleanGate(['make test', 'rm -rf x']) }, IT(), left((fs) => assert.match(fs[0].summary, /not a gate of the run/))],
+    ['a red gate', gate([gateResult('make test', { exit_code: 1, failed: 1, output_tail: 'FAIL' })]), IT(), left()],
+    ['a skipped test in a required suite', gate([gateResult('make test', { skipped: 1, problems: [{ file: 'a_test.go', line: 3, summary: 'TestX skipped', kind: 'skipped' }] })]), IT(),
+      left((fs) => assert.deepEqual(fs.map((x) => x.file), ['a_test.go']))],
+    ['an unnamed skip count', gate([gateResult('make test', { skipped: 2 })]), IT(), left((fs) => assert.match(fs[0].summary, /has 2 skipped/))],
+    ['a test gate that ran no test', gate([gateResult('make test', { ran: 0, passed: 0 })]), IT({ test_gates: ['make test'] }), left((fs) => assert.match(fs[0].summary, /ran no tests/))],
+    ['without test_gates, no gate needs a test count', gate([gateResult('make test', { ran: 0, passed: 0 })]), IT(), ({ result }) => assert.equal(result.status, 'done')],
+    ['both gates clean, and the gate agent gets both', { gate: () => cleanGate(['make test', 'make lint']) }, two, ({ result, byWord }) => {
+      assert.equal(result.status, 'done')
+      const p = byWord('gate')[0].prompt
+      assert.ok(p.includes('- make test') && p.includes('- make lint'))
+    }],
+  ], async (label, h, args, check) => check(await run('implement-tickets', itHandlers(h), args)))
 })
 
 // ---------- review-and-fix ----------
@@ -839,7 +848,7 @@ test('review-and-fix: the gates must cover exactly args.gates, with no skipped t
 
 const RO = (extra = {}) => ({ ...BASE_ARGS['review-only'](), ...extra })
 
-test('review-only: dedup by file:line, one refuter each, sorted by severity', async () => {
+test('review-only: dedup by file:line, one refuter each, a refuter that is not sure refutes, sorted by severity', async () => {
   const { result, byWord } = await run('review-only', {
     check: cleanCheck,
     review: (p) => (p.includes('handlers')
@@ -854,6 +863,8 @@ test('review-only: dedup by file:line, one refuter each, sorted by severity', as
   assert.deepEqual(result.confirmed.map((x) => `${x.file} ${x.severity} ${x.lens}`), ['src/c.go security security', 'src/a.go nit correctness'])
   assert.match(result.confirmed[1].problem, /also \(security\): same line/)
   assert.deepEqual(result.refuted.map((x) => x.file), ['src/b.go'])
+  // src/b.go is refuted with confirmed = false, so the run is still done; each refuter is told so.
+  assert.match(byWord('verify')[0].prompt, /When you are not sure, return confirmed = false/)
   assert.deepEqual(result.summaries, [{ key: 'correctness', summary: 'c' }, { key: 'security', summary: 's' }])
   for (const c of byWord('review')) {
     assert.ok(c.prompt.includes(`git -C '/r' diff ${SHA} ${HEAD}`))
@@ -871,17 +882,6 @@ test('review-only: a dead refuter or reviewer stops the run', async () => {
   const rev = await run('review-only', { check: cleanCheck, review: (p) => (p.includes('handlers') ? null : { findings: [], summary: '' }), verify: () => null }, RO())
   assert.equal(rev.result.status, 'stopped')
   assert.equal(rev.byWord('verify').length, 0)
-})
-
-test('review-only: a refuter that is not sure refutes', async () => {
-  const { result, byWord } = await run('review-only', {
-    check: cleanCheck,
-    review: () => ({ findings: [f('src/a.go', 1)], summary: '' }),
-    verify: () => ({ confirmed: false, reason: 'not sure', adjusted_fix: '' }),
-  }, RO())
-  assert.equal(result.status, 'done')
-  assert.equal(result.refuted.length, 1)
-  assert.match(byWord('verify')[0].prompt, /When you are not sure, return confirmed = false/)
 })
 
 // Task 30: the gate agent of each round writes phase review, the first fixer of each round phase fix.

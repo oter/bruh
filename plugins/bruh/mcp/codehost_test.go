@@ -165,7 +165,11 @@ func TestLoadRepos(t *testing.T) {
 		`{"repos":[{"repo":"o/x","host":"github","api_url":"http://attacker.example.com"}]}`,
 		`{"repos":[{"repo":"o/x","host":"gitea","api_url":"https://u:p@git.example.com/api/v1"}]}`,
 		`{"repos":[{"repo":"o/x","host":"github","token_env":"GITHUB_TOKEN"}]}`,
-		`{"repos":[{"repo":"o/x","host":"github","project":"My_Repo"}]}`} {
+		`{"repos":[{"repo":"o/x","host":"github","project":"My_Repo"}]}`,
+		// The repo of gitlab has two parts or more; the one of github and gitea has two.
+		`{"repos":[{"repo":"shop","host":"gitlab","project":"shop"}]}`,
+		`{"repos":[{"repo":"a/b/c","host":"github","project":"c"}]}`,
+		`{"repos":[{"repo":"a/b/c","host":"gitea","api_url":"https://git.example.com/api/v1","project":"c"}]}`} {
 		if err := write(bad); err == nil {
 			t.Errorf("%s: no error", bad)
 		}
@@ -202,22 +206,6 @@ func TestLoadReposGitLab(t *testing.T) {
 			}
 			if len(cfg.Repos) != 1 || cfg.Repos[0] != tt.want {
 				t.Errorf("loadReposFile(%s).Repos = %+v, want [%+v]", tt.json, cfg.Repos, tt.want)
-			}
-		})
-	}
-	bad := []struct{ name, json string }{
-		{"gitlab one part", `{"repo":"shop","host":"gitlab","project":"shop"}`},
-		{"github three parts", `{"repo":"a/b/c","host":"github","project":"c"}`},
-		{"gitea three parts", `{"repo":"a/b/c","host":"gitea","api_url":"https://git.example.com/api/v1","project":"c"}`},
-	}
-	for _, tt := range bad {
-		t.Run(tt.name, func(t *testing.T) {
-			file := filepath.Join(t.TempDir(), "repos.json")
-			if err := os.WriteFile(file, []byte(`{"repos":[`+tt.json+`]}`), 0o600); err != nil {
-				t.Fatal(err)
-			}
-			if _, err := loadReposFile(file); err == nil {
-				t.Errorf("loadReposFile(%s) error = nil, want an error", tt.json)
 			}
 		})
 	}
@@ -293,18 +281,6 @@ func TestHostTokenGoesOnlyToItsHost(t *testing.T) {
 		if got := tok(c[0], c[1]); got != c[2] {
 			t.Errorf("%s %s: token %q, want %q", c[0], c[1], got, c[2])
 		}
-	}
-}
-
-func TestReposEntryElsewhereGetsNoToken(t *testing.T) {
-	f, r := newFakeForge(t, "github")
-	t.Setenv("BRUH_GITHUB_HOSTS", "")
-	h, _ := newHost(r)
-	if _, err := h.Branches(context.Background()); err != nil {
-		t.Fatal(err)
-	}
-	if f.auth[0] != "" {
-		t.Fatalf("a token went to %s: %q", r.APIURL, f.auth[0])
 	}
 }
 

@@ -72,6 +72,20 @@ async function run(h = {}, args = baseArgs()) {
 
 const finding = (file, line, summary = 'bad') => ({ file, line, summary })
 
+// Runs check on each row, whose first item is its label, and fails once with every row that
+// failed, so one failing row does not hide another.
+async function eachRow(rows, check) {
+  const failed = []
+  for (const row of rows) {
+    try {
+      await check(...row)
+    } catch (e) {
+      failed.push(`${row[0]}: ${e.message}`)
+    }
+  }
+  assert.deepEqual(failed, [], 'failed rows')
+}
+
 test('meta.name is deliver and meta is a literal', () => {
   assert.equal(meta.name, 'deliver')
   assert.ok(meta.description)
@@ -93,18 +107,25 @@ test('a clean run returns done with the evidence', async () => {
 })
 
 test('invalid args stop the run before any agent', async () => {
-  for (const bad of [{ base_sha: 'abc' }, { task: '' }, { branch: '' }, { gates: 'go test' }, { gates: [] }]) {
-    const { result, calls } = await run({}, baseArgs(bad))
+  await eachRow([
+    ['short base_sha', baseArgs({ base_sha: 'abc' }), /^STOP: /],
+    ['empty task', baseArgs({ task: '' }), /^STOP: /],
+    ['empty branch', baseArgs({ branch: '' }), /^STOP: /],
+    ['gates is a string', baseArgs({ gates: 'go test' }), /^STOP: /],
+    ['no gates', baseArgs({ gates: [] }), /^STOP: /],
+    ['test_gates is a string', baseArgs({ test_gates: 'go test ./...' }), /^STOP: .*test_gates/],
+    ['a test gate that is not in gates', baseArgs({ test_gates: ['make test'] }), /^STOP: .*test_gates/],
+    ['no args', null, null],
+  ], async (label, args, stop) => {
+    const { result, calls } = await run({}, args)
     assert.equal(result.status, 'stopped')
     assert.equal(calls.length, 0)
-    assert.match(result.deviations[0], /^STOP: /)
-  }
-  const { result } = await run({}, null)
-  assert.equal(result.status, 'stopped')
+    if (stop) assert.match(result.deviations.at(-1), stop)
+  })
 })
 
 test('reviewers diff against base_sha, never origin/main', async () => {
-  const { byWord } = await run()
+  const { byWord } = await run({}, baseArgs({ test_gates: ['go test ./...'] }))
   for (const w of ['adversarial', 'invariants', 'gates']) {
     const [c] = byWord(w)
     assert.ok(c.prompt.includes(`git diff ${SHA} HEAD`), `${w} does not diff against base_sha`)
@@ -112,6 +133,8 @@ test('reviewers diff against base_sha, never origin/main', async () => {
     assert.ok(c.prompt.includes('HOUSE RULES TEXT'), `${w} has no house rules`)
     assert.ok(c.prompt.includes('the global lock'), `${w} has no deliberate choices`)
   }
+  // The gate agent gets the list of the test gates.
+  assert.match(byWord('gates')[0].prompt, /These gates are test suites and must run tests:\n- go test \.\/\.\.\./)
 })
 
 test('reviewers run at low effort and implementers at high effort', async () => {
@@ -128,16 +151,23 @@ test('reviewers run at low effort and implementers at high effort', async () => 
   }
 })
 
-test('dedup by file:line', async () => {
-  const { result, byWord } = await run({
-    adversarial: () => ({ findings: [finding('src/a.go', 3, 'first'), finding('src/a.go', 3, 'again')] }),
-    invariants: () => ({ findings: [finding('src/a.go', 3, 'same line'), finding('src/a.go', 4)] }),
-  })
-  assert.equal(byWord('refute').length, 2)
-  assert.equal(result.findings.length, 2)
-  assert.equal(result.findings[0].summary, 'first')
-  assert.ok(result.findings.every((f) => f.state === 'refuted'))
-  assert.equal(result.status, 'done')
+test('dedup by file:line, after the paths are normalized', async () => {
+  await eachRow([
+    ['same file:line from both reviewers', {
+      adversarial: () => ({ findings: [finding('src/a.go', 3, 'first'), finding('src/a.go', 3, 'again')] }),
+      invariants: () => ({ findings: [finding('src/a.go', 3, 'same line'), finding('src/a.go', 4)] }),
+    }, ({ result, byWord }) => {
+      assert.equal(byWord('refute').length, 2)
+      assert.equal(result.findings.length, 2)
+      assert.equal(result.findings[0].summary, 'first')
+      assert.ok(result.findings.every((f) => f.state === 'refuted'))
+      assert.equal(result.status, 'done')
+    }],
+    ['./src/a.go and src/a.go', {
+      adversarial: () => ({ findings: [finding('./src/a.go', 3)] }),
+      invariants: () => ({ findings: [finding('src/a.go', 3)] }),
+    }, ({ byWord }) => assert.equal(byWord('refute').length, 1)],
+  ], async (label, h, check) => check(await run(h)))
 })
 
 test('refuted findings stay refuted', async () => {
@@ -163,83 +193,90 @@ test('a refuter that dies is not a refutation: the finding stays open and the ru
   assert.equal(byWord('fix').length, 0)
 })
 
-test('a refuted gate failure gets a new refuter in the next round and never gives done', async () => {
-  const red = () => ({
-    head_sha: HEAD,
-    tests: { ran: 5, passed: 5, failed: 0, skipped: 0 },
-    gates: [{ command: 'go test ./...', exit_code: 1, ran: 5, passed: 4, failed: 1, skipped: 0, output_tail: 'FAIL x', problems: [] }],
+// A red gate is refuted (a flake) or confirmed, and stays red or is clean in the next round.
+test('a red gate never gives done while it stays red', async () => {
+  const red = (tail, tests = {}) => ({
+    head_sha: HEAD, tests,
+    gates: [{ command: 'go test ./...', exit_code: 1, ran: 5, passed: 4, failed: 1, skipped: 0, output_tail: tail, problems: [] }],
   })
-  const { result, byWord } = await run({ gates: red })
-  assert.equal(result.status, 'findings_left')
-  assert.deepEqual(result.tests, { ran: 5, passed: 4, failed: 1, skipped: 0 }, 'totals come from the per-gate counts')
-  assert.equal(byWord('refute').length, 2, 'one refuter in each round')
-  assert.equal(result.findings.length, 1)
-  assert.equal(result.findings[0].state, 'open')
+  const confirmed = { refute: () => ({ confirmed: true }) }
+  await eachRow([
+    ['refuted, stays red: a new refuter in each round', { gates: () => red('FAIL x', { ran: 5, passed: 5, failed: 0, skipped: 0 }) }, baseArgs(), ({ result, byWord }) => {
+      assert.equal(result.status, 'findings_left')
+      assert.deepEqual(result.tests, { ran: 5, passed: 4, failed: 1, skipped: 0 }, 'totals come from the per-gate counts')
+      assert.equal(byWord('refute').length, 2, 'one refuter in each round')
+      assert.equal(result.findings.length, 1)
+      assert.equal(result.findings[0].state, 'open')
+    }],
+    ['refuted, clean next round: done', { gates: (p, o, n) => (n === 1 ? red('flaky', { ran: 5, passed: 4, failed: 1, skipped: 0 }) : cleanGates()) }, baseArgs(), ({ result, byWord }) => {
+      assert.equal(result.status, 'done')
+      assert.equal(byWord('gates').length, 2)
+      assert.equal(byWord('fix').length, 0)
+    }],
+    // The output tail differs in each round, so the finding is matched by its gate, not its text.
+    ['confirmed, stays red: one open finding, never a fixed one', {
+      ...confirmed,
+      gates: (p, o, n) => ({ head_sha: HEAD, tests: {}, gates: [{ command: 'make test', exit_code: 1, ran: 1, passed: 0, failed: 1, skipped: 0, output_tail: `FAIL pkg 0.${n}s`, problems: [] }] }),
+    }, baseArgs({ gates: ['make test'], round_cap: 3 }), ({ result }) => {
+      assert.equal(result.status, 'findings_left')
+      assert.deepEqual(result.findings.map((f) => f.state), ['open'])
+    }],
+    ['confirmed, clean next round: fixed', { ...confirmed, gates: (p, o, n) => (n === 1 ? red('FAIL') : cleanGates()) }, baseArgs(), ({ result }) => {
+      assert.equal(result.status, 'done')
+      assert.deepEqual(result.findings.map((f) => f.state), ['fixed'])
+    }],
+  ], async (label, h, args, check) => check(await run(h, args)))
 })
 
-test('a refuted gate failure that passes in the next round gives done', async () => {
-  const { result, byWord } = await run({
-    gates: (p, o, n) => (n === 1
-      ? { head_sha: HEAD, tests: { ran: 5, passed: 4, failed: 1, skipped: 0 }, gates: [{ command: 'go test ./...', exit_code: 1, ran: 5, passed: 4, failed: 1, skipped: 0, output_tail: 'flaky', problems: [] }] }
-      : cleanGates()),
-  })
-  assert.equal(result.status, 'done')
-  assert.equal(byWord('gates').length, 2)
-  assert.equal(byWord('fix').length, 0)
-})
-
-test('a gate that stays red keeps one open finding, never a fixed one', async () => {
-  const gate = (tail) => ({ command: 'make test', exit_code: 1, ran: 1, passed: 0, failed: 1, skipped: 0, output_tail: tail, problems: [] })
-  const { result } = await run({
-    gates: (p, o, n) => ({ head_sha: HEAD, tests: {}, gates: [gate(`FAIL pkg 0.${n}s`)] }),
-    refute: () => ({ confirmed: true }),
-  }, baseArgs({ gates: ['make test'], round_cap: 3 }))
-  assert.equal(result.status, 'findings_left')
-  assert.deepEqual(result.findings.map((f) => f.state), ['open'])
-})
-
-test('a red gate that is clean in the next round is fixed', async () => {
-  const { result } = await run({
-    gates: (p, o, n) => (n === 1
-      ? { head_sha: HEAD, tests: {}, gates: [{ command: 'go test ./...', exit_code: 1, ran: 5, passed: 4, failed: 1, skipped: 0, output_tail: 'FAIL', problems: [] }] }
-      : cleanGates()),
-    refute: () => ({ confirmed: true }),
-  })
-  assert.equal(result.status, 'done')
-  assert.deepEqual(result.findings.map((f) => f.state), ['fixed'])
-})
-
-test('gate results must cover exactly args.gates', async () => {
-  const empty = await run({ gates: () => ({ head_sha: HEAD, tests: {}, gates: [] }) })
-  assert.notEqual(empty.result.status, 'done')
-  assert.equal(empty.result.status, 'findings_left')
-  assert.match(empty.result.findings[0].summary, /has no result/)
-
-  const two = baseArgs({ gates: ['go test ./...', 'make lint'] })
-  const oneMissing = await run({}, two)
-  assert.equal(oneMissing.result.status, 'findings_left')
-  assert.deepEqual(oneMissing.result.findings.map((f) => f.file), ['gate: make lint'])
-
-  const extra = await run({ gates: () => ({ ...cleanGates(), gates: [...cleanGates().gates, { command: 'rm -rf x', exit_code: 0, ran: 1, passed: 1, failed: 0, skipped: 0, problems: [] }] }) })
-  assert.equal(extra.result.status, 'findings_left')
-  assert.match(extra.result.findings[0].summary, /not a gate of the task/)
-
-  const none = await run({ gates: () => ({ head_sha: HEAD, tests: {}, gates: [{ command: 'go test ./...', exit_code: 0, ran: 0, passed: 0, failed: 0, skipped: 0, problems: [] }] }) }, baseArgs({ test_gates: ['go test ./...'] }))
-  assert.equal(none.result.status, 'findings_left')
-  assert.match(none.result.findings[0].summary, /ran no tests/)
-})
-
-test('a dead fixer, adversarial, or invariant agent stops the run, never done', async () => {
-  const confirmedFinding = { adversarial: () => ({ findings: [finding('src/a.go', 1)] }), refute: () => ({ confirmed: true }) }
-  const fixer = await run({ ...confirmedFinding, fix: () => null })
-  assert.equal(fixer.result.status, 'stopped')
-  assert.match(fixer.result.deviations.at(-1), /^FAILED: /)
-  assert.equal(fixer.result.findings[0].state, 'open')
-  for (const w of ['adversarial', 'invariants']) {
-    const r = await run({ [w]: () => null })
-    assert.equal(r.result.status, 'stopped', `dead ${w}`)
-    assert.match(r.result.deviations.at(-1), /^FAILED: /)
+// The gate results must cover exactly args.gates; each gate must report and exit 0, and only
+// the gates of args.test_gates must run tests (final review M6).
+test('gate results become findings', async () => {
+  const lint = (exit) => ({ command: 'make lint', exit_code: exit, ran: 0, passed: 0, failed: 0, skipped: 0, output_tail: exit ? 'lint error' : '', problems: [] })
+  const withLint = (exit) => () => ({ ...cleanGates(), gates: [...cleanGates().gates, lint(exit)] })
+  const twoGates = (extra = {}) => baseArgs({ gates: ['go test ./...', 'make lint'], ...extra })
+  const left = (check) => ({ result }) => {
+    assert.equal(result.status, 'findings_left')
+    check(result.findings)
   }
+  await eachRow([
+    ['no gate result', { gates: () => ({ head_sha: HEAD, tests: {}, gates: [] }) }, baseArgs(),
+      left((fs) => assert.match(fs[0].summary, /has no result/))],
+    ['one gate result missing', {}, twoGates(),
+      left((fs) => assert.deepEqual(fs.map((f) => f.file), ['gate: make lint']))],
+    ['a result of a gate that is not a gate of the task', { gates: () => ({ ...cleanGates(), gates: [...cleanGates().gates, { command: 'rm -rf x', exit_code: 0, ran: 1, passed: 1, failed: 0, skipped: 0, problems: [] }] }) }, baseArgs(),
+      left((fs) => assert.match(fs[0].summary, /not a gate of the task/))],
+    ['a test gate that ran no tests', { gates: () => ({ head_sha: HEAD, tests: {}, gates: [{ command: 'go test ./...', exit_code: 0, ran: 0, passed: 0, failed: 0, skipped: 0, problems: [] }] }) }, baseArgs({ test_gates: ['go test ./...'] }),
+      left((fs) => assert.match(fs[0].summary, /ran no tests/))],
+    ['a skip count without a named test', { refute: () => ({ confirmed: true }), gates: () => ({ head_sha: HEAD, tests: { ran: 3, passed: 2, failed: 0, skipped: 1 }, gates: [{ command: 'make test', exit_code: 0, ran: 3, passed: 2, failed: 0, skipped: 1, problems: [] }] }) },
+      baseArgs({ round_cap: 1, gates: ['make test'] }),
+      ({ result }) => assert.deepEqual(result.findings.map((f) => f.file), ['gate: make test'])],
+    ['a failed gate without named failures', { refute: () => ({ confirmed: true }), gates: () => ({ head_sha: HEAD, tests: { ran: 0, passed: 0, failed: 0, skipped: 0 }, gates: [{ command: 'make lint', exit_code: 2, ran: 0, passed: 0, failed: 0, skipped: 0, problems: [] }] }) },
+      baseArgs({ round_cap: 1, gates: ['make lint'] }),
+      ({ result }) => assert.equal(result.findings[0].file, 'gate: make lint')],
+    ['a lint gate with no test count and exit 0 is clean', { gates: withLint(0) }, twoGates({ test_gates: ['go test ./...'] }), ({ result }) => {
+      assert.equal(result.status, 'done')
+      assert.deepEqual(result.findings, [])
+    }],
+    ['a lint gate must still exit 0', { gates: withLint(2) }, twoGates({ test_gates: ['go test ./...'] }),
+      left((fs) => assert.deepEqual(fs.map((f) => f.file), ['gate: make lint']))],
+    ['without test_gates, no gate needs a test count', { gates: withLint(0) }, twoGates(), ({ result }) => assert.equal(result.status, 'done')],
+  ], async (label, h, args, check) => check(await run(h, args)))
+})
+
+test('a dead agent stops the run with FAILED, never done', async () => {
+  const confirmedFinding = { adversarial: () => ({ findings: [finding('src/a.go', 1)] }), refute: () => ({ confirmed: true }) }
+  await eachRow([
+    ['dead fixer', { ...confirmedFinding, fix: () => null }, (result) => assert.equal(result.findings[0].state, 'open')],
+    ['dead adversarial reviewer', { adversarial: () => null }],
+    ['dead invariant checker', { invariants: () => null }],
+    ['dead gate agent', { gates: () => null }],
+    ['dead planner', { plan: () => null }],
+  ], async (label, h, check) => {
+    const { result } = await run(h)
+    assert.equal(result.status, 'stopped')
+    assert.match(result.deviations.at(-1), /^FAILED: /)
+    check?.(result)
+  })
 })
 
 test('a finding that the fixer did not fix stays open', async () => {
@@ -275,31 +312,18 @@ test('a fixer that reports only file and line closes nothing', async () => {
   assert.deepEqual(result.findings.map((f) => f.state), ['open'])
 })
 
-test('file paths are normalized before dedup', async () => {
-  const { byWord } = await run({
-    adversarial: () => ({ findings: [finding('./src/a.go', 3)] }),
-    invariants: () => ({ findings: [finding('src/a.go', 3)] }),
-  })
-  assert.equal(byWord('refute').length, 1)
-})
-
-test('round cap stops with findings_left', async () => {
-  const { result, byWord } = await run({
-    adversarial: () => ({ findings: [finding('src/a.go', 7)] }),
-    refute: () => ({ confirmed: true, reason: 'shown' }),
-  })
-  assert.equal(result.status, 'findings_left')
-  assert.equal(byWord('adversarial').length, 2)
-  assert.equal(byWord('fix').length, 1)
-  assert.deepEqual(result.findings, [{ file: 'src/a.go', line: 7, summary: 'bad', state: 'open' }])
-})
-
-test('round_cap from args is used, default 2', async () => {
-  const always = { adversarial: () => ({ findings: [finding('src/a.go', 7)] }), refute: () => ({ confirmed: true }) }
-  const three = await run(always, baseArgs({ round_cap: 3 }))
-  assert.equal(three.byWord('adversarial').length, 3)
-  const unset = await run(always, baseArgs({ round_cap: undefined }))
-  assert.equal(unset.byWord('adversarial').length, 2)
+test('round_cap from args stops with findings_left, default 2', async () => {
+  const always = { adversarial: () => ({ findings: [finding('src/a.go', 7)] }), refute: () => ({ confirmed: true, reason: 'shown' }) }
+  await eachRow([
+    ['round_cap 2', 2, ({ result, byWord }) => {
+      assert.equal(result.status, 'findings_left')
+      assert.equal(byWord('adversarial').length, 2)
+      assert.equal(byWord('fix').length, 1)
+      assert.deepEqual(result.findings, [{ file: 'src/a.go', line: 7, summary: 'bad', state: 'open' }])
+    }],
+    ['round_cap 3', 3, ({ byWord }) => assert.equal(byWord('adversarial').length, 3)],
+    ['no round_cap: 2', undefined, ({ byWord }) => assert.equal(byWord('adversarial').length, 2)],
+  ], async (label, cap, check) => check(await run(always, baseArgs({ round_cap: cap }))))
 })
 
 test('fixes run in sequential batches by area', async () => {
@@ -340,35 +364,6 @@ test('a skipped required test becomes a finding', async () => {
   assert.equal(result.findings[0].file, 'src/a_test.go')
   assert.equal(result.findings[0].state, 'open')
   assert.ok(byWord('refute')[0].prompt.includes('go test ./...'), 'the refuter reruns the gate')
-})
-
-test('a skip count without a named test is still a finding', async () => {
-  const gates = () => ({
-    head_sha: HEAD,
-    tests: { ran: 3, passed: 2, failed: 0, skipped: 1 },
-    gates: [{ command: 'make test', exit_code: 0, ran: 3, passed: 2, failed: 0, skipped: 1, problems: [] }],
-  })
-  const { result } = await run({ gates, refute: () => ({ confirmed: true }) }, baseArgs({ round_cap: 1, gates: ['make test'] }))
-  assert.equal(result.findings.length, 1)
-  assert.equal(result.findings[0].file, 'gate: make test')
-})
-
-test('a failed gate without named failures is a finding', async () => {
-  const gates = () => ({
-    head_sha: HEAD,
-    tests: { ran: 0, passed: 0, failed: 0, skipped: 0 },
-    gates: [{ command: 'make lint', exit_code: 2, ran: 0, passed: 0, failed: 0, skipped: 0, problems: [] }],
-  })
-  const { result } = await run({ gates, refute: () => ({ confirmed: true }) }, baseArgs({ round_cap: 1, gates: ['make lint'] }))
-  assert.equal(result.findings[0].file, 'gate: make lint')
-})
-
-test('a missing review check stops the run', async () => {
-  const { result } = await run({ gates: () => null })
-  assert.equal(result.status, 'stopped')
-  assert.match(result.deviations.at(-1), /^FAILED: /)
-  const p = await run({ plan: () => null })
-  assert.match(p.result.deviations.at(-1), /^FAILED: /)
 })
 
 test('a plan STOP and an implement conflict stop the run', async () => {
@@ -448,39 +443,6 @@ test('no agent prompt allows posts outside the project or pushes', async () => {
   for (const c of calls) {
     assert.ok(c.prompt.includes('Do not post outside the project'), `${c.opts.label} has no post rule`)
     assert.ok(c.prompt.includes('Do not push'), `${c.opts.label} has no push rule`)
-  }
-})
-
-// Final review M6: only the gates of args.test_gates must run tests; every gate must report and exit 0.
-test('only a test gate must run tests', async () => {
-  const lint = (exit) => ({ command: 'make lint', exit_code: exit, ran: 0, passed: 0, failed: 0, skipped: 0, output_tail: exit ? 'lint error' : '', problems: [] })
-  const gates = (exit) => () => ({ ...cleanGates(), gates: [...cleanGates().gates, lint(exit)] })
-  const args = (extra = {}) => baseArgs({ gates: ['go test ./...', 'make lint'], test_gates: ['go test ./...'], ...extra })
-  const ok = await run({ gates: gates(0) }, args())
-  assert.equal(ok.result.status, 'done', 'a lint gate with no test count and exit 0 is clean')
-  assert.deepEqual(ok.result.findings, [])
-  const red = await run({ gates: gates(2) }, args())
-  assert.equal(red.result.status, 'findings_left', 'a lint gate must still exit 0')
-  assert.deepEqual(red.result.findings.map((f) => f.file), ['gate: make lint'])
-  const missing = await run({}, args())
-  assert.equal(missing.result.status, 'findings_left', 'a lint gate must still report')
-  assert.match(missing.result.findings[0].summary, /has no result/)
-  const suite = await run({ gates: () => ({ head_sha: HEAD, tests: {}, gates: [{ ...cleanGates().gates[0], ran: 0, passed: 0 }, lint(0)] }) }, args())
-  assert.equal(suite.result.status, 'findings_left', 'a test gate must run tests')
-  assert.match(suite.result.findings[0].summary, /`go test \.\/\.\.\.` ran no tests/)
-  const noTestGates = await run({ gates: gates(0) }, baseArgs({ gates: ['go test ./...', 'make lint'] }))
-  assert.equal(noTestGates.result.status, 'done', 'without test_gates, no gate needs a test count')
-  const prompt = ok.byWord('gates')[0].prompt
-  assert.match(prompt, /- go test \.\/\.\.\./)
-  assert.match(prompt, /test suites/)
-})
-
-test('args.test_gates must be a list of gates of args.gates', async () => {
-  for (const bad of [{ test_gates: 'go test ./...' }, { test_gates: ['make test'] }]) {
-    const { result, calls } = await run({}, baseArgs(bad))
-    assert.equal(result.status, 'stopped')
-    assert.match(result.deviations.at(-1), /^STOP: .*test_gates/)
-    assert.equal(calls.length, 0)
   }
 })
 

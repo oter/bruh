@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -73,30 +74,54 @@ func TestCLIInitEnvAnswers(t *testing.T) {
 	}
 }
 
+// The CLI path writes the given plugin options; handoff_percent must be 1 to 99 (init.go normalize).
+// init_plan refuses plugin options before that check (TestInitPlanRefusesPluginOptionKeys).
 func TestCLIInitWritesGivenPluginOptions(t *testing.T) {
-	env, ledger := initEnv(t)
-	file := filepath.Join(t.TempDir(), "answers.json")
-	b, _ := json.Marshal(map[string]any{"ledger_path": ledger, "handoff_percent": 40})
-	if err := os.WriteFile(file, b, 0o600); err != nil {
-		t.Fatal(err)
-	}
-	var out, errOut bytes.Buffer
-	if code := runCLI([]string{"init", "--answers", file}, env, &out, &errOut); code != 0 {
-		t.Fatalf("bruh init --answers %s: exit %d: %s", b, code, errOut.String())
-	}
-	var s struct {
-		PluginConfigs map[string]struct {
-			Options json.RawMessage `json:"options"`
-		} `json:"pluginConfigs"`
-	}
-	readJSON(t, env.SettingsFile, &s)
-	var opts any
-	if err := json.Unmarshal(s.PluginConfigs[pluginID].Options, &opts); err != nil {
-		t.Fatalf("bruh init --answers %s: pluginConfigs = %+v: %v", b, s.PluginConfigs, err)
-	}
-	got, _ := json.Marshal(opts)
-	if want := `{"handoff_percent":40}`; string(got) != want {
-		t.Errorf("bruh init --answers %s: options = %s, want %s", b, got, want)
+	const rangeErr = "handoff_percent must be 1 to 99"
+	for _, c := range []struct {
+		name    string
+		percent int
+		wantErr string // empty: the CLI writes {"handoff_percent":<percent>}
+	}{
+		{"40 is written", 40, ""},
+		{"1 is the low bound", 1, ""},
+		{"99 is the high bound", 99, ""},
+		{"0 is refused", 0, rangeErr},
+		{"100 is refused", 100, rangeErr},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			env, ledger := initEnv(t)
+			file := filepath.Join(t.TempDir(), "answers.json")
+			b, _ := json.Marshal(map[string]any{"ledger_path": ledger, "handoff_percent": c.percent})
+			if err := os.WriteFile(file, b, 0o600); err != nil {
+				t.Fatal(err)
+			}
+			var out, errOut bytes.Buffer
+			code := runCLI([]string{"init", "--answers", file}, env, &out, &errOut)
+			if c.wantErr != "" {
+				if code == 0 || !strings.Contains(errOut.String(), c.wantErr) {
+					t.Errorf("bruh init --answers %s: exit %d, stderr %q, want an error with %q", b, code, errOut.String(), c.wantErr)
+				}
+				return
+			}
+			if code != 0 {
+				t.Fatalf("bruh init --answers %s: exit %d: %s", b, code, errOut.String())
+			}
+			var s struct {
+				PluginConfigs map[string]struct {
+					Options json.RawMessage `json:"options"`
+				} `json:"pluginConfigs"`
+			}
+			readJSON(t, env.SettingsFile, &s)
+			var opts any
+			if err := json.Unmarshal(s.PluginConfigs[pluginID].Options, &opts); err != nil {
+				t.Fatalf("bruh init --answers %s: pluginConfigs = %+v: %v", b, s.PluginConfigs, err)
+			}
+			got, _ := json.Marshal(opts)
+			if want := `{"handoff_percent":` + strconv.Itoa(c.percent) + `}`; string(got) != want {
+				t.Errorf("bruh init --answers %s: options = %s, want %s", b, got, want)
+			}
+		})
 	}
 }
 

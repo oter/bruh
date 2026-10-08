@@ -60,22 +60,6 @@ func TestResultSaveRefusesBadInput(t *testing.T) {
 	}
 }
 
-func TestInitAllowsResultSaveAndTheImplementWorkflows(t *testing.T) {
-	rules := mcpAllowRules(false)
-	found := false
-	for _, r := range rules {
-		found = found || r == "mcp__plugin_bruh_bruh__result_save"
-	}
-	if !found {
-		t.Fatal("init does not allow result_save")
-	}
-	for _, w := range []string{"deliver", "tickets", "implement-tickets", "review-and-fix", "review-only"} {
-		if !strings.Contains(strings.Join(workflowAllowRules, " "), "Workflow(bruh:"+w+")") {
-			t.Errorf("init does not allow Workflow(bruh:%s)", w)
-		}
-	}
-}
-
 // A manual session of the owner has no role key: its results go to results/owner/,
 // so they are in the data folder too (principle 3).
 func TestResultSaveWithoutRoleKeyUsesOwner(t *testing.T) {

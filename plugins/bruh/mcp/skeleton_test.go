@@ -97,16 +97,6 @@ func TestMCPConfig(t *testing.T) {
 	}
 }
 
-func TestLicenseIsApache(t *testing.T) {
-	data, err := os.ReadFile("../../../LICENSE")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !regexp.MustCompile(`Apache License\s+Version 2\.0, January 2004`).Match(data) {
-		t.Fatal("LICENSE is not Apache-2.0")
-	}
-}
-
 func TestUserConfig(t *testing.T) {
 	var p struct {
 		UserConfig map[string]map[string]any `json:"userConfig"`

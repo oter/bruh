@@ -131,20 +131,15 @@ func TestProjectJSONFromFills(t *testing.T) {
 		checkLogs()
 	})
 
-	gitlab := "gitlab.com"
 	for _, tt := range []struct {
 		name    string
 		aliases map[string]string
 		want    indexRepo // only Host, Kind, and APIURL are compared
 	}{
+		// The alias from host_aliases is checked end to end in TestInitPlanRunsNoCLI.
 		{
 			name: "alias without host",
 			want: indexRepo{Host: hostValue{Value: nil, Source: "git"}, Kind: "unknown", APIURL: ""},
-		},
-		{
-			name:    "alias from host_aliases",
-			aliases: map[string]string{"gitlab.com-work": "gitlab.com"},
-			want:    indexRepo{Host: hostValue{Value: &gitlab, Source: "git"}, Kind: "gitlab", APIURL: "https://gitlab.com/api/v4"},
 		},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
@@ -507,6 +502,16 @@ func TestInitPlanRemovesProject(t *testing.T) {
 		if !slices.Contains(files, path) || !strings.Contains(diff, "--- "+path+"\n+++ /dev/null\n") {
 			t.Errorf("init_plan without auth and docs: files = %v, diff has the deletion of %s = %t, want it in both", files, path, strings.Contains(diff, "--- "+path+"\n+++ /dev/null\n"))
 		}
+		// The diff of a deletion shows each old line as -<line>.
+		old, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, line := range strings.Split(strings.TrimSuffix(string(old), "\n"), "\n") {
+			if !strings.Contains(diff, "\n-"+line+"\n") {
+				t.Errorf("init_plan: the diff of the deletion of %s has no line %q", path, "-"+line)
+			}
+		}
 	}
 	if slices.Contains(files, authMD) || strings.Contains(diff, authMD) {
 		t.Errorf("init_plan without auth: %s is in files or diff, want it kept (a data row)", authMD)
@@ -514,8 +519,11 @@ func TestInitPlanRemovesProject(t *testing.T) {
 	if kept := pathList(p["kept"]); !slices.Equal(kept, []string{authMD}) {
 		t.Errorf("init_plan without auth and docs: kept = %v, want [%s]", kept, authMD)
 	}
-	apply(t, env, p)
+	applied := apply(t, env, p)
 	for _, path := range deleted {
+		if !slices.Contains(applied, path) {
+			t.Errorf("init_apply: applied = %v, want the deleted %s", applied, path)
+		}
 		if _, err := os.Lstat(path); !errors.Is(err, fs.ErrNotExist) {
 			t.Errorf("after init_apply: Lstat(%s) error = %v, want the file deleted", path, err)
 		}
@@ -556,24 +564,6 @@ func TestInitPlanWithoutProjectsKeepsLearn(t *testing.T) {
 			}
 		}
 	})
-}
-
-func TestInitApplyReturnsDeletedPaths(t *testing.T) {
-	env, ledger := initEnv(t)
-	root := learnRoot(t)
-	writeLearnTree(t, ledger, root, "docs")
-	docsJSON := writeProjectJSON(t, ledger, "docs")
-	docsMD := filepath.Join(ledger, "projects", "docs.md")
-	writeTestFile(t, docsMD, projectTemplate(t, env, "docs"))
-	applied := apply(t, env, plan(t, env, answers(ledger, map[string]any{"root": root, "projects": []any{}})))
-	for _, path := range []string{docsJSON, docsMD} {
-		if !slices.Contains(applied, path) {
-			t.Errorf("init_apply: applied = %v, want the deleted %s", applied, path)
-		}
-		if _, err := os.Lstat(path); !errors.Is(err, fs.ErrNotExist) {
-			t.Errorf("after init_apply: Lstat(%s) error = %v, want the file deleted", path, err)
-		}
-	}
 }
 
 // ledgerTree returns the content of each file under ledger, by its path relative to ledger.
@@ -665,7 +655,7 @@ func TestInitPlanRunsNoCLI(t *testing.T) {
 	if err := json.Unmarshal(data, &got); err != nil {
 		t.Fatal(err)
 	}
-	if len(got.Repos) != 1 || got.Repos[0].Host.Value == nil || *got.Repos[0].Host.Value != "gitlab.com" || got.Repos[0].Kind != "gitlab" || got.Repos[0].HostPath != "team/shop" {
-		t.Errorf("shop.json repos = %s, want the host gitlab.com of host_aliases, kind gitlab, and host_path team/shop", jsonText(t, got.Repos))
+	if len(got.Repos) != 1 || got.Repos[0].Host.Value == nil || *got.Repos[0].Host.Value != "gitlab.com" || got.Repos[0].Kind != "gitlab" || got.Repos[0].HostPath != "team/shop" || got.Repos[0].APIURL != "https://gitlab.com/api/v4" {
+		t.Errorf("shop.json repos = %s, want the host gitlab.com of host_aliases, kind gitlab, api_url https://gitlab.com/api/v4, and host_path team/shop", jsonText(t, got.Repos))
 	}
 }

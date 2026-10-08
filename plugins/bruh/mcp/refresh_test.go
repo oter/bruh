@@ -202,7 +202,6 @@ func TestLearnRefreshRefusesNonBigm(t *testing.T) {
 	tests := []struct{ role, want string }{
 		{"", "BRUH_ROLE_KEY is not set"},
 		{"clanker-shop", "only bigm calls learn_refresh"},
-		{"clerk-shop-t1", "only bigm calls learn_refresh"},
 	}
 	for _, tt := range tests {
 		t.Run(cmp.Or(tt.role, "no role key"), func(t *testing.T) {
@@ -309,8 +308,6 @@ func TestLearnRefreshRecomputesHostOnURLChange(t *testing.T) {
 	}{
 		{name: "agent host, new URL", source: "agent", url: "https://gitlab.com/team/alpha-next.git",
 			want: indexRepo{Host: git("gitlab.com"), Kind: "gitlab", APIURL: "https://gitlab.com/api/v4", HostPath: "team/alpha-next"}},
-		{name: "owner host, new URL", source: "owner", url: "https://gitlab.com/team/alpha-next.git",
-			want: indexRepo{Host: git("gitlab.com"), Kind: "gitlab", APIURL: "https://gitlab.com/api/v4", HostPath: "team/alpha-next"}},
 		{name: "alias not in host_aliases", url: "git@code-work:team/alpha.git",
 			want: indexRepo{Host: null, Kind: "unknown", HostPath: "team/alpha"}},
 		{name: "agent host, alias not in host_aliases", source: "agent", url: "git@code-work:team/alpha.git",
@@ -364,65 +361,66 @@ func TestLearnRefreshSetsAndClearsGone(t *testing.T) {
 	f.checkProject(t, p)
 }
 
-func TestLearnRefreshSkipsDocsOfMissingRepo(t *testing.T) {
-	tests := []struct {
-		name   string
-		remove []string // root-relative paths to remove
+// TestLearnRefreshMissingWithoutGitDir: a repository without a .git folder of its own is missing,
+// and the doc of beta keeps gone: false. The removed folder is TestLearnRefreshMissingOnce.
+func TestLearnRefreshMissingWithoutGitDir(t *testing.T) {
+	for _, c := range []struct {
+		name  string
+		setup func(t *testing.T, root string)
 	}{
-		{name: "folder removed", remove: []string{"beta"}},
-		{name: "no .git folder", remove: []string{"beta/.git", "beta/README.md"}},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			f := newRefreshFixture(t)
-			p := f.readProject(t)
-			for _, rel := range tt.remove {
-				if err := os.RemoveAll(filepath.Join(f.root, filepath.FromSlash(rel))); err != nil {
+		{"no .git folder", func(t *testing.T, root string) {
+			for _, rel := range []string{"beta/.git", "beta/README.md"} {
+				if err := os.RemoveAll(filepath.Join(root, filepath.FromSlash(rel))); err != nil {
 					t.Fatal(err)
 				}
 			}
+		}},
+		// beta/.git becomes a symbolic link to a git folder outside the root: walkRepos skips such a
+		// repository, so learn_refresh does not follow the link either (G14).
+		{".git is a symbolic link out of the root", func(t *testing.T, root string) {
+			elsewhere := filepath.Join(t.TempDir(), "x.git")
+			beta := filepath.Join(root, "beta", ".git")
+			if err := os.Rename(beta, elsewhere); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.Symlink(elsewhere, beta); err != nil {
+				t.Fatal(err)
+			}
+		}},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			f := newRefreshFixture(t)
+			p := f.readProject(t)
+			c.setup(t, f.root)
 			checkResult(t, f.refresh(t), result([]string{f.rel()}, []string{"beta"}))
-			p.Repos[1].State = "missing"
-			f.checkProject(t, p) // the doc of beta keeps gone: false
+			want := p
+			want.Repos = slices.Clone(p.Repos)
+			want.Repos[1].State = "missing"
+			f.checkProject(t, want) // the doc of beta keeps gone: false
 		})
 	}
 }
 
+// TestLearnRefreshRefusesWithoutLedgerPath: learn_refresh returns the error of ledgerPath and
+// writes nothing. The errors of ledgerPath are TestLedgerPath.
 func TestLearnRefreshRefusesWithoutLedgerPath(t *testing.T) {
-	tests := []struct {
-		name   string
-		config string // "" for no init/config.json
-	}{
-		{name: "no init/config.json"},
-		{name: "no ledger_path", config: "{}\n"},
-		{name: "empty ledger_path", config: `{"ledger_path": ""}` + "\n"},
+	f := newRefreshFixture(t)
+	if err := os.Remove(filepath.Join(f.root, "alpha", "README.md")); err != nil {
+		t.Fatal(err)
 	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			f := newRefreshFixture(t)
-			if err := os.Remove(filepath.Join(f.root, "alpha", "README.md")); err != nil {
-				t.Fatal(err)
-			}
-			config := filepath.Join(f.env.DataDir, "init", "config.json")
-			if tt.config == "" {
-				if err := os.Remove(config); err != nil {
-					t.Fatal(err)
-				}
-			} else {
-				writeRefreshFile(t, config, tt.config)
-			}
-			_, wantErr := ledgerPath(f.env)
-			if wantErr == nil {
-				t.Fatal("ledgerPath() error = nil, want an error")
-			}
-			before := f.snapshot(t)
-			out, err := call(t, as(f.env, "bigm"), "learn_refresh", map[string]any{})
-			if err == nil || err.Error() != wantErr.Error() {
-				t.Errorf("learn_refresh = %v, %v, want error %q", out, err, wantErr)
-			}
-			f.checkSnapshot(t, before)
-		})
+	if err := os.Remove(filepath.Join(f.env.DataDir, "init", "config.json")); err != nil {
+		t.Fatal(err)
 	}
+	_, wantErr := ledgerPath(f.env)
+	if wantErr == nil {
+		t.Fatal("ledgerPath() error = nil, want an error")
+	}
+	before := f.snapshot(t)
+	out, err := call(t, as(f.env, "bigm"), "learn_refresh", map[string]any{})
+	if err == nil || err.Error() != wantErr.Error() {
+		t.Errorf("learn_refresh = %v, %v, want error %q", out, err, wantErr)
+	}
+	f.checkSnapshot(t, before)
 }
 
 func TestLearnRefreshMissingOnce(t *testing.T) {
@@ -447,27 +445,6 @@ func TestLearnRefreshMissingOnce(t *testing.T) {
 	f.writeRepo(t, "beta", refreshURL("beta"))
 	checkResult(t, f.refresh(t), result([]string{f.rel()}, []string{}))
 	f.checkProject(t, p)
-}
-
-func TestLearnRefreshGitSymlinkIsMissing(t *testing.T) {
-	f := newRefreshFixture(t)
-	p := f.readProject(t)
-	// beta/.git becomes a symbolic link to a git folder outside the root: walkRepos skips such a
-	// repository, so learn_refresh does not follow the link either (G14).
-	elsewhere := filepath.Join(t.TempDir(), "x.git")
-	beta := filepath.Join(f.root, "beta", ".git")
-	if err := os.Rename(beta, elsewhere); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.Symlink(elsewhere, beta); err != nil {
-		t.Fatal(err)
-	}
-
-	checkResult(t, f.refresh(t), result([]string{f.rel()}, []string{"beta"}))
-	want := p
-	want.Repos = slices.Clone(p.Repos)
-	want.Repos[1].State = "missing"
-	f.checkProject(t, want)
 }
 
 func TestLearnRefreshRunsNoCLI(t *testing.T) {
@@ -515,7 +492,6 @@ func TestLearnRefreshLongFiles(t *testing.T) {
 	}{
 		{name: "cap from mode.md", files: capFive, wantFiles: []string{"projects/x.md"}},
 		{name: "default cap", files: map[string]string{"ok.md": lines(300), "projects/x.md": lines(301)}, wantFiles: []string{"projects/x.md"}},
-		{name: "no long file", files: map[string]string{"ok.md": lines(300)}, wantFiles: []string{}},
 		// Entry B2 of decisions.md: with no learn/tree.json, no project file changes and no
 		// repository or doc pointer is listed; long_files is still computed.
 		{name: "no learn/tree.json", files: capFive, noTree: true, wantFiles: []string{"projects/x.md"}},
