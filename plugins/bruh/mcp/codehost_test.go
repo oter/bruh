@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -47,6 +48,7 @@ func newFakeForge(t *testing.T, kind string) (*fakeForge, repoConfig) {
 	t.Setenv("BRUH_GITHUB_HOSTS", "127.0.0.1")
 	t.Setenv("GITHUB_TOKEN", "tok")
 	t.Setenv("BRUH_GITEA_TOKEN_127_0_0_1", "tok")
+	fakeCLI(t, &teaBin, "exit 1") // no tea login: Gitea uses the token, and no test runs the real tea
 	f := &fakeForge{kind: kind, reviews: map[int][]hostComment{}, branches: map[string]string{}, pulls: map[int]*hostPull{}, statuses: map[string]fakeStatus{}, runs: map[string][]fakeRun{}}
 	srv := httptest.NewTLSServer(f)
 	t.Cleanup(srv.Close)
@@ -385,5 +387,124 @@ func TestCodeHostChecksReadEveryPage(t *testing.T) {
 	runs[220] = fakeRun{"completed", "success"}
 	if got, _ := h.Checks(context.Background(), "big"); got != "success" {
 		t.Fatalf("Checks = %q", got)
+	}
+}
+
+type failTransport struct{}
+
+func (failTransport) RoundTrip(*http.Request) (*http.Response, error) {
+	return nil, errors.New("no HTTP call in this test")
+}
+
+// noHostHTTP makes each HTTP call of the code host clients fail, so a test sees an HTTP call
+// and reaches no network.
+func noHostHTTP(t *testing.T) {
+	old := hostHTTP
+	hostHTTP = &http.Client{Transport: failTransport{}}
+	t.Cleanup(func() { hostHTTP = old })
+}
+
+const teaLoginsWork = `[{"name":"work","url":"https://git.example.com","ssh_host":"git.example.com","user":"me","default":"true"}]`
+
+func giteaRepo() repoConfig {
+	return repoConfig{Repo: "o/x", Host: "gitea", APIURL: "https://git.example.com/api/v1", Project: "x"}
+}
+
+func TestGiteaUsesTeaLogin(t *testing.T) {
+	t.Setenv("BRUH_GITEA_TOKEN_GIT_EXAMPLE_COM", "")
+	noHostHTTP(t)
+	branches := "https://git.example.com/api/v1/repos/o/x/branches?limit=50"
+	log := fakeTea(t, teaLoginsWork, map[string]string{branches: `[{"name":"main","commit":{"id":"m1"}}]`})
+	h, err := newHost(giteaRepo())
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := h.Branches(context.Background())
+	if err != nil || fmt.Sprint(got) != "map[main:m1]" {
+		t.Fatalf("Branches() = %v, %v; want map[main:m1]", got, err)
+	}
+	if want := "tea api --login work " + branches; h.LastCall() != want {
+		t.Errorf("LastCall() = %q, want %q", h.LastCall(), want)
+	}
+	b, _ := os.ReadFile(log)
+	if want := "api --login work --include " + branches + "\n"; !strings.Contains(string(b), want) {
+		t.Errorf("tea log = %q, want a line %q", b, want)
+	}
+	// A URL with no fixture: tea exits 0 and the status line is 404. Checks gives the error,
+	// never "none".
+	st, err := h.Checks(context.Background(), "abc")
+	if he, ok := errors.AsType[*httpError](err); !ok || he.Code != http.StatusNotFound || st != "" {
+		t.Errorf("Checks() = %q, %v; want an httpError with code 404", st, err)
+	}
+}
+
+func TestGiteaTeaErrors(t *testing.T) {
+	t.Setenv("BRUH_GITEA_TOKEN_GIT_EXAMPLE_COM", "")
+	noHostHTTP(t)
+	for _, tt := range []struct {
+		name, api string // the sh code of `tea api`
+		code      int    // the httpError code, or 0 for another error
+	}{
+		{"403 on exit 0", `echo 'HTTP/1.1 403 Forbidden' >&2; echo '{"message":"Only signed in user is allowed to call APIs."}'`, 403},
+		{"no status line", `echo '{"state":"success","total_count":1}'`, 0},
+		{"exit 1", `echo 'tea: login not found' >&2; exit 1`, 0},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			fakeCLI(t, &teaBin, `case $1 in logins) echo '`+teaLoginsWork+`' ;; api) `+tt.api+` ;; esac`)
+			h, err := newHost(giteaRepo())
+			if err != nil {
+				t.Fatal(err)
+			}
+			st, err := h.Checks(context.Background(), "abc")
+			if err == nil || st != "" || strings.Contains(err.Error(), "no HTTP call") {
+				t.Fatalf("Checks() = %q, %v; want an error of tea", st, err)
+			}
+			he, ok := errors.AsType[*httpError](err)
+			if tt.code != 0 && (!ok || he.Code != tt.code) {
+				t.Errorf("Checks() error = %v, want an httpError with code %d", err, tt.code)
+			}
+			if tt.code == 0 && ok {
+				t.Errorf("Checks() error = %v, want no httpError", err)
+			}
+		})
+	}
+}
+
+func TestTeaLoginFor(t *testing.T) {
+	for _, tt := range []struct{ out, want string }{
+		{`[{"name":"work","url":"https://Git.Example.COM"}]`, "work"},
+		{`[{"name":"sub","url":"https://git.example.com/gitea/"}]`, "sub"},
+		{`[{"name":"port","url":"https://git.example.com:3000"}]`, "port"},
+		{`[{"name":"bad","url":"://git.example.com"},{"name":"host","url":"git.example.com"}]`, ""},
+		{`[{"name":"other","url":"https://other.example.com"},{"name":"a","url":"https://git.example.com"},{"name":"b","url":"https://git.example.com"}]`, "a"},
+		{`not json`, ""},
+		{`[]`, ""},
+	} {
+		if got := teaLoginFor([]byte(tt.out), "git.example.com"); got != tt.want {
+			t.Errorf("teaLoginFor(%s) = %q, want %q", tt.out, got, tt.want)
+		}
+	}
+}
+
+func TestGiteaFallsBackWithoutTeaLogin(t *testing.T) {
+	for name, tea := range map[string]string{
+		"login of another host": `case $1 in logins) echo '[{"name":"o","url":"https://other.example.com"}]' ;; *) exit 1 ;; esac`,
+		"tea fails":             "exit 1",
+	} {
+		t.Run(name, func(t *testing.T) {
+			f, r := newFakeForge(t, "gitea")
+			log := fakeCLI(t, &teaBin, tea)
+			f.branches["main"] = "m1"
+			h, _ := newHost(r)
+			if got, err := h.Branches(context.Background()); err != nil || got["main"] != "m1" {
+				t.Fatalf("Branches() = %v, %v", got, err)
+			}
+			if len(f.auth) != 1 || f.auth[0] != "token tok" {
+				t.Errorf("auth = %q, want the env token", f.auth)
+			}
+			if b, _ := os.ReadFile(log); strings.Contains(string(b), "api") {
+				t.Errorf("tea log = %q, want no api call", b)
+			}
+		})
 	}
 }

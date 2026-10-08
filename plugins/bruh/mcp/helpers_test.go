@@ -110,3 +110,35 @@ case $path in
 `+cases.String()+`*) echo '404 Not Found' >&2; exit 1 ;;
 esac`)
 }
+
+// fakeTea points teaBin at a fake tea. It logs its arguments as fakeCLI does. `logins ...` prints
+// logins. `api ...` writes "HTTP/1.1 200 OK" on stderr and prints fixtures[<the last argument>];
+// a URL with no fixture writes "HTTP/1.1 404 Not Found" on stderr, prints a JSON message, and
+// exits 0, as tea does on an HTTP error.
+func fakeTea(t *testing.T, logins string, fixtures map[string]string) (logFile string) {
+	t.Helper()
+	dir := t.TempDir()
+	loginsFile := filepath.Join(dir, "logins")
+	if err := os.WriteFile(loginsFile, []byte(logins), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	var cases strings.Builder
+	i := 0
+	for u, text := range fixtures {
+		file := filepath.Join(dir, fmt.Sprintf("fixture-%d", i))
+		i++
+		if err := os.WriteFile(file, []byte(text), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		fmt.Fprintf(&cases, "%s) echo 'HTTP/1.1 200 OK' >&2; cat %s ;;\n", shq(u), shq(file))
+	}
+	return fakeCLI(t, &teaBin, `case $1 in
+logins) cat `+shq(loginsFile)+` ;;
+api)
+	for a in "$@"; do u=$a; done
+	case $u in
+`+cases.String()+`*) echo 'HTTP/1.1 404 Not Found' >&2; echo '{"message":"not found"}' ;;
+	esac ;;
+*) exit 1 ;;
+esac`)
+}

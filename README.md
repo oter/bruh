@@ -264,7 +264,7 @@ bigm starts a clanker for each project that has work. Tell bigm what to do. For 
 | `rsync` | The lanes of `/bruh:implement-tickets` (`scripts/lane.sh`) |
 | `glab` | GitLab repositories: the pick, the status, the watcher, the merges of the clanker (`glab mr merge`), and the posts (`glab mr note create`) |
 | `gh` | GitHub repositories, the merges of the clanker (`gh pr merge`), and the posts (`gh pr review`) |
-| `tea` or a `BRUH_GITEA_TOKEN_<HOST>` variable | Gitea repositories; the merges of the clanker need `tea` (`tea api`) |
+| `tea` or a `BRUH_GITEA_TOKEN_<HOST>` variable | Gitea repositories; the merges of the clanker need `tea` (`tea api`). The watcher calls `tea api --login <login>` when `tea logins list` has a login for the host, so no token passes through bruh; else it uses `BRUH_GITEA_TOKEN_<HOST>`, else no token |
 | `ssh` | Remotes with an SSH host alias (`ssh -G` finds the host) |
 | Orca | Remote machines; optional for local viewer tabs (app 1.4.218 or later) |
 | Bun | The Telegram channel plugin only |

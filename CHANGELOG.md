@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Fixed
+
+- The watcher reads a private Gitea repository through `tea api --login <login>` when `tea logins list` has a login for the host of `api_url`, so a host with a tea login no longer gets 403 "Only signed in user is allowed to call APIs.". No token passes through bruh. Without such a login, `BRUH_GITEA_TOKEN_<HOST>` works as before, else the call has no token.
+
 ## [0.12.1] - 2026-10-08
 
 ### Changed

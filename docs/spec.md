@@ -533,6 +533,10 @@ Code hosts and activity.
   - It runs each CLI with a working folder outside the repositories, so that no configuration of a repository applies.
   - Each call has a timeout of 10 seconds, and at most 8 calls run at the same time. A failed call (no access, not found, a rate limit, a timeout) shows the activity as "unknown" and does not stop the scan.
   - Verify: the `tea` command that reads `updated_at` of a repository.
+  - The watcher reads a Gitea repository with `tea api --login <login> --include <full api URL>` when `tea logins list --output json` has a login whose `url` host equals the host of `api_url`. tea keeps the token: bruh does not read, print, log, or store it, and does not read the tea config file. Owner decision 2026-10-08 (owner: "bruh i have gitea cli set and working").
+  - The order for a Gitea repository is: the tea login, then `BRUH_GITEA_TOKEN_<HOST>`, then no token. `BRUH_GITEA_TOKEN_<HOST>` is unchanged. Agent-derived, needs owner decision.
+  - The first login in the order of `tea logins list` whose host matches is used. tea exits 0 on an HTTP 4xx or 5xx, so bruh reads the status from the first line of stderr of `--include` (`HTTP/1.1 200 OK`) and treats a missing status line as an error. bruh passes the full https URL, so tea refuses it when the host is not the host of the login. Only GET calls with no body go through tea. Agent-derived, needs owner decision.
+  - The `updated_at` read of `learn_scan` (above) stays with `BRUH_GITEA_TOKEN_<HOST>` only; this change does not move it to tea. Agent-derived, needs owner decision.
   - `init_plan` runs no CLI login check. The init skill puts the kind of each host into the answer `host_kinds`, also each kind that `learn_scan` found, so `init_plan` writes the same bytes for the same answers. Agent-derived, needs owner decision.
 
 Schema. The files and the tools of the learn step use this closed schema. Agent-derived, needs owner decision.
@@ -870,7 +874,7 @@ Terms:
 
 Owner decision 2026-09-29 (section 13): a read-only token read inside a process is allowed, and bruh never moves or copies a credential.
 
-- `codehost`: the token rules of today (`hostToken` in `codehost.go`), and `glab api` for that host kind, so that the CLI keeps the login. The use of `glab api`: owner decision 2026-10-02 (design.md, L18). The use of these rules for monitors: agent-derived, needs owner decision.
+- `codehost`: the token rules of today (`hostToken` in `codehost.go`), and `glab api` for that host kind, so that the CLI keeps the login. The use of `glab api`: owner decision 2026-10-02 (design.md, L18). The use of these rules for monitors: agent-derived, needs owner decision. A Gitea `codehost` monitor also calls `tea api --login` when tea has a login for the host, because it builds its client like the watcher (section "Code hosts and activity"): agent-derived, needs owner decision.
 - `command`: bruh passes no token. The CLI uses its own login. Agent-derived, needs owner decision.
 - `mcp`: bruh passes no token. The MCP server keeps its own login in the session of the subscriber. Agent-derived, needs owner decision.
 - A monitor makes no write. So the identity check before the first write (section 13) does not apply. Agent-derived, needs owner decision.
