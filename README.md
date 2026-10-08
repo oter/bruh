@@ -39,6 +39,7 @@ flowchart LR
 ```
 
 - A local message goes to the durable mailbox of the bruh MCP server. A `SendMessage` nudge carries only its header line.
+- A refusal P0 needs no nudge: the MCP server posts it straight to the mailbox of the parent of the asker and of bigm, and their waiters wake them.
 - Each question has a priority. A clanker answers P2 questions from the project context. It also answers the P1 classes that you delegate to it in `priorities.md`. The other P1 questions (your decisions) and all P0 questions (blocks that only you can remove) go to bigm, and bigm shows them to you.
 - On a model with a 1M context window, each role stays below about 55 percent of its context window. A hook tells the role to write its handoff before compaction, and another hook gives the handoff back after compaction.
 - A remote clanker talks to bigm through the Orca remote runtime.

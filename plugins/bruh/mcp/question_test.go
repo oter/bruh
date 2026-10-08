@@ -265,6 +265,65 @@ func TestQuestionOpenWithHold(t *testing.T) {
 	}
 }
 
+// mailbox returns the unread messages in the mailbox of key.
+func mailbox(t *testing.T, data, key string) []Message {
+	t.Helper()
+	files, _ := filepath.Glob(filepath.Join(data, "mail", key, "*.json"))
+	var msgs []Message
+	for _, f := range files {
+		var m Message
+		readJSON(t, f, &m)
+		msgs = append(msgs, m)
+	}
+	return msgs
+}
+
+// Task 41 (issue #42): a P0 with a hold goes from question_open straight to the mailbox of the
+// parent of the caller and of bigm, once each, with no nudge of the asker. A P0 with no hold
+// posts nothing.
+func TestQuestionOpenHoldRelaysP0(t *testing.T) {
+	for caller, targets := range map[string][]string{
+		"clerk-a-1":    {"clanker-a", "bigm"},
+		"clanker-a":    {"bigm"},
+		"clerk-ledger": {"bigm"},
+		"bigm":         nil,
+	} {
+		env := testEnv(t, caller)
+		writeHold(t, env.DataDir, "H-1", caller, "", map[string]string{"command": "git -C /main status"})
+		out, err := call(t, env, "question_open", map[string]any{"priority": "P0", "subject": "refused", "body": "b", "blocks": "x", "hold": "H-1"})
+		if err != nil {
+			t.Fatalf("%s: %v", caller, err)
+		}
+		q := out.(map[string]any)
+		if _, ok := q["relay_error"]; ok {
+			t.Errorf("%s: relay_error = %v", caller, q["relay_error"])
+		}
+		for _, to := range targets {
+			msgs := mailbox(t, env.DataDir, to)
+			if len(msgs) != 1 || msgs[0].From != caller || msgs[0].Header != q["header"] || msgs[0].Body != q["body"] {
+				t.Errorf("%s: mailbox of %s = %+v, want one message from %s with header %q and body %q", caller, to, msgs, caller, q["header"], q["body"])
+			}
+		}
+		if caller == "bigm" {
+			if msgs := mailbox(t, env.DataDir, "bigm"); len(msgs) != 0 {
+				t.Errorf("bigm: own mailbox = %+v, want none", msgs)
+			}
+		}
+		var stored map[string]any
+		readJSON(t, filepath.Join(env.DataDir, "questions", q["id"].(string)+".json"), &stored)
+		if stored["hold"] != "H-1" {
+			t.Errorf("%s: stored hold = %v, want H-1", caller, stored["hold"])
+		}
+	}
+	env := testEnv(t, "clerk-a-1")
+	if _, err := call(t, env, "question_open", map[string]any{"priority": "P0", "subject": "no hold", "body": "b", "blocks": "x"}); err != nil {
+		t.Fatal(err)
+	}
+	if msgs := append(mailbox(t, env.DataDir, "clanker-a"), mailbox(t, env.DataDir, "bigm")...); len(msgs) != 0 {
+		t.Fatalf("P0 with no hold posted %+v, want nothing", msgs)
+	}
+}
+
 func TestQuestionOpenHoldOtherTool(t *testing.T) {
 	env := testEnv(t, "clerk-a-1")
 	writeHold(t, env.DataDir, "H-2", "clerk-a-1", "", map[string]string{"file_path": "/x/y.sh"})

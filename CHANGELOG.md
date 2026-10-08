@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Fixed
+
+- A refusal P0 is no longer silent while its asker is held (#42): `question_open` with `hold` posts the P0 itself to the mailbox of the parent of the asker and of bigm, and their waiters wake them, so it needs no `SendMessage` nudge. The question file keeps the hold ID in the new field `hold`. On a post error, the output has `relay_error` and the asker sends the nudge itself.
+
 ## [0.12.0] - 2026-10-07
 
 ### Added
