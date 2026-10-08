@@ -362,14 +362,14 @@ What the pane shows, top to bottom:
 - **Done**: one collapsed line below the clankers, for example `▸ Done (3)`. It holds the done and stopped clerks, and each clanker whose own session and clerks are all done or stopped. Nothing is deleted: expand it to see one gray line for each, for example `✓ merge-simplify · done` or `■ tab-close · stopped`.
 - **The open questions**, last: one short line for each open P0 or P1 question, P0 first, for example `P1 merge oter/bruh#29?`. A question is open while no answer file exists for it. Only when two open questions have the same subject, each line shows its number, for example `P1 (98) merge oter/bruh#29?`.
 
-Under each open question, the pane shows one button for each option of the question, or `ok` and `hold` for a refusal P0 without options. A press sends `Q-<id>: <label>` as a prompt into the session that shows the pane, and bigm records it as the answer of the owner. The prompt reaches only that session, so open the board in bigm.
+Under each open question, the pane shows one button for each option of the question, or `ok` and `hold` for a refusal P0 without options, and under them a text box, `write your own answer`. A question without options gets only the text box. A press, or Enter in the text box, puts one mail into the mailbox of bigm, with no prompt in any session: the header `ANSWER Q-<id>: <label>` for a press, or `ANSWER Q-<id>: own words` for the text box alone, and the body lines `QUESTION: Q-<id>`, `PICK: <label>` for a press, and `TEXT: <your text>`. Text that you typed in the box before a press goes with the press. Your text goes word for word, and a blank text sends nothing. The waiter of bigm wakes it, and bigm records the mail as your answer. A toast says `answer sent to bigm`, or `answer not sent:` with the error; then press again. `mail_post` refuses every `ANSWER` to bigm, so no role can send one. Open the board in your own session, usually bigm.
 
 Expand a line to see more, and collapse it again the same way:
 
 - A clanker line expands to its clerks, one line each: the task number and slug, and the state, for example `▸ task 12 fix-poller-wait-lock · working`. A clerk belongs to `clanker-<project>` by its role key `clerk-<project>-<name>`. In `buckets`, the clerks always show under their bars.
 - A clerk line expands to its details: its name, for example `oter/bruh pollerwait (clerk, task 12 fix-poller-wait-lock)`, then `last:`, the text of the last status or result line of its report file, and `next:`, the expected deliverable of its ledger "In progress" row. Each shows only when the data exists.
 
-The lines have no hotkeys. `/bruh-board` gives the pane the keyboard: Tab and the arrows move the focus, and Enter expands, collapses, or answers. Esc gives the keys back to the prompt, and Ctrl+X then Tab takes them again.
+The lines have no hotkeys. `/bruh-board` gives the pane the keyboard: Tab and the arrows move the focus, and Enter expands, collapses, answers, or sends the text box. Esc gives the keys back to the prompt, and Ctrl+X then Tab takes them again.
 
 The pane keeps the expanded state in the store of the mod, one key for each item and `open:done` for the Done group, so the next `/bruh-board` and your other sessions open the same lines. Each line is cut to the width of the pane and never wraps. The board shows no times, no session IDs, no run IDs, and no commit SHAs.
 
@@ -388,7 +388,7 @@ The phase strip of `pipeline` reads one field. A line of the report file of a cl
 
 The project path comes from `repos.json` (the MCP tool `repos_set` writes it), else the project key. The task number of a clerk comes from the ledger "In progress" row that names the clerk in its State column. The slug comes from the worktree folder of the clerk session. With neither, the line shows the name part of the role key, for example `liveui`. A clanker counts the tasks of its ledger rows and of its clerks (the number, else the slug), done ones too, also when the clanker has no session. With no task, it shows `no tasks`.
 
-The board reads `claude agents --json --all` and the bruh data and ledger files. Its only write is the expanded state in its own store. To turn it off, close the pane with its close mark. That stops the refresh, and the board reads nothing until the next `/bruh-board`.
+The board reads `claude agents --json --all` and the bruh data and ledger files. It writes only the expanded state in its own store and one mail to bigm for each answer. To turn it off, close the pane with its close mark. That stops the refresh, and the board reads nothing until the next `/bruh-board`.
 
 ## Documentation
 
