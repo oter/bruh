@@ -356,6 +356,18 @@ test('every answer closes its question, and a reask passes replaces', () => {
   assert.ok(agents.clerk.split('\n### Reask\n')[1].split('\n## ')[0].includes('`replaces` = the old ID'))
 })
 
+// Owner rules R-15 and R-16 (2026-10-08): each owner ask is a question file the board shows, the
+// hook owner-ask.sh is its mechanical stop, and what waits on the owner comes last.
+test('bigm opens each owner ask with question_open first, and reports "Waiting on you" last', () => {
+  const questions = section(agents.bigm, '## Questions')
+  assert.ok(questions.includes('Each ask to the owner goes through `question_open` first (owner rule R-15, 2026-10-08'))
+  assert.ok(questions.includes('The plugin hook `owner-ask.sh` denies every other select of yours.'))
+  assert.ok(questions.includes('show it at once, at the end of your next reply'))
+  assert.ok(section(agents.bigm, '## Remote clankers').includes('open a local copy with `question_open` (R-15)'))
+  assert.ok(section(agents.bigm, '## Status report').includes('1. Report status in three parts, in this order: "Ready for you", "In progress", "Waiting on you" (last; owner rule R-16, 2026-10-08).'))
+  assert.ok(existsSync(join(plugin, 'scripts/owner-ask.sh')))
+})
+
 // Owner rule R-1 (2026-10-03): bigm gathers no project info by hand. Owner words of 2026-10-04:
 // the clanker, the lead of the scout, starts it. bigm asks the clanker and answers from its reply.
 test('bigm asks the clanker, the clanker starts scouts, and a scout reads, reports, and stops', () => {

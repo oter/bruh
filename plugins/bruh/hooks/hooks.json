@@ -1,5 +1,5 @@
 {
-  "description": "bruh hooks: the handoff message, the handoff pickup, the waiter that wakes a role on new mail, and the refusal stop (also after a worktree guard refusal of a git command). Each does nothing when BRUH_ROLE_KEY is not set.",
+  "description": "bruh hooks: the handoff message, the handoff pickup, the waiter that wakes a role on new mail, the refusal stop (also after a worktree guard refusal of a git command), and the owner ask guard of bigm (each AskUserQuestion question names an open question of the board, R-15). Each does nothing when BRUH_ROLE_KEY is not set.",
   "modules": ["./register.js"],
   "hooks": {
     "PostToolUse": [
@@ -39,6 +39,12 @@
       {
         "hooks": [
           { "type": "command", "command": "sh", "args": ["${CLAUDE_PLUGIN_ROOT}/scripts/refusal-stop.sh"] }
+        ]
+      },
+      {
+        "matcher": "AskUserQuestion",
+        "hooks": [
+          { "type": "command", "command": "sh", "args": ["${CLAUDE_PLUGIN_ROOT}/scripts/owner-ask.sh"] }
         ]
       }
     ],

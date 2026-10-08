@@ -40,6 +40,7 @@ flowchart LR
 
 - A local message goes to the durable mailbox of the bruh MCP server. A `SendMessage` nudge carries only its header line.
 - Each question has a priority. A clanker answers P2 questions from the project context. It also answers the P1 classes that you delegate to it in `priorities.md`. The other P1 questions (your decisions) and all P0 questions (blocks that only you can remove) go to bigm, and bigm shows them to you.
+- Each question to you is a question file first, also each ask of bigm itself and each question that bigm relays, so the `/bruh-board` pane shows it with its options as buttons (see "Watch bruh work"). A select of bigm in the terminal is a copy of an open question and names its `Q-<id>`: the hook `owner-ask.sh` blocks every other select of bigm. bigm puts what waits on you last, in its status report ("Ready for you", "In progress", "Waiting on you") and in its replies.
 - On a model with a 1M context window, each role stays below about 55 percent of its context window. A hook tells the role to write its handoff before compaction, and another hook gives the handoff back after compaction.
 - A remote clanker talks to bigm through the Orca remote runtime.
 
@@ -349,15 +350,17 @@ Run `/bruh-board` in a session with bruh, usually bigm. It opens a live pane tha
 
 The pane draws one of three designs, all from the same data. Pick it in `/config`, row `bruh: Board design` (the plugin option `board_design`). The open pane changes at once, with no restart and no new `/bruh-board`.
 
-- `cards` (the default): each open question is a double-bordered card with its answer buttons. Each clanker is a bold card that holds one round card for each clerk. The border colour of a clerk card is its state.
-- `buckets`: for each clanker, a dim line with the project path and the task count, then one bar for each state in soft colours: WAITS ON YOU, BLOCKED, WORKING, and IDLE, in that order, and only the bars with clerks. A question of a clerk sits in the row of that clerk. The other open questions sit under a WAITS ON YOU bar on top.
-- `pipeline`: the open questions on top, as **Waits on you**, then one line for each clanker. An expanded clanker shows a strip for each clerk across the deliver phases `plan`, `implement`, `review`, `fix`, and `merge` (see the phase strip below).
+In each design, what waits on you comes last: the open questions and their answer buttons sit at the bottom, below the clankers, the clerks, and the Done group.
 
-What the pane shows:
+- `cards` (the default): each clanker is a bold card that holds one round card for each clerk. The border colour of a clerk card is its state. Each open question is a double-bordered card with its answer buttons, at the bottom.
+- `buckets`: for each clanker, a dim line with the project path and the task count, then one bar for each state in soft colours: WAITS ON YOU, BLOCKED, WORKING, and IDLE, in that order, and only the bars with clerks. At the bottom, one WAITS ON YOU bar holds every open question, a question of a clerk too.
+- `pipeline`: one line for each clanker, and at the bottom the open questions, as **Waits on you**. An expanded clanker shows a strip for each clerk across the deliver phases `plan`, `implement`, `review`, `fix`, and `merge` (see the phase strip below).
 
-- **The open questions**: one short line for each open P0 or P1 question, P0 first, for example `P1 merge oter/bruh#29?`. A question is open while no answer file exists for it. Only when two open questions have the same subject, each line shows its number, for example `P1 (98) merge oter/bruh#29?`.
+What the pane shows, top to bottom:
+
 - **The clankers**: one collapsed line for each project, with a spinner, the project path, and the task count, for example `▸ oter/bruh · 2 tasks`.
-- **Done**: one collapsed line at the bottom, for example `▸ Done (3)`. It holds the done and stopped clerks, and each clanker whose own session and clerks are all done or stopped. Nothing is deleted: expand it to see one gray line for each, for example `✓ merge-simplify · done` or `■ tab-close · stopped`.
+- **Done**: one collapsed line below the clankers, for example `▸ Done (3)`. It holds the done and stopped clerks, and each clanker whose own session and clerks are all done or stopped. Nothing is deleted: expand it to see one gray line for each, for example `✓ merge-simplify · done` or `■ tab-close · stopped`.
+- **The open questions**, last: one short line for each open P0 or P1 question, P0 first, for example `P1 merge oter/bruh#29?`. A question is open while no answer file exists for it. Only when two open questions have the same subject, each line shows its number, for example `P1 (98) merge oter/bruh#29?`.
 
 Under each open question, the pane shows one button for each option of the question, or `ok` and `hold` for a refusal P0 without options. A press sends `Q-<id>: <label>` as a prompt into the session that shows the pane, and bigm records it as the answer of the owner. The prompt reaches only that session, so open the board in bigm.
 
