@@ -160,16 +160,25 @@ type httpError struct {
 
 func (e *httpError) Error() string { return e.msg }
 
-// rest is a small JSON client for one repository.
+// rest is a small JSON client for one repository. With tea set (a tea login name), each call
+// goes through `tea api --login <tea>` instead of HTTP.
 type rest struct {
 	base, auth string
 	hc         *http.Client
 	last       string
+	tea        string
 }
 
 func (c *rest) LastCall() string { return c.last }
 
 func (c *rest) do(ctx context.Context, method, p string, body, out any) error {
+	if c.tea != "" {
+		data, err := c.teaGet(ctx, method, c.base+p, body)
+		if err != nil || out == nil {
+			return err
+		}
+		return json.Unmarshal(data, out)
+	}
 	var rd io.Reader
 	if body != nil {
 		b, err := json.Marshal(body)
@@ -207,6 +216,75 @@ func (c *rest) do(ctx context.Context, method, p string, body, out any) error {
 		return nil
 	}
 	return json.Unmarshal(data, out)
+}
+
+// teaGet runs `tea api --login <c.tea> --include <u>` outside the repositories and returns its
+// stdout. u is the full https URL, so tea refuses it when its host is not the host of the login.
+// tea exits 0 on an HTTP error, so the status comes from the first line of stderr
+// ("HTTP/1.1 200 OK"); the header lines after it are never read. tea keeps the token.
+func (c *rest) teaGet(ctx context.Context, method, u string, body any) ([]byte, error) {
+	c.last = "tea api --login " + c.tea + " " + u
+	if method != "GET" || body != nil {
+		return nil, fmt.Errorf("%s: only GET with no body goes through tea, not %s", c.last, method)
+	}
+	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+	var stderr bytes.Buffer
+	cmd := exec.CommandContext(ctx, teaBin, "api", "--login", c.tea, "--include", u)
+	cmd.Dir = os.TempDir()
+	cmd.Stderr = &stderr
+	cmd.WaitDelay = time.Second // a child that keeps the output open does not outlast the timeout
+	data, err := cmd.Output()
+	line, _, _ := strings.Cut(stderr.String(), "\n")
+	line = strings.TrimSpace(line)
+	if err != nil {
+		return nil, fmt.Errorf("%s: %s: %w", c.last, line[:min(len(line), 300)], err)
+	}
+	f := strings.Fields(line)
+	code := 0
+	if len(f) >= 2 && strings.HasPrefix(f[0], "HTTP/") {
+		code, _ = strconv.Atoi(f[1])
+	}
+	if code < 100 {
+		return nil, fmt.Errorf("%s: tea gave no HTTP status line", c.last)
+	}
+	if code/100 != 2 {
+		return nil, &httpError{code, fmt.Sprintf("%s: %s: %s", c.last, strings.Join(f[1:], " "), bytes.TrimSpace(data[:min(len(data), 300)]))}
+	}
+	return data, nil
+}
+
+// teaLogin returns the name of the first tea login, in the order of `tea logins list --output
+// json`, whose url has the host host (lower case). It returns "" when tea is missing or fails,
+// or when no login matches. The tea config file is never read.
+func teaLogin(host string) string {
+	ctx, cancel := context.WithTimeout(context.Background(), cliTimeout)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, teaBin, "logins", "list", "--output", "json")
+	cmd.Dir = os.TempDir()
+	cmd.WaitDelay = time.Second
+	out, err := cmd.Output()
+	if err != nil {
+		return ""
+	}
+	return teaLoginFor(out, host)
+}
+
+// teaLoginFor is the match of teaLogin on the output of tea logins list --output json.
+func teaLoginFor(out []byte, host string) string {
+	var logins []struct {
+		Name string `json:"name"`
+		URL  string `json:"url"`
+	}
+	if json.Unmarshal(out, &logins) != nil {
+		return ""
+	}
+	for _, l := range logins {
+		if u, err := url.Parse(l.URL); err == nil && u.Hostname() != "" && strings.ToLower(u.Hostname()) == host {
+			return l.Name
+		}
+	}
+	return ""
 }
 
 // reviewsSince reads the reviews of the open pull requests updated at or after since.
@@ -479,7 +557,8 @@ func envHostKey(host string) string {
 // hostToken returns the token for the api_url of a repository, and sends a token only to the
 // host it belongs to. GitHub: GITHUB_TOKEN, or `gh auth token --hostname`, only for
 // api.github.com or a host listed in BRUH_GITHUB_HOSTS (GitHub Enterprise). Gitea: only
-// BRUH_GITEA_TOKEN_<HOST> of that host. Any other api_url gets no token.
+// BRUH_GITEA_TOKEN_<HOST> of that host, used only when tea has no login for the host (newHost).
+// Any other api_url gets no token.
 func hostToken(r repoConfig) string {
 	u, err := url.Parse(r.APIURL)
 	if err != nil || u.Scheme != "https" {
@@ -512,19 +591,24 @@ func hostToken(r repoConfig) string {
 	return ""
 }
 
-// newHost builds the client of one repository.
+// newHost builds the client of one repository. A Gitea repository goes through `tea api` when tea
+// has a login for the host of api_url; else it uses hostToken, or no token.
 func newHost(r repoConfig) (codeHost, error) {
 	c := rest{base: r.APIURL + "/repos/" + r.Repo, hc: hostHTTP}
-	tok := hostToken(r)
 	switch r.Host {
 	case "github":
-		if tok != "" {
+		if tok := hostToken(r); tok != "" {
 			c.auth = "Bearer " + tok
 		}
 		return &github{c}, nil
 	case "gitea":
-		if tok != "" {
-			c.auth = "token " + tok
+		if u, err := url.Parse(r.APIURL); err == nil && u.Scheme == "https" {
+			c.tea = teaLogin(strings.ToLower(u.Hostname()))
+		}
+		if c.tea == "" {
+			if tok := hostToken(r); tok != "" {
+				c.auth = "token " + tok
+			}
 		}
 		return &gitea{c}, nil
 	case "gitlab":
@@ -541,7 +625,7 @@ func reposTools() []Tool {
 	str := stringSchema()
 	return []Tool{{
 		Name:        "repos_set",
-		Description: "Add, replace, or remove (remove: true) one repository in <data>/repos.json, the code host configuration of the watcher. Only bigm. project is the project key of the clanker of the repository ([a-z0-9-]) and is required except with remove: true. A repo that is already configured with another api_url must be removed first. api_url must be https. Tokens are never stored: GitHub uses GITHUB_TOKEN or gh only for api.github.com and the hosts of BRUH_GITHUB_HOSTS; Gitea uses BRUH_GITEA_TOKEN_<HOST>; GitLab uses `glab api --hostname`, and no token passes through bruh.",
+		Description: "Add, replace, or remove (remove: true) one repository in <data>/repos.json, the code host configuration of the watcher. Only bigm. project is the project key of the clanker of the repository ([a-z0-9-]) and is required except with remove: true. A repo that is already configured with another api_url must be removed first. api_url must be https. Tokens are never stored: GitHub uses GITHUB_TOKEN or gh only for api.github.com and the hosts of BRUH_GITHUB_HOSTS; Gitea uses `tea api --login` when tea has a login for the host, else BRUH_GITEA_TOKEN_<HOST>; GitLab uses `glab api --hostname`, and no token passes through bruh.",
 		InputSchema: objectSchema(map[string]any{
 			"repo": str, "host": map[string]any{"type": "string", "enum": []string{"github", "gitlab", "gitea"}}, "api_url": str,
 			"project": str, "remove": map[string]any{"type": "boolean"},
