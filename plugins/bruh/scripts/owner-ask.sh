@@ -1,6 +1,6 @@
 #!/bin/sh
 # Hook for PreToolUse (AskUserQuestion): each ask of bigm to the owner shows on the /bruh-board
-# pane with its buttons (owner rule R-15, spec 9.4). A select of bigm passes only when the text of
+# pane with its buttons (owner rule R-15, spec 3.4). A select of bigm passes only when the text of
 # each of its questions names an open question that the board shows: a questions/<id>.json with
 # the priority P0 or P1 and no answers/*/<id>.answer. It reads exact values only: the tokens of the
 # question ID pattern (qidPattern of mcp/env.go, copied word for word) and the files. It never
