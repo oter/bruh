@@ -41,8 +41,8 @@ function world(stored: Record<string, unknown> = {}) {
     { name: 'bigm', pid: 15, status: 'busy', startedAt: 8, cwd: '/w' },
   ]
   const store = new Map<string, unknown>(Object.entries(stored))
-  const fail = { write: '' } // a deny reason makes $.fs.write fail
-  const calls = { run: 0, opened: [] as string[], registered: [] as string[], writes: [] as string[], sent: [] as string[], mail: [] as { path: string, text: string }[], toasts: [] as string[] }
+  const fail = { write: '', mv: '' } // a deny reason makes $.fs.write fail; a reason makes mv exit 1
+  const calls = { run: 0, opened: [] as string[], registered: [] as string[], writes: [] as string[], sent: [] as string[], mail: [] as { path: string, text: string }[], moves: [] as string[][], toasts: [] as string[] }
   const stub = (on: On) => {
     mock.env(on, { HOME: '/h' })
     on('fs.read', ($, e) => (e.path in files ? { value: files[e.path] } : { deny: `ENOENT ${e.path}` }))
@@ -58,6 +58,15 @@ function world(stored: Record<string, unknown> = {}) {
         : { deny: `ENOENT ${e.path}` }
     })
     on('process.run', ($, e) => {
+      // The rename of a mail: mv -f <tmp> <final>, two paths and no body.
+      if (e.argv[0] === 'mv') {
+        calls.moves.push([...e.argv])
+        const [, , from, to] = e.argv
+        if (fail.mv || !(from in files)) return { value: { exitCode: 1, stdout: '', stderr: `mv: ${fail.mv || 'ENOENT'}`, isStdoutTruncated: false, isStderrTruncated: false } }
+        files[to] = files[from]
+        delete files[from]
+        return { value: { exitCode: 0, stdout: '', stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
+      }
       calls.run += 1
       expect(e.argv).toEqual(['claude', 'agents', '--json', '--all'])
       return { value: { exitCode: 0, stdout: JSON.stringify(sessions), stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
@@ -376,13 +385,19 @@ function withAnswers(w: ReturnType<typeof world>) {
 }
 
 // The mails the board wrote: each one file <data>/mail/bigm/<id>.json in the
-// format of mcp/mail.go writeMail, its id and at from the mock clock.
+// format of mcp/mail.go writeMail, its id and at from the mock clock. Like
+// atomicWrite, the board writes <id>.json.tmp, which the waiter and mail_read
+// skip, and renames it: no *.json is ever written in place.
 const NOW = Date.parse('2026-10-05T16:30:00Z')
-const mails = (w: ReturnType<typeof world>) => w.calls.mail.map(m => {
+const mails = (w: ReturnType<typeof world>) => w.calls.mail.map((m, i) => {
   const msg = JSON.parse(m.text)
   expect(Object.keys(msg)).toEqual(['id', 'from', 'to', 'header', 'body', 'at'])
   expect(msg.id).toMatch(new RegExp(`^${String(NOW).padStart(15, '0')}-\\d{6}-[a-z0-9]{8}$`))
-  expect(m.path).toBe(`${D}/mail/bigm/${msg.id}.json`)
+  const path = `${D}/mail/bigm/${msg.id}.json`
+  expect(m.path).toBe(`${path}.tmp`)
+  expect(w.calls.moves[i]).toEqual(['mv', '-f', `${path}.tmp`, path])
+  expect(w.files[path]).toBe(m.text)
+  expect(`${path}.tmp` in w.files).toBe(false)
   expect(msg.at).toBe('2026-10-05T16:30:00.000Z')
   return { from: msg.from, to: msg.to, header: msg.header, body: msg.body }
 })
@@ -469,8 +484,22 @@ test('a failed mail write says so in a toast and is not retried', async ($, on) 
   const ui = await mount($)
   await ui.press({ key: 'answer-Q-bruh-m-98-1' })
   expect(w.calls.mail).toHaveLength(1)
+  expect(w.calls.moves).toEqual([]) // nothing to rename
   expect(w.calls.toasts).toHaveLength(1)
   expect(w.calls.toasts[0]).toMatch(/^answer not sent: /)
+  expect(w.calls.sent).toEqual([])
+})
+
+test('a failed rename leaves no *.json in the mailbox, says so in a toast and is not retried', async ($, on) => {
+  const w = withAnswers(world(ALL_OPEN))
+  w.stub(on)
+  w.fail.mv = 'EXDEV'
+  await $.command.run({ command: 'bruh-board' })
+  const ui = await mount($)
+  await ui.press({ key: 'answer-Q-bruh-m-98-1' })
+  expect(w.calls.moves).toHaveLength(1)
+  expect(Object.keys(w.files).filter(f => f.startsWith(`${D}/mail/bigm/`) && f.endsWith('.json'))).toEqual([])
+  expect(w.calls.toasts).toEqual(['answer not sent: mv: EXDEV'])
   expect(w.calls.sent).toEqual([])
 })
 

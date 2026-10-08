@@ -137,8 +137,9 @@ let mailSeq = 0
 // One answer of the owner as one mail to bigm, in the format of mcp/mail.go writeMail:
 // <data>/mail/bigm/<id>.json, the id sorts by time. The body has closed lines; the
 // text goes in word for word and is never judged by its wording. A blank text sends nothing.
-// ponytail: $.fs.write is not atomic (the plugin API has no rename), so mail_read could
-// read a half-written file; the write is one small JSON, so the window is tiny.
+// Atomic like writeMail's atomicWrite: the plugin API has no rename, so the board writes
+// <id>.json.tmp (the waiter and mail_read take only *.json) and renames it with mv, one
+// rename(2) in one folder. The argv holds two paths, never the body.
 async function postAnswer($, q, { label, text = drafts.get(q.id) ?? '' }) {
   const hasText = text.trim() !== ''
   if (label === undefined && !hasText) return
@@ -146,8 +147,11 @@ async function postAnswer($, q, { label, text = drafts.get(q.id) ?? '' }) {
   const id = `${String(now).padStart(15, '0')}-${String(++mailSeq % 1e6).padStart(6, '0')}-${crypto.randomUUID().replace(/-/g, '').slice(0, 8)}`
   const body = [`QUESTION: ${q.id}`, label !== undefined && `PICK: ${label}`, hasText && `TEXT: ${text}`].filter(Boolean).join('\n')
   const msg = { id, from: 'bigm', to: 'bigm', header: `ANSWER ${q.id}: ${label?.trim() || 'own words'}`, body, at: new Date(now).toISOString() }
+  const path = `${dataDir}/mail/bigm/${id}.json`
   try {
-    await $.fs.write(`${dataDir}/mail/bigm/${id}.json`, JSON.stringify(msg))
+    await $.fs.write(`${path}.tmp`, JSON.stringify(msg))
+    const moved = await $.process.run(['mv', '-f', `${path}.tmp`, path], { timeoutMs: 5000 })
+    if (moved.exitCode !== 0) throw new Error(moved.stderr.trim() || `mv exit ${moved.exitCode}`)
   } catch (err) {
     await $.ui.toast(`answer not sent: ${err?.message ?? err}`)
     return
