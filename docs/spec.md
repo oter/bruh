@@ -293,7 +293,7 @@ Agent-derived, accepted 2026-09-30.
 - The header line is one of these. `<id>` is a question ID, `Q-<project>-<host>-<n>` (below).
   - `P0 <id>: <subject>`, `P1 <id>: <subject>`, `P2 <id>: <subject>`
   - `ANSWER <id>: <subject>`
-    - An `ANSWER` in the mailbox of bigm is the answer of the owner on the `/bruh-board` pane, with the subject `<label>` for a press or `own words` for the text box alone, and the body lines `QUESTION:`, `PICK:`, and `TEXT:` (section 9.4). Owner decision 2026-10-08 (a quiet mail, no prompt). Only the board writes it: `mail_post` refuses every `ANSWER` to `bigm`, from bigm too (`mailAllowed` in `mcp/mail.go`). The reuse of the header and the refusal: agent-derived, needs owner decision.
+    - An `ANSWER` in the mailbox of bigm is the answer of the owner on the `/bruh-board` pane, with the subject `<label>` for a press or `own words` for the text box alone, and the body lines `QUESTION:`, `PICK:`, and `TEXT:` (section 9.4). Owner decision 2026-10-08 (a quiet mail, no prompt). `mail_post` refuses every `ANSWER` to `bigm`, from bigm too (`mailAllowed` in `mcp/mail.go`); like the other sender rules, it is a speed bump (section 9.4). The reuse of the header and the refusal: agent-derived, needs owner decision.
   - `REC <id>: <subject>`: a recommendation, not an owner answer.
   - `RULE <rule id>: <subject>`: a new standing rule for all sessions (section 9.3).
   - `DONE: <subject>`
