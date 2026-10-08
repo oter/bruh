@@ -8,9 +8,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [0.12.1] - 2026-10-08
 
+### Added
+
+- Every question to the owner shows on the `/bruh-board` pane with its buttons (owner rule R-15). bigm opens each own ask with `question_open` first, and a local copy of each question of a remote clanker. A new plugin hook `owner-ask.sh` (`PreToolUse`, matcher `AskUserQuestion`) blocks a select of bigm unless the text of each of its questions names the `Q-<id>` of an open P0 or P1 question file with no answer file. Other roles pass.
+
 ### Changed
 
 - The test suites are trimmed and grouped (task 33 test audit, [#41](https://github.com/oter/bruh/pull/41)): tests that checked nothing new are cut or folded into the tests that keep their checks, row tests are merged into tables that report every failing row, and five untested branches now have a test (the `handoff_percent` range, the slash rule of `lane.sh`, the empty default branch name, the empty-list guard of `remove_scratch`, and the tool names of the agents against the MCP server). Go `plugins/bruh/mcp` top-level tests 264 -> 241, node tests 168 -> 132, `tests/test.sh` 171 -> 91, all passing with 0 skipped. No production code changed.
+- The `/bruh-board` pane draws what waits on the owner last (owner rule R-16): the open questions and their answer buttons sit below the clankers, the clerks, and the Done group in `cards`, `buckets`, and `pipeline`. `buckets` shows every open question under one WAITS ON YOU bar at the bottom, and no question inside the row of its clerk any more.
+- bigm reports status in the order "Ready for you", "In progress", "Waiting on you", and shows a new P0 at the end of its next reply, not at the top (owner rule R-16).
 
 ## [0.12.0] - 2026-10-07
 

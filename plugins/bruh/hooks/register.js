@@ -1,6 +1,7 @@
-// The bruh board: /bruh-board opens a pane with the open P0 and P1 questions,
-// the role sessions by project (clankers, their clerks, a clerk's last done
-// and next step), and a collapsed Done group of the done and stopped ones.
+// The bruh board: /bruh-board opens a pane with the role sessions by project
+// (clankers, their clerks, a clerk's last done and next step), a collapsed
+// Done group of the done and stopped ones, and at the bottom the open P0 and
+// P1 questions with their answer buttons: what waits on the owner (R-16).
 // It reads the bruh data folder, the ledger "In progress" rows and
 // `claude agents --json --all`. Its one write is the expanded state: one
 // `open:<role key>` key per item (`open:done` for the Done group) in its own
@@ -355,11 +356,10 @@ export const register = (on, options) => {
     ]
     const card = (key, style, color, children) => h(Box, { key: `card-${key}`, flexDirection: 'column', borderStyle: style, borderColor: color, paddingX: 1 }, ...children)
 
-    // Design 8: every item is a card, a border (and its padding) costs 4 columns.
+    // Design 8: every item is a card, a border (and its padding) costs 4 columns. The question cards come last (R-16).
     const cards = () => {
       const inner = cols - 4
-      const out = board.questions.map(q => card(q.id, 'double', q.priority === 'P0' ? 'red' : 'yellow', ask(q, '', inner)))
-      out.push(...notes())
+      const out = notes()
       for (const clanker of board.clankers) {
         const body = [toggleLine(clanker, 'clanker', '', `${clanker.path} · ${count(clanker)}`, inner)]
         if (expanded.get(clanker.key)) {
@@ -372,17 +372,14 @@ export const register = (on, options) => {
         out.push(card(clanker.key, 'bold', 'gray', body))
       }
       out.push(card('done', 'dashed', 'gray', doneGroup(inner)))
+      out.push(...board.questions.map(q => card(q.id, 'double', q.priority === 'P0' ? 'red' : 'yellow', ask(q, '', inner))))
       return out
     }
 
-    // Design 5: per clanker a bar per state, most urgent first; a clerk's question sits in its row.
+    // Design 5: per clanker a bar per state, most urgent first; then the Done bar, and last one bar with every open question (R-16).
     const buckets = () => {
       const bar = (key, state, title) => line({ key: `bar-${key}`, backgroundColor: SOFT[state], color: BAR_TEXT, bold: true }, ` ${title}`.padEnd(cols))
-      const shown = new Set(board.clankers.flatMap(c => c.clerks.map(k => k.key)))
-      const loose = board.questions.filter(q => !shown.has(q.asker))
-      const out = []
-      if (loose.length) out.push(bar('questions', 'owner', `${BARS.owner}  ${loose.length}`), ...loose.flatMap(q => ask(q, ' ', cols)))
-      out.push(...notes())
+      const out = notes()
       for (const clanker of board.clankers) {
         out.push(line({ key: `crumb-${clanker.key}`, dimColor: true }, `${clanker.path} · ${count(clanker)}`))
         for (const state of Object.keys(BARS)) {
@@ -391,12 +388,12 @@ export const register = (on, options) => {
           out.push(bar(`${clanker.key}-${state}`, state, `${BARS[state]}  ${rows.length}`))
           for (const clerk of rows) {
             out.push(toggleLine(clerk, 'clerk', ' ', clerk.name, cols))
-            out.push(...board.questions.filter(q => q.asker === clerk.key).flatMap(q => ask(q, '    ', cols)))
             if (expanded.get(clerk.key)) out.push(...details(clerk, '    ', cols))
           }
         }
       }
       out.push(h(Box, { key: 'bar-done', backgroundColor: SOFT.done, flexDirection: 'column' }, ...doneGroup(cols)))
+      if (board.questions.length) out.push(bar('questions', 'owner', `${BARS.owner}  ${board.questions.length}`), ...board.questions.flatMap(q => ask(q, ' ', cols)))
       return out
     }
 
@@ -433,10 +430,7 @@ export const register = (on, options) => {
         h(Box, { width: name }, head),
         h(Box, { key: `strip-${item.key}`, flexDirection: 'row' },
           ...cut(strip(item), cols - 2 - name).map(cell => h(Text, { wrap: 'truncate-end', ...(cell.color && { color: cell.color }), ...(cell.dim && { dimColor: true }) }, cell.text))))
-      const out = [line({ bold: true }, 'Waits on you')]
-      if (board.questions.length === 0) out.push(line({ dimColor: true }, 'nothing waits on you'))
-      out.push(...board.questions.flatMap(q => ask(q, '', cols)), ...notes())
-      if (board.clankers.length) out.push(line({}, ' '))
+      const out = notes()
       for (const clanker of board.clankers) {
         out.push(toggleLine(clanker, 'clanker', '', `${clanker.path} · ${count(clanker)}`, cols))
         if (!expanded.get(clanker.key)) continue
@@ -447,6 +441,10 @@ export const register = (on, options) => {
         }
       }
       out.push(line({}, ' '), ...doneGroup(cols, d => row(`done-${d.key}`, h(Text, { wrap: 'truncate-end', color: 'gray' }, fit(d.label, name - 1)), d)))
+      // What waits on the owner comes last (R-16).
+      out.push(line({}, ' '), line({ bold: true }, 'Waits on you'))
+      if (board.questions.length === 0) out.push(line({ dimColor: true }, 'nothing waits on you'))
+      out.push(...board.questions.flatMap(q => ask(q, '', cols)))
       return out
     }
 

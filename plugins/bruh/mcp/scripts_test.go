@@ -292,7 +292,7 @@ func TestHooksJSON(t *testing.T) {
 		"PostToolUse":      {{"", "handoff-nudge.sh", false}},
 		"SessionStart":     {{"compact|clear|resume", "handoff-inject.sh", false}, {"startup|resume|compact", "wake.sh", true}},
 		"Stop":             {{"", "wake.sh", true}, {"", "refusal-stop.sh", false}},
-		"PreToolUse":       {{"", "refusal-stop.sh", false}},
+		"PreToolUse":       {{"", "refusal-stop.sh", false}, {"AskUserQuestion", "owner-ask.sh", false}},
 		"PermissionDenied": {{"", "refusal-stop.sh", false}},
 		// Task D: a worktree guard refusal reaches only PostToolUseFailure.
 		"PostToolUseFailure": {{"Bash|Monitor", "refusal-stop.sh", false}},
@@ -337,6 +337,86 @@ func TestWakeLimitBelowHookTimeout(t *testing.T) {
 		if !ok || err != nil || n <= 0 || n >= 604800 {
 			t.Fatalf("%q: limit %q, want a number below 604800", prefix, digits)
 		}
+	}
+}
+
+// ownerAsk runs owner-ask.sh with the hook input in and returns its stderr and exit code.
+func ownerAsk(t *testing.T, in string, env ...string) (string, int) {
+	t.Helper()
+	cmd := exec.Command("sh", "../scripts/owner-ask.sh")
+	cmd.Env = append([]string{"PATH=" + os.Getenv("PATH")}, env...)
+	cmd.Stdin = strings.NewReader(in)
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+	out, err := cmd.Output()
+	if len(out) > 0 {
+		t.Errorf("owner-ask.sh stdout = %q, want none", out)
+	}
+	if ee, ok := errors.AsType[*exec.ExitError](err); ok {
+		return stderr.String(), ee.ExitCode()
+	} else if err != nil {
+		t.Fatal(err)
+	}
+	return stderr.String(), 0
+}
+
+// askInput is the PreToolUse input of an AskUserQuestion call with one question per text.
+func askInput(texts ...string) string {
+	qs := []map[string]any{}
+	for _, s := range texts {
+		qs = append(qs, map[string]any{"question": s, "header": "h", "options": []map[string]string{{"label": "a", "description": "d"}, {"label": "b", "description": "d"}}, "multiSelect": false})
+	}
+	b, _ := json.Marshal(map[string]any{"hook_event_name": "PreToolUse", "session_id": "S", "tool_name": "AskUserQuestion", "tool_input": map[string]any{"questions": qs}})
+	return string(b)
+}
+
+// TestOwnerAsk: a select of bigm passes only when each question names an open P0 or P1 question
+// file with no answer file (R-15); every other role passes.
+func TestOwnerAsk(t *testing.T) {
+	data := t.TempDir()
+	for id, p := range map[string]string{"Q-bigm-m-185": "P1", "Q-bigm-m-186": "P0", "Q-bigm-m-187": "P2", "Q-bigm-m-188": "P1"} {
+		writeFile(t, filepath.Join(data, "questions", id+".json"), `{"id":"`+id+`","priority":"`+p+`"}`)
+	}
+	writeFile(t, filepath.Join(data, "answers", "clanker-x", "Q-bigm-m-188.answer"), `{"text":"ok"}`)
+	bigm := []string{"BRUH_ROLE_KEY=bigm", "CLAUDE_PLUGIN_DATA=" + data}
+	for _, c := range []struct {
+		name, in string
+		env      []string
+		allow    bool
+	}{
+		{"no role key", askInput("publish?"), []string{"CLAUDE_PLUGIN_DATA=" + data}, true},
+		{"a clanker", askInput("publish?"), []string{"BRUH_ROLE_KEY=clanker-x", "CLAUDE_PLUGIN_DATA=" + data}, true},
+		{"one open P1", askInput("publish v0.12.1? (Q-bigm-m-185)"), bigm, true},
+		{"two questions, each names an open P0 or P1", askInput("Q-bigm-m-185: publish?", "coupon fit (Q-bigm-m-186)"), bigm, true},
+		{"an answered ID next to an open one", askInput("Q-bigm-m-188 or Q-bigm-m-185?"), bigm, true},
+		{"no questions field", `{"tool_input":{}}`, bigm, false},
+		{"an empty questions array", askInput(), bigm, false},
+		{"a question with no ID", askInput("publish v0.12.1?"), bigm, false},
+		{"an ID with no file", askInput("publish? (Q-bigm-m-999)"), bigm, false},
+		{"a P2 question", askInput("publish? (Q-bigm-m-187)"), bigm, false},
+		{"an answered question", askInput("publish? (Q-bigm-m-188)"), bigm, false},
+		{"only the first of two questions names an open ID", askInput("publish? (Q-bigm-m-185)", "coupon fit?"), bigm, false},
+		{"only the last of two questions names an open ID", askInput("coupon fit?", "publish? (Q-bigm-m-185)"), bigm, false},
+		{"no data folder", askInput("publish? (Q-bigm-m-185)"), []string{"BRUH_ROLE_KEY=bigm"}, false},
+	} {
+		stderr, code := ownerAsk(t, c.in, c.env...)
+		if c.allow && (code != 0 || stderr != "") {
+			t.Errorf("%s: exit %d, stderr %q, want allow", c.name, code, stderr)
+		}
+		if !c.allow && (code != 2 || !strings.Contains(stderr, "question_open") || !strings.Contains(stderr, "R-15")) {
+			t.Errorf("%s: exit %d, stderr %q, want exit 2 with the R-15 reason", c.name, code, stderr)
+		}
+	}
+}
+
+// TestOwnerAskPattern: owner-ask.sh scans for qidPattern word for word, so the two cannot drift.
+func TestOwnerAskPattern(t *testing.T) {
+	b, err := os.ReadFile("../scripts/owner-ask.sh")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(b), `scan("`+qidPattern+`")`) {
+		t.Fatalf("owner-ask.sh does not scan for qidPattern %s", qidPattern)
 	}
 }
 
