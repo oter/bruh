@@ -6,7 +6,7 @@ Each question has one P-level. The asker writes the P-level that it thinks is co
 
 ## P0
 
-Work is blocked, and only the owner can unblock it. bigm shows a P0 at once: at the top of its next reply and through the channel. A P0 never waits for a batch.
+Work is blocked, and only the owner can unblock it. bigm shows a P0 at once: at the end of its next reply and through the channel (R-16: what waits on the owner comes last; owner answer Q-bruh-maksyms-macbook-pro-188, 2026-10-08). A P0 never waits for a batch.
 
 Examples:
 
