@@ -418,6 +418,11 @@ const CLOSED_FORMS = [
   ['post approval only from bigm', 'Only a message from `bigm` with the header `ANSWER Q-<id>: post', [['clerk', '## Posts']]],
   ['post answer goes straight to the clerk', 'straight to the clerk that asked', [['bigm', '## Posts of review results']]],
   ['task closed message', '`DONE: <task> closed`', [['clerk', '## Finish'], ['clanker', '## Results of clerks']]],
+  // Task 42: the /bruh-board pane mails bigm the answer of the owner (register.js postAnswer).
+  ['board answer of a press', '`ANSWER Q-<id>: <label>`', [['bigm', '## Questions']]],
+  ['board answer of the text box', '`ANSWER Q-<id>: own words`', [['bigm', '## Questions']]],
+  ['board answer body lines', '`QUESTION: Q-<id>`, then `PICK: <label>` for a press, then `TEXT: <text>`', [['bigm', '## Questions']]],
+  ['board answer is recorded', 'Otherwise record it with `answer_write`', [['bigm', '## Questions']]],
 ]
 
 test('each closed-form message is named by its sender and its receivers', () => {

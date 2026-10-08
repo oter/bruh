@@ -6,6 +6,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Added
+
+- Each open question on the `/bruh-board` pane has a text box, `write your own answer`, under its buttons; a question without options gets only the text box. Enter sends the text of the owner to bigm word for word, and text in the box goes with a later press of a button of that question (task 42).
+
+### Changed
+
+- A press of an answer button on `/bruh-board` no longer submits a prompt into the session. It puts one quiet mail into the mailbox of bigm, `ANSWER Q-<id>: <label>` (or `ANSWER Q-<id>: own words` for the text box), with the body lines `QUESTION:`, `PICK:`, and `TEXT:`, and the waiter of bigm wakes it. bigm records the answer with `answer_write` and relays it as before. A toast says whether the mail was sent (task 42).
+- `mail_post` refuses every `ANSWER` to `bigm`, also from bigm, so an `ANSWER` in the mailbox of bigm comes only from the board (task 42).
+
 ### Fixed
 
 - The watcher reads a private Gitea repository through `tea api --login <login>` when `tea logins list` has a login for the host of `api_url`, so a host with a tea login no longer gets 403 "Only signed in user is allowed to call APIs.". No token passes through bruh. Without such a login, `BRUH_GITEA_TOKEN_<HOST>` works as before, else the call has no token.
