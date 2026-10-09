@@ -491,3 +491,11 @@ test('the routing eval driver: dry run and compare rule', async () => {
     rmSync(tmp, { recursive: true, force: true })
   }
 })
+
+// Task 41 part 2 (Q-207): a deny of git-chain.sh is no refusal, so a rule-following agent opens no P0 for it.
+test('house rule 8 and clerk rule 3 exempt the git-chain deny from escalation', () => {
+  const rule = (text, n) => text.split('\n').find((l) => l.startsWith(`${n}. A refusal`))
+  for (const line of [rule(read(join(plugin, 'defaults', 'house-rules.md')), 8), rule(agents.clerk, 3)]) {
+    assert.ok(line.includes('`git-chain.sh`') && line.includes('open no question'), line)
+  }
+})

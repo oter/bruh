@@ -40,6 +40,7 @@ flowchart LR
 
 - A local message goes to the durable mailbox of the bruh MCP server. A `SendMessage` nudge carries only its header line.
 - A refusal P0 needs no nudge: the MCP server posts it straight to the mailbox of the parent of the asker and of bigm, and their waiters wake them.
+- In a clerk session, the hook `git-chain.sh` denies a Bash command that chains git with `;`, `&&`, `||`, `|`, or `cd`, and tells the agent to run each part alone and go on. It sets no hold and opens no question.
 - An agent that waits with `answer_wait` gets the answer that any role wrote for its question ID: its clerk, its clanker, or bigm.
 - Each question has a priority. A clanker answers P2 questions from the project context. It also answers the P1 classes that you delegate to it in `priorities.md`. The other P1 questions (your decisions) and all P0 questions (blocks that only you can remove) go to bigm, and bigm shows them to you.
 - Each question to you is a question file first, also each ask of bigm itself and each question that bigm relays, so the `/bruh-board` pane shows it with its options as buttons (see "Watch bruh work"). A select of bigm in the terminal is a copy of an open question and names its `Q-<id>`: the hook `owner-ask.sh` blocks every other select of bigm. bigm puts what waits on you last, in its status report ("Ready for you", "In progress", "Waiting on you") and in its replies.

@@ -292,7 +292,7 @@ func TestHooksJSON(t *testing.T) {
 		"PostToolUse":      {{"", "handoff-nudge.sh", false}},
 		"SessionStart":     {{"compact|clear|resume", "handoff-inject.sh", false}, {"startup|resume|compact", "wake.sh", true}},
 		"Stop":             {{"", "wake.sh", true}, {"", "refusal-stop.sh", false}},
-		"PreToolUse":       {{"", "refusal-stop.sh", false}, {"AskUserQuestion", "owner-ask.sh", false}},
+		"PreToolUse":       {{"", "refusal-stop.sh", false}, {"AskUserQuestion", "owner-ask.sh", false}, {"Bash", "git-chain.sh", false}},
 		"PermissionDenied": {{"", "refusal-stop.sh", false}},
 		// Task D: a worktree guard refusal reaches only PostToolUseFailure.
 		"PostToolUseFailure": {{"Bash|Monitor", "refusal-stop.sh", false}},
@@ -807,6 +807,102 @@ func TestRefusalHoldLargeInput(t *testing.T) {
 	refusal(t, data, write("PermissionDenied"), "BRUH_ROLE_KEY=bigm")
 	if denyReason(t, refusal(t, data, write("PreToolUse"), "BRUH_ROLE_KEY=bigm")) == "" {
 		t.Fatal("large held call of bigm allowed")
+	}
+}
+
+// gitChain runs git-chain.sh with the PreToolUse input of a Bash call and returns its output.
+func gitChain(t *testing.T, command string, env ...string) string {
+	t.Helper()
+	b, _ := json.Marshal(preTool("S", "Bash", command, ""))
+	out, code := runScript(t, "git-chain.sh", string(b), env...)
+	if code != 0 {
+		t.Fatalf("git-chain.sh %q: exit %d, want 0; output %q", command, code, out)
+	}
+	return out
+}
+
+// TestGitChain (task 41 part 2, Q-207): in a clerk session, a Bash command with the word git
+// together with ;, &&, ||, |, a line break, or cd is denied; every other command passes.
+func TestGitChain(t *testing.T) {
+	clerk := "BRUH_ROLE_KEY=clerk-bruh-x"
+	for _, c := range []string{
+		"go test ./... && git rev-parse HEAD",
+		"git status; git log",
+		"git fetch || true",
+		"git log | head",
+		"cd /wt && git status",
+		"cd /wt; git status",
+		"git add a\ngit commit -m x",
+		`find . -name '*.go' -not -path '*/.git/*' | wc -l`,
+		`git log --format='%H|%s'`,
+		"cd /w/no-git-freeze && go test ./...",
+	} {
+		if r := denyReason(t, gitChain(t, c, clerk)); r == "" {
+			t.Errorf("%q allowed, want deny", c)
+		}
+	}
+	for _, c := range []string{
+		"git rev-parse HEAD",
+		"git -C /wt status",
+		"git log 2>&1",
+		"find . -path ./.git -prune -o -print",
+		"ls .github && grep -rn digit .gitignore",
+		"echo abcd; ls",
+		// The gate commands of this repository (.github/workflows/ci.yml).
+		"cd plugins/bruh/mcp && go test ./...",
+		"cd plugins/bruh/mcp && go vet ./...",
+		`cd plugins/bruh/mcp && test -z "$(gofmt -l .)"`,
+		"cd plugins/bruh/channels/slack && go test ./...",
+		"sh tests/test.sh",
+		"node --test plugins/bruh/agents/agents_test.mjs plugins/bruh/workflows/deliver.test.mjs plugins/bruh/workflows/implement.test.mjs",
+		"shellcheck plugins/bruh/scripts/git-chain.sh",
+	} {
+		if out := gitChain(t, c, clerk); out != "" {
+			t.Errorf("%q denied: %q", c, out)
+		}
+	}
+	deny := "go test ./... && git rev-parse HEAD"
+	for _, env := range [][]string{nil, {"BRUH_ROLE_KEY=bigm"}, {"BRUH_ROLE_KEY=clanker-bruh"}} {
+		if out := gitChain(t, deny, env...); out != "" {
+			t.Errorf("env %v: denied %q", env, out)
+		}
+	}
+	if denyReason(t, gitChain(t, deny, "BRUH_ROLE_KEY=clerk-bruh-scout1")) == "" {
+		t.Error("scout clerk allowed")
+	}
+	var m map[string]map[string]any
+	if err := json.Unmarshal([]byte(gitChain(t, deny, clerk)), &m); err != nil || len(m) != 1 || len(m["hookSpecificOutput"]) != 3 {
+		t.Fatalf("deny output = %v (%v), want only hookSpecificOutput with 3 fields", m, err)
+	}
+}
+
+// TestGitChainNoHold: the deny of git-chain.sh never starts the refusal path. refusal-stop.sh,
+// which runs on the same PreToolUse call, writes no hold, opens no question, blocks no Stop, and
+// lets the next call pass; the deny text says that it is no refusal and to go on.
+func TestGitChainNoHold(t *testing.T) {
+	data := t.TempDir()
+	key := "BRUH_ROLE_KEY=clerk-bruh-x"
+	cmd := "go test ./... && git rev-parse HEAD"
+	r := denyReason(t, gitChain(t, cmd, key, "CLAUDE_PLUGIN_DATA="+data))
+	for _, p := range []string{"not a refusal", "run each part alone", "go on", "do not open a question"} {
+		if !strings.Contains(r, p) {
+			t.Errorf("deny reason %q lacks %q", r, p)
+		}
+	}
+	if out := refusal(t, data, preTool("S", "Bash", cmd, ""), key); out != "" {
+		t.Fatalf("refusal-stop.sh on the same call: %q", out)
+	}
+	if h := holdFiles(t, data); len(h) != 0 {
+		t.Fatalf("holds = %v, want none", h)
+	}
+	if _, err := os.Stat(filepath.Join(data, "questions")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("questions folder: %v, want none", err)
+	}
+	if out := refusal(t, data, map[string]any{"hook_event_name": "Stop", "session_id": "S", "stop_hook_active": false}, key); out != "" {
+		t.Fatalf("Stop blocked: %q", out)
+	}
+	if out := refusal(t, data, preTool("S", "Bash", "go test ./...", ""), key); out != "" {
+		t.Fatalf("next call denied: %q", out)
 	}
 }
 
