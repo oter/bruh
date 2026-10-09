@@ -249,6 +249,16 @@ test('the clanker merges with the head SHA and confirms at the API', () => {
 })
 
 // Final review M4 and build spec A29.4: a question is the pair of its asker and its ID.
+// Task 51 (owner rule R-19): bigm writes no file by hand, so each ledger change of its procedure
+// names a ledger_edit action and no step has a hand commit.
+test('bigm changes the ledger only with ledger_edit', () => {
+  assert.doesNotMatch(agents.bigm, /git add|git commit|hand procedure|hand commit/)
+  for (const action of ['add_line', 'close_line', 'add_rule', 'close_rule', 'new_project', '`commit`']) {
+    assert.ok(agents.bigm.includes(action), `bigm.md names ${action}`)
+  }
+  assert.match(agents.bigm, /R-19/)
+})
+
 test('bigm keys a question by its asker and its ID', () => {
   const questions = agents.bigm.split('## Questions')[1].split('\n## ')[0]
   assert.match(questions, /Never match a question by its ID alone/)
