@@ -1,7 +1,10 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -50,6 +53,108 @@ func TestMailPostFillsNow(t *testing.T) {
 	if body, want := got.([]any)[0].(map[string]any)["body"], "done at "+fixedStamp; body != want {
 		t.Errorf("mail_read body = %q, want %q", body, want)
 	}
+}
+
+// startLedger writes a ledger folder with files (no git) and points <data>/init/config.json of env
+// at it, the way ledgerFixture does.
+func startLedger(t *testing.T, env Env, files map[string]string) string {
+	t.Helper()
+	dir := t.TempDir()
+	for name, text := range files {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(text), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.MkdirAll(filepath.Join(env.DataDir, "init"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	cfg, _ := json.Marshal(map[string]string{"ledger_path": dir})
+	if err := os.WriteFile(filepath.Join(env.DataDir, "init", "config.json"), cfg, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return dir
+}
+
+// Task 46 (R-17): mail_post appends the full current text of the ledger's priorities.md and
+// rules.md to every START, so no START carries only a pointer to the rules.
+func TestPostMailStartAppendsLedgerText(t *testing.T) {
+	const prio = "# Priorities\n\n1. ship {now} as is\n"
+	const rules = "# Rules\n\nR-17: every clanker and clerk knows the rules.\n"
+	readBody := func(t *testing.T, env Env, to string) []any {
+		t.Helper()
+		got, err := call(t, as(env, to), "mail_read", map[string]any{})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return got.([]any)
+	}
+
+	t.Run("START gets both texts", func(t *testing.T) {
+		env := testEnv(t, "bigm")
+		dir := startLedger(t, env, map[string]string{"priorities.md": prio, "rules.md": rules})
+		for _, c := range []struct{ from, to string }{{"bigm", "clanker-a"}, {"clanker-a", "clerk-a-x"}, {"clanker-a", "clerk-a-scout1"}, {"bigm", "clerk-ledger"}} {
+			out, err := call(t, as(env, c.from), "mail_post", map[string]any{"to": c.to, "header": "START: task x", "body": "Task: x\n"})
+			if err != nil {
+				t.Fatalf("%s -> %s: %v", c.from, c.to, err)
+			}
+			if note, _ := out.(map[string]any)["ledger_text"].(string); !strings.HasPrefix(note, "appended") {
+				t.Errorf("%s -> %s: ledger_text = %q", c.from, c.to, note)
+			}
+			msgs := readBody(t, env, c.to)
+			if len(msgs) != 1 {
+				t.Fatalf("%s -> %s: %d messages", c.from, c.to, len(msgs))
+			}
+			body := msgs[0].(map[string]any)["body"].(string)
+			if !strings.HasPrefix(body, "Task: x\n") {
+				t.Errorf("%s -> %s: body lost its text: %q", c.from, c.to, body)
+			}
+			ip, ir := strings.Index(body, filepath.Join(dir, "priorities.md")), strings.Index(body, filepath.Join(dir, "rules.md"))
+			if ip < 0 || ir < ip || !strings.Contains(body[ip:ir], prio) || !strings.HasSuffix(body, rules) {
+				t.Errorf("%s -> %s: body = %q, want the file names and both texts word for word, {now} kept", c.from, c.to, body)
+			}
+		}
+	})
+
+	t.Run("DONE unchanged", func(t *testing.T) {
+		env := testEnv(t, "clerk-a-x")
+		startLedger(t, env, map[string]string{"priorities.md": prio, "rules.md": rules})
+		out, err := call(t, env, "mail_post", map[string]any{"to": "clanker-a", "header": "DONE: x", "body": "b"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, ok := out.(map[string]any)["ledger_text"]; ok {
+			t.Errorf("DONE output has ledger_text: %v", out)
+		}
+		if body := readBody(t, env, "clanker-a")[0].(map[string]any)["body"]; body != "b" {
+			t.Errorf("DONE body = %q, want b", body)
+		}
+	})
+
+	t.Run("missing rules.md refuses", func(t *testing.T) {
+		env := testEnv(t, "bigm")
+		startLedger(t, env, map[string]string{"priorities.md": prio})
+		_, err := call(t, env, "mail_post", map[string]any{"to": "clanker-a", "header": "START: task x", "body": "b"})
+		if err == nil || !strings.Contains(err.Error(), "rules.md") {
+			t.Fatalf("err = %v, want a refusal that names rules.md", err)
+		}
+		if n := len(readBody(t, env, "clanker-a")); n != 0 {
+			t.Errorf("refused START wrote %d messages", n)
+		}
+	})
+
+	t.Run("no ledger on this machine", func(t *testing.T) {
+		env := testEnv(t, "clanker-a")
+		out, err := call(t, env, "mail_post", map[string]any{"to": "clerk-a-x", "header": "START: task x", "body": "b"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if note, _ := out.(map[string]any)["ledger_text"].(string); !strings.HasPrefix(note, "none") {
+			t.Errorf("ledger_text = %q, want none", note)
+		}
+		if body := readBody(t, env, "clerk-a-x")[0].(map[string]any)["body"]; body != "b" {
+			t.Errorf("body = %q, want b", body)
+		}
+	})
 }
 
 func TestMailRefusesBadInput(t *testing.T) {

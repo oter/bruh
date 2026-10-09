@@ -70,7 +70,42 @@ func postMail(env Env, from, to, header, body string) (Message, error) {
 	if err := mailAllowed(from, to, header); err != nil {
 		return Message{}, err
 	}
+	if strings.HasPrefix(header, "START:") {
+		text, err := ledgerText(env)
+		if err != nil {
+			return Message{}, err
+		}
+		body += text
+	}
 	return writeMail(env, from, to, header, body)
+}
+
+// startLedgerFiles are the ledger files whose full current text postMail appends to every START
+// (task 46, R-17), so no START carries only a pointer to the rules.
+var startLedgerFiles = []string{"priorities.md", "rules.md"}
+
+// ledgerText returns the block that postMail appends to a START: each file of startLedgerFiles,
+// headed by its path, word for word. With no ledger on this machine (errNoLedger, a remote
+// clanker) it returns "": the sender pastes the text from its own start message (spec 4.2). A
+// damaged config or a file that cannot be read refuses the START (fail closed).
+func ledgerText(env Env) (string, error) {
+	dir, err := ledgerPath(env)
+	if errors.Is(err, errNoLedger) {
+		return "", nil
+	}
+	if err != nil {
+		return "", fmt.Errorf("START needs the ledger text: %w", err)
+	}
+	var b strings.Builder
+	for _, name := range startLedgerFiles {
+		p := filepath.Join(dir, name)
+		data, err := os.ReadFile(p)
+		if err != nil {
+			return "", fmt.Errorf("START needs the ledger text: %w", err)
+		}
+		fmt.Fprintf(&b, "\n\n--- %s (the current text of the ledger, added by mail_post) ---\n\n%s", p, data)
+	}
+	return b.String(), nil
 }
 
 // writeMail puts one message into the mailbox of to. postMail and the poller call it; the
@@ -99,7 +134,7 @@ func mailTools() []Tool {
 	return []Tool{
 		{
 			Name:        "mail_post",
-			Description: "Put a message in the durable mailbox of a role. Send only the header line as the SendMessage nudge." + nowDesc,
+			Description: "Put a message in the durable mailbox of a role. Send only the header line as the SendMessage nudge. A START gets the full current text of the ledger's priorities.md and rules.md appended, so do not paste it; on a machine with no ledger, ledger_text says none and you paste the text from your own start message." + nowDesc,
 			InputSchema: map[string]any{
 				"type": "object",
 				"properties": map[string]any{
@@ -119,11 +154,20 @@ func mailTools() []Tool {
 					return nil, err
 				}
 				// Only here: ledger_edit, report lines, and poller events keep their text word for word.
-				msg, err := postMail(c.Env, from, a.To, a.Header, strings.ReplaceAll(a.Body, nowToken, c.Env.Stamp()))
+				// The ledger text of a START is added after this, so a {now} in it stays as it is.
+				body := strings.ReplaceAll(a.Body, nowToken, c.Env.Stamp())
+				msg, err := postMail(c.Env, from, a.To, a.Header, body)
 				if err != nil {
 					return nil, err
 				}
-				return map[string]string{"id": msg.ID, "at": msg.At}, nil
+				out := map[string]string{"id": msg.ID, "at": msg.At}
+				if strings.HasPrefix(a.Header, "START:") {
+					out["ledger_text"] = "appended the current priorities.md and rules.md of the ledger"
+					if msg.Body == body {
+						out["ledger_text"] = "none: no ledger on this machine; paste priorities.md and rules.md from your start message"
+					}
+				}
+				return out, nil
 			},
 		},
 		{
