@@ -60,6 +60,8 @@ The skill `/bruh:implement` is the procedure for each code change and each revie
 | `/bruh:review-and-fix` | Reviews an own change with several lenses and the gates, refutes each finding, and fixes the confirmed findings one area at a time |
 | `/bruh:review-only` | Reviews and refutes a pull request of another author, and changes nothing |
 
+The review step of `/bruh:deliver` runs four checks in parallel: an adversarial reviewer, an invariant checker, a simplicity reviewer, and the gates. One refuter checks each finding. The simplicity reviewer finds code that is more complex than the task needs and names a concrete simpler replacement for each finding. What the task asks for is not a finding. `/bruh:review-and-fix` and `/bruh:review-only` can take a `simplicity` lens too: see `plugins/bruh/skills/implement/references/example-args.md` and `simplicity.md` next to it.
+
 No workflow posts on a pull request. A workflow returns its findings. After your yes, they are posted with plain `gh pr review --comment --body-file <file>` on GitHub or `glab mr note create` on GitLab. For a self-hosted server, the `--repo` value names the host. In a role session, a clerk saves the result with the MCP tool `result_save` and posts only with your approval, which bigm relays as `ANSWER Q-<id>: post <owner/repo>#<number> at <head SHA> approved`, or under a post grant in `grants.md` of the ledger. Each post ends with the marker line `<!-- bruh:<role key> -->`.
 
 In a role session, a clerk runs the skill. In your own session, you are the orchestrator: start with `/bruh:implement` and answer the questions of the session.

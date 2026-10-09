@@ -5,7 +5,7 @@ export const meta = {
   phases: [
     { title: 'Plan', detail: 'pin the base SHA, write a plan with STOP conditions' },
     { title: 'Implement', detail: 'implement the plan, record deviations, stop at a conflict' },
-    { title: 'Review', detail: 'adversarial reviewer, invariant checker, and gates; one refuter for each finding' },
+    { title: 'Review', detail: 'adversarial reviewer, invariant checker, simplicity reviewer, and gates; one refuter for each finding' },
     { title: 'Fix', detail: 'fix the confirmed findings, one area at a time' },
   ],
 }
@@ -371,12 +371,15 @@ if (impl.value.conflict) {
 for (let round = 1; ; round++) {
   phase('Review')
   log(`Review round ${round} of ${cap}`)
-  const [adv, inv, gates] = await parallel([
+  const [adv, simp, inv, gates] = await parallel([
     () => agent(`${CONTEXT}\n\nStep: adversarial review, round ${round}. Do not edit files.\n${PHASE('review')}\n${DIFF}${GUIDES}\nTry to refute the change: find where it is wrong, where it is incomplete, and where it does not meet the acceptance criteria. Report each finding with the file, the line of the problem, and a summary. Report nothing that you cannot show in the code.`, { label: `adversarial ${round}`, effort: 'low', schema: FINDINGS }),
+    // Task 45 (owner Q-219): the simplicity reviewer. The simpler replacement goes in the summary.
+    // The two lists come from skills/implement/references/simplicity.md; deliver.test.mjs checks that they agree.
+    () => agent(`${CONTEXT}\n\nStep: simplicity review, round ${round}. Do not edit files.\n${DIFF}${GUIDES}\nFind where the change is more complex than the task needs. Finding kinds: an abstraction that the task did not ask for (for example, an interface that only one type implements, a factory that makes only one kind of object, or an option for a constant); code for a speculative need; a re-implemented standard library function, or a helper that the codebase has already; a new dependency that a few lines can replace; scaffolding for later; a diff that is longer than the problem needs. Report each finding with the file, the line, and a summary that ends with a concrete simpler replacement. A simplicity finding never overrides the acceptance criteria or a deliberate choice. Do not report: something that the task or the acceptance criteria ask for; a deliberate choice of the task; input validation at a trust boundary; error handling that prevents data loss; a security check; accessibility basics; the test that the task needs. Report nothing that you cannot show in the code.`, { label: `simplicity ${round}`, effort: 'low', schema: FINDINGS }),
     () => agent(`${CONTEXT}\n\nStep: invariant check, round ${round}. Do not edit files.\n${DIFF}${GUIDES}\nDo not trust the claims of the author. List the invariants that the code must keep, from the code, the tests, and the docs. Verify each invariant against the changed code. Report each broken invariant as a finding with the file, the line, and a summary.`, { label: `invariants ${round}`, effort: 'low', schema: FINDINGS }),
     () => agent(`${CONTEXT}\n\nStep: gates, round ${round}. Do not edit files.\n${DIFF}\nRun each gate command, in this order:\n${bullets(gateCommands)}\nEach gate is required: it must exit 0. These gates are test suites and must run tests:\n${bullets(testGates)}\nA gate that is not a test suite (for example lint or build) returns 0 for each count when its output has no test count. Return exactly one result for each gate command above, with the command text unchanged, and run no other gate. For each gate, return its exit code and how many tests ran, passed, failed, and were skipped. Read the counts from the output; do not estimate. For each failed or skipped test, give the file and the line of the test, a summary, and the kind (failed or skipped). When a gate fails or skips a test, return the last 40 lines of its output in output_tail; otherwise return an empty output_tail. Return tests with the totals of all gates, and head_sha from \`git rev-parse HEAD\`.`, { label: `gates ${round}`, effort: 'low', schema: GATES }),
   ])
-  if (!adv || !inv || !gates) return fail(`a review check of round ${round} did not return a result`)
+  if (!adv || !simp || !inv || !gates) return fail(`a review check of round ${round} did not return a result`)
   // The totals come from the per-gate counts, added in code.
   tests = { ran: sum(gates, 'ran'), passed: sum(gates, 'passed'), failed: sum(gates, 'failed'), skipped: sum(gates, 'skipped') }
   if (gates.head_sha) head = gates.head_sha
@@ -384,7 +387,7 @@ for (let round = 1; ; round++) {
   // Deduplicate by key (file:line for review findings; first occurrence wins).
   // Refuted review findings stay refuted. Gate findings always get a refuter.
   const fresh = new Map()
-  for (const f of [...adv.findings, ...inv.findings]) {
+  for (const f of [...adv.findings, ...inv.findings, ...simp.findings]) {
     const k = key(f)
     if (!fresh.has(k) && !refuted.has(k)) fresh.set(k, { ...f, file: norm(f.file) })
   }

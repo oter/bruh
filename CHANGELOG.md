@@ -6,6 +6,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Added
+
+- The review step of `/bruh:deliver` has a simplicity reviewer next to the adversarial reviewer and the invariant checker. It finds unrequested abstractions, code for a speculative need, a re-implemented standard library function or existing helper, an unneeded dependency, scaffolding for later, and a diff that is longer than the problem needs. Each finding names a concrete simpler replacement and goes through the same refuter and fix loop. What the task or a deliberate choice asks for is never a finding (task 45).
+- A `simplicity` example lens for `/bruh:review-and-fix` and `/bruh:review-only` in `skills/implement/references/example-args.md`, and its guide `skills/implement/references/simplicity.md` with the ladder and the rules. The idea comes from the ponytail plugin; bruh does not need it installed (task 45).
+- YAGNI and KISS rows under "Design principles" in `skills/implement/references/guide-sources.md` (task 45).
+
 ### Changed
 
 - `mail_post` appends the full current text of `priorities.md` and `rules.md` of the ledger to every `START` message, so no start message carries only a pointer to the rules (R-17). A START is refused when the ledger is configured but a file cannot be read. On a machine with no ledger, the output says `ledger_text` `none`, and the sender pastes the text from its own start message.
