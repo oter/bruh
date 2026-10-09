@@ -25,6 +25,8 @@ type Question struct {
 	OpenedAt string   `json:"opened_at"`
 	Options  []Option `json:"options,omitempty"`
 	Replaces string   `json:"replaces,omitempty"`
+	// Hold is the hold ID of a refusal P0: question_open has relayed it to the parent and bigm.
+	Hold string `json:"hold,omitempty"`
 }
 
 // Option is one fixed answer of a P1 question (spec 14.2).
@@ -59,7 +61,7 @@ func questionTools() []Tool {
 	return []Tool{
 		{
 			Name:        "question_open",
-			Description: "Open a question and get its ID, header line, and body. With 2 to 4 fixed answers, pass options; send the returned body, which has the OPTION lines. Send the header as the SendMessage nudge, then wait with answer_wait." + nowDesc,
+			Description: "Open a question and get its ID, header line, and body. With 2 to 4 fixed answers, pass options; send the returned body, which has the OPTION lines. Send the header as the SendMessage nudge, then wait with answer_wait. With hold, the tool posts the P0 to the mailbox of your parent and bigm, and their waiters wake them: send no nudge, except when the output has relay_error." + nowDesc,
 			InputSchema: objectSchema(map[string]any{
 				"priority": map[string]any{"type": "string", "enum": []string{"P0", "P1", "P2"}},
 				"subject":  map[string]any{"type": "string", "description": "One line, at most 200 characters"},
@@ -71,7 +73,7 @@ func questionTools() []Tool {
 					"minItems": 2,
 					"maxItems": 4,
 				},
-				"hold":     map[string]any{"type": "string", "description": "The hold ID of a refusal (spec 15.1): makes the question P0 and adds the COMMAND and CATEGORY lines from the hold record. It also replaces your open P0 with the same COMMAND and CATEGORY lines"},
+				"hold":     map[string]any{"type": "string", "description": "The hold ID of a refusal (spec 15.1): makes the question P0 and adds the COMMAND and CATEGORY lines from the hold record. It also replaces your open P0 with the same COMMAND and CATEGORY lines, and posts the P0 to your parent and bigm"},
 				"replaces": map[string]any{"type": "string", "description": "The ID of an older question of yours that this one replaces (a reask): the answer of this one also closes it"},
 			}, "priority", "subject", "body", "blocks"),
 			Handler: func(c *Call, raw json.RawMessage) (any, error) {
@@ -124,7 +126,7 @@ func questionTools() []Tool {
 						} else if !errors.Is(err, fs.ErrNotExist) {
 							return err
 						}
-						q = Question{Priority: a.Priority, Subject: a.Subject, Body: a.Body, Blocks: a.Blocks, Asker: me, OpenedAt: at, Options: a.Options, Replaces: a.Replaces}
+						q = Question{Priority: a.Priority, Subject: a.Subject, Body: a.Body, Blocks: a.Blocks, Asker: me, OpenedAt: at, Options: a.Options, Replaces: a.Replaces, Hold: a.Hold}
 						if a.Replaces != "" {
 							if _, err := checkID(a.Replaces, qidRE, "replaces"); err != nil {
 								return err
@@ -184,7 +186,15 @@ func questionTools() []Tool {
 				if err != nil {
 					return nil, err
 				}
-				return map[string]string{"id": q.ID, "header": q.header(), "body": body}, nil
+				out := map[string]string{"id": q.ID, "header": q.header(), "body": body}
+				if a.Hold != "" {
+					// The question and the hold link are written already, so a relay error does not
+					// fail the call: the asker then sends the nudge itself (task 41, issue #42).
+					if err := relayP0(c.Env, me, q.header(), body); err != nil {
+						out["relay_error"] = err.Error()
+					}
+				}
+				return out, nil
 			},
 		},
 		{
@@ -231,6 +241,22 @@ func questionTools() []Tool {
 			},
 		},
 	}
+}
+
+// relayP0 posts a refusal P0 to the parent of me and to bigm, once each and never to me, so that
+// their waiters (wake.sh) wake them with no nudge of a held asker (task 41, issue #42).
+func relayP0(env Env, me, header, body string) error {
+	k, _ := ParseRoleKey(me) // Env.Caller has checked the role key already
+	var errs []error
+	for _, to := range slices.Compact([]string{k.Parent(), "bigm"}) {
+		if to == "" || to == me {
+			continue
+		}
+		if _, err := postMail(env, me, to, header, body); err != nil {
+			errs = append(errs, err)
+		}
+	}
+	return errors.Join(errs...)
 }
 
 // repeatedHold returns the ID of the newest open P0 of me whose body ends with the same COMMAND

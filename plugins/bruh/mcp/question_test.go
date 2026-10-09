@@ -265,6 +265,65 @@ func TestQuestionOpenWithHold(t *testing.T) {
 	}
 }
 
+// mailbox returns the unread messages in the mailbox of key.
+func mailbox(t *testing.T, data, key string) []Message {
+	t.Helper()
+	files, _ := filepath.Glob(filepath.Join(data, "mail", key, "*.json"))
+	var msgs []Message
+	for _, f := range files {
+		var m Message
+		readJSON(t, f, &m)
+		msgs = append(msgs, m)
+	}
+	return msgs
+}
+
+// Task 41 (issue #42): a P0 with a hold goes from question_open straight to the mailbox of the
+// parent of the caller and of bigm, once each, with no nudge of the asker. A P0 with no hold
+// posts nothing.
+func TestQuestionOpenHoldRelaysP0(t *testing.T) {
+	for caller, targets := range map[string][]string{
+		"clerk-a-1":    {"clanker-a", "bigm"},
+		"clanker-a":    {"bigm"},
+		"clerk-ledger": {"bigm"},
+		"bigm":         nil,
+	} {
+		env := testEnv(t, caller)
+		writeHold(t, env.DataDir, "H-1", caller, "", map[string]string{"command": "git -C /main status"})
+		out, err := call(t, env, "question_open", map[string]any{"priority": "P0", "subject": "refused", "body": "b", "blocks": "x", "hold": "H-1"})
+		if err != nil {
+			t.Fatalf("%s: %v", caller, err)
+		}
+		q := out.(map[string]any)
+		if _, ok := q["relay_error"]; ok {
+			t.Errorf("%s: relay_error = %v", caller, q["relay_error"])
+		}
+		for _, to := range targets {
+			msgs := mailbox(t, env.DataDir, to)
+			if len(msgs) != 1 || msgs[0].From != caller || msgs[0].Header != q["header"] || msgs[0].Body != q["body"] {
+				t.Errorf("%s: mailbox of %s = %+v, want one message from %s with header %q and body %q", caller, to, msgs, caller, q["header"], q["body"])
+			}
+		}
+		if caller == "bigm" {
+			if msgs := mailbox(t, env.DataDir, "bigm"); len(msgs) != 0 {
+				t.Errorf("bigm: own mailbox = %+v, want none", msgs)
+			}
+		}
+		var stored map[string]any
+		readJSON(t, filepath.Join(env.DataDir, "questions", q["id"].(string)+".json"), &stored)
+		if stored["hold"] != "H-1" {
+			t.Errorf("%s: stored hold = %v, want H-1", caller, stored["hold"])
+		}
+	}
+	env := testEnv(t, "clerk-a-1")
+	if _, err := call(t, env, "question_open", map[string]any{"priority": "P0", "subject": "no hold", "body": "b", "blocks": "x"}); err != nil {
+		t.Fatal(err)
+	}
+	if msgs := append(mailbox(t, env.DataDir, "clanker-a"), mailbox(t, env.DataDir, "bigm")...); len(msgs) != 0 {
+		t.Fatalf("P0 with no hold posted %+v, want nothing", msgs)
+	}
+}
+
 func TestQuestionOpenHoldOtherTool(t *testing.T) {
 	env := testEnv(t, "clerk-a-1")
 	writeHold(t, env.DataDir, "H-2", "clerk-a-1", "", map[string]string{"file_path": "/x/y.sh"})
@@ -311,8 +370,8 @@ func exists(t *testing.T, path string) bool {
 	return err == nil
 }
 
-// Task 24: the answer_write of a clanker to a delegated P1 closes it for bigm, and the answer_wait
-// of the clerk still reads only its own folder.
+// Task 24: the answer_write of a clanker to a delegated P1 closes it for bigm. Task 41: the
+// answer_wait of the clerk gets the answer of the clanker or of bigm, and its own copy first.
 func TestDelegatedAnswerClosesQuestion(t *testing.T) {
 	clerk := testEnv(t, "clerk-shop-x")
 	q, err := openQ(t, clerk, "which port?")
@@ -339,10 +398,29 @@ func TestDelegatedAnswerClosesQuestion(t *testing.T) {
 	if got := openIDs(t, clerk); !slices.Equal(got, []string{p0id}) {
 		t.Fatalf("question_list after the delegated answer = %v, want [%s]", got, p0id)
 	}
-	out, err := call(t, clerk, "answer_wait", map[string]any{"question_id": id, "deadline_seconds": 0})
-	if err != nil || out.(map[string]any)["status"] != "pending" {
-		t.Fatalf("answer_wait of the clerk = %v, %v, want pending (it reads only its own folder)", out, err)
+	wait := func(qid, want string) map[string]any {
+		t.Helper()
+		out, err := call(t, clerk, "answer_wait", map[string]any{"question_id": qid, "deadline_seconds": 0})
+		if err != nil {
+			t.Fatal(err)
+		}
+		m := out.(map[string]any)
+		if m["status"] != "answered" || m["text"] != want {
+			t.Fatalf("answer_wait(%s) of the clerk = %v, want answered with text %q", qid, m, want)
+		}
+		return m
 	}
+	wait(id, "8080")
+	if _, err := call(t, as(clerk, "bigm"), "answer_write", map[string]any{"question_id": p0id, "text": "go. Owner.", "subject": "still open", "asker": "clerk-shop-x"}); err != nil {
+		t.Fatal(err)
+	}
+	if m := wait(p0id, "go. Owner."); m["subject"] != "still open" || m["asker"] != "clerk-shop-x" {
+		t.Fatalf("answer_wait(%s) of the clerk = %v, want subject and asker of bigm", p0id, m)
+	}
+	if _, err := call(t, clerk, "answer_write", map[string]any{"question_id": id, "text": "8081"}); err != nil {
+		t.Fatal(err)
+	}
+	wait(id, "8081")
 }
 
 // Task 24: a question that a newer one replaces closes with the answer of the newer one.
