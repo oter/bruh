@@ -4,9 +4,10 @@
 # no-verdict denial (spec 15.1.1). So does a
 # PostToolUseFailure whose error has the two fixed fragments of the documented template of the
 # Claude Code worktree guard (errors.md, "Command blocked by the worktree isolation checks") for a
-# command with git as a command word (the same test as git-chain.sh); a guard refusal of a command with no git is a report event only
-# (spec 15.1.6) and writes no hold. For a role other than bigm, PreToolUse
-# denies every call of a session with a hold, except the escalation tools. For bigm, it denies
+# command with git as a command word (the same test as git-chain.sh); a guard refusal of a
+# command with no git is a report event only (spec 15.1.6) and writes no hold. For a role other
+# than bigm, PreToolUse denies every call of a session with a hold, except the escalation tools.
+# For bigm, it denies
 # only the exact refused call, so bigm keeps working. Stop blocks the end of the turn while a
 # hold of the session has no P0. It reads only the event name and fields of the hook input,
 # never the meaning of a text. bigm's answer_write of the linked P0 removes the hold. A scout
