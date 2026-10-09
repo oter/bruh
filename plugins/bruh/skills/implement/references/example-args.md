@@ -41,7 +41,7 @@ In a skill, `<plugin root>` is `${CLAUDE_PLUGIN_ROOT}`. In a role session, the c
 
 ## /bruh:review-and-fix and /bruh:review-only lenses
 
-A large diff (about 20,000 lines) can use ten lenses in two file slices, plus the two `simplicity` lenses: A (entities, storage, the clients of external services) and B (controllers, the server, handlers, the main entry point). No reviewer gets the full diff.
+A large diff (about 20,000 lines) can use ten lenses in two file slices: A (entities, storage, the clients of external services) and B (controllers, the server, handlers, the main entry point). Add the `simplicity` lens: one lens for a small diff, and `simplicity-a` and `simplicity-b` for the two slices of a large diff. No reviewer gets the full diff.
 
 | key | files | guides and focus |
 |---|---|---|

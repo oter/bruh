@@ -6,6 +6,7 @@ import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 
 const source = readFileSync(join(import.meta.dirname, 'deliver.js'), 'utf8')
+const guide = readFileSync(join(import.meta.dirname, '../skills/implement/references/simplicity.md'), 'utf8')
 const AsyncFunction = (async () => {}).constructor
 const GLOBALS = ['agent', 'parallel', 'pipeline', 'phase', 'log', 'args', 'budget']
 const script = new AsyncFunction(...GLOBALS, source.replace('export const meta', 'const meta'))
@@ -195,11 +196,12 @@ test('the simplicity reviewer runs in each review round and its findings join th
   assert.equal(confirmed.byWord('simplicity').length, 2)
   assert.equal(confirmed.byWord('simplicity')[1].opts.label, 'simplicity 2')
   const prompt = confirmed.byWord('simplicity')[0].prompt
-  for (const s of [
-    'abstraction that the task did not ask for', 'speculative need', 'standard library function',
-    'helper that the codebase already has', 'new dependency', 'scaffolding for later', 'longer than the problem needs',
-    'concrete simpler replacement', 'acceptance criteria', 'deliberate choice', 'is not over-engineering',
-  ]) assert.ok(prompt.includes(s), `the simplicity prompt does not name ${s}`)
+  // simplicity.md is the source of the finding kinds and of the list of what is not a finding.
+  const bullets = guide.split('Finding kinds:')[1].match(/^- .+$/gm).map((l) => l.slice(2))
+  assert.equal(bullets.length, 13)
+  for (const s of [...bullets, 'concrete simpler replacement', 'never overrides the acceptance criteria or a deliberate choice']) {
+    assert.ok(prompt.includes(s), `the simplicity prompt does not name ${s}`)
+  }
   assert.deepEqual(confirmed.byWord('refute').map((c) => c.opts.label), ['refute src/a.go:5'])
   assert.match(confirmed.byWord('fix')[0].prompt, /^- \[F1\] src\/a\.go:5: a wrapper for one call; call os\.ReadFile directly$/m)
   assert.equal(confirmed.result.status, 'done')
