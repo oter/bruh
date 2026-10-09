@@ -836,6 +836,9 @@ func TestGitChain(t *testing.T) {
 		`find . -name '*.go' -not -path '*/.git/*' | wc -l`,
 		`git log --format='%H|%s'`,
 		"cd /w/no-git-freeze && go test ./...",
+		// The shellcheck run line of .github/workflows/ci.yml:36 chains git into a pipe; in a
+		// clerk session the gate runs shellcheck on the files with no git word (below).
+		`git ls-files -z '*.sh' | xargs -0 -r shellcheck`,
 	} {
 		if r := denyReason(t, gitChain(t, c, clerk)); r == "" {
 			t.Errorf("%q allowed, want deny", c)
@@ -848,12 +851,18 @@ func TestGitChain(t *testing.T) {
 		"find . -path ./.git -prune -o -print",
 		"ls .github && grep -rn digit .gitignore",
 		"echo abcd; ls",
-		// The gate commands of this repository (.github/workflows/ci.yml).
-		"cd plugins/bruh/mcp && go test ./...",
-		"cd plugins/bruh/mcp && go vet ./...",
+		// Each run line of .github/workflows/ci.yml except the shellcheck line (denied above),
+		// the go lines in the cd form of their working-directory, plus the shellcheck gate.
 		`cd plugins/bruh/mcp && test -z "$(gofmt -l .)"`,
-		"cd plugins/bruh/channels/slack && go test ./...",
+		"cd plugins/bruh/mcp && go vet ./...",
+		"cd plugins/bruh/mcp && go test -race ./...",
+		`cd plugins/bruh/channels/slack && test -z "$(gofmt -l .)"`,
+		"cd plugins/bruh/channels/slack && go vet ./...",
+		"cd plugins/bruh/channels/slack && go test -race ./...",
 		"sh tests/test.sh",
+		"npm ci --prefix .github/tools/claude-code",
+		".github/tools/claude-code/node_modules/.bin/claude plugin validate ./plugins/bruh",
+		".github/tools/claude-code/node_modules/.bin/claude plugin validate .",
 		"node --test plugins/bruh/agents/agents_test.mjs plugins/bruh/workflows/deliver.test.mjs plugins/bruh/workflows/implement.test.mjs",
 		"shellcheck plugins/bruh/scripts/git-chain.sh",
 	} {
