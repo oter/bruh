@@ -12,6 +12,8 @@
 # never the meaning of a text. bigm's answer_write of the linked P0 removes the hold. A scout
 # clerk (clerk-<project>-scout<n>) cannot call question_open: its deny reason tells it to send
 # DONE: scout <subject> refused to its clanker with mail_post, and Stop does not block it.
+# question_open with the hold posts the P0 to the parent and bigm itself, so the deny reason
+# names no nudge (task 41, issue #42).
 [ -n "${BRUH_ROLE_KEY:-}" ] && [ -n "${CLAUDE_PLUGIN_DATA:-}" ] || exit 0
 holds="$CLAUDE_PLUGIN_DATA/holds"
 input=$(cat)
@@ -80,7 +82,7 @@ PreToolUse)
 		deny "bruh refusal stop: hold $hold holds this scout after a refusal. A scout cannot open a question: send DONE: scout <subject> refused with mail_post to your clanker, with the refused command and the refusal in the body, then stop."
 		exit 0
 	fi
-	deny "bruh refusal stop: hold $hold holds this session after a refusal. Open a P0 with question_open and the field hold = $hold, then wait for the answer: a subagent or a workflow agent waits with answer_wait; the main session waits for the ANSWER with mail_read. Do not run another form of the refused command."
+	deny "bruh refusal stop: hold $hold holds this session after a refusal. Open a P0 with question_open and the field hold = $hold: the tool delivers it to your parent and bigm, so send no nudge (only when its output has relay_error). Then wait for the answer: a subagent or a workflow agent waits with answer_wait; the main session waits for the ANSWER with mail_read. Do not run another form of the refused command."
 	;;
 Stop)
 	[ "$(field .stop_hook_active)" = true ] || [ -n "$scout" ] && exit 0

@@ -534,6 +534,23 @@ func TestRefusalHoldStopsTheSession(t *testing.T) {
 	}
 }
 
+// TestRefusalP0WakesParentAndBigm (task 41, issue #42): the question_open of a held clerk alone,
+// with no nudge, wakes the waiters of its clanker and of bigm.
+func TestRefusalP0WakesParentAndBigm(t *testing.T) {
+	data := t.TempDir()
+	id := denyClassifier(t, data)
+	env := testEnv(t, "clerk-a-1")
+	env.DataDir = data
+	if _, err := call(t, env, "question_open", map[string]any{"priority": "P0", "subject": "refused", "body": "b", "blocks": "x", "hold": id}); err != nil {
+		t.Fatal(err)
+	}
+	for _, key := range []string{"clanker-a", "bigm"} {
+		if _, code := runScript(t, "wake.sh", "", "BRUH_ROLE_KEY="+key, "CLAUDE_PLUGIN_DATA="+data, "BRUH_WAKE_SECONDS=0"); code != 2 {
+			t.Errorf("wake.sh of %s: exit %d, want 2 (new mail)", key, code)
+		}
+	}
+}
+
 func TestRefusalClearByBigm(t *testing.T) {
 	data := t.TempDir()
 	id := denyClassifier(t, data)
