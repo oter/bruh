@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.12.2] - 2026-10-09
+
 ### Added
 
 - Each open question on the `/bruh-board` pane has a text box, `write your own answer`, under its buttons; a question without options gets only the text box. Enter sends the text of the owner to bigm word for word, and text in the box goes with a later press of a button of that question (task 42).
@@ -169,7 +171,8 @@ This is the first release of bruh. It contains all parts of the [specification](
 - `init_plan` does not write the plugin options (`pluginConfigs`).
 - The report file `reports/watcher.jsonl` and the role key `watcher` of `report_read`.
 
-[Unreleased]: https://github.com/oter/bruh/compare/v0.12.1...HEAD
+[Unreleased]: https://github.com/oter/bruh/compare/v0.12.2...HEAD
+[0.12.2]: https://github.com/oter/bruh/compare/v0.12.1...v0.12.2
 [0.12.1]: https://github.com/oter/bruh/compare/v0.12.0...v0.12.1
 [0.12.0]: https://github.com/oter/bruh/compare/v0.11.1...v0.12.0
 [0.11.1]: https://github.com/oter/bruh/compare/v0.11.0...v0.11.1
