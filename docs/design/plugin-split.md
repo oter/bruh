@@ -29,6 +29,7 @@ Later steps change these parts of [the spec](../spec.md). Each is a change of th
 - Section 10.1: a project without the coordinator also has `.bruh/results/` (line a).
 - Section 6.3: deliver uses the house rules of bruh by default (line b).
 - Section 7: the status line tap matches `data/coordinator-<id>` (decision 6).
+- Sections 16 and 18: init becomes `/coordinator:init`, and the install adds `coordinator@oter` (decisions 3, 4, and 6).
 - Section 3.4: the Skill hook of the ledger also passes `coordinator:` skills, so `/coordinator:init` runs. Agent-derived, needs owner decision.
 
 ## Work plan
