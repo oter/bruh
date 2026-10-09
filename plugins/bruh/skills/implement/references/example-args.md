@@ -41,7 +41,7 @@ In a skill, `<plugin root>` is `${CLAUDE_PLUGIN_ROOT}`. In a role session, the c
 
 ## /bruh:review-and-fix and /bruh:review-only lenses
 
-A large diff (about 20,000 lines) can use ten lenses in two file slices: A (entities, storage, the clients of external services) and B (controllers, the server, handlers, the main entry point). No reviewer gets the full diff.
+A large diff (about 20,000 lines) can use ten lenses in two file slices, plus the two `simplicity` lenses: A (entities, storage, the clients of external services) and B (controllers, the server, handlers, the main entry point). No reviewer gets the full diff.
 
 | key | files | guides and focus |
 |---|---|---|
@@ -53,6 +53,7 @@ A large diff (about 20,000 lines) can use ten lenses in two file slices: A (enti
 | `security` | the code that handles identities, sessions, and secrets | OWASP cheat sheets and ASVS chapters that match the code; no secrets in logs; a security scheme on each secured route; each finding cites the requirement |
 | `correctness-a` | the controllers, handlers, server, and main entry point | trace each request to its response: status and envelope against the spec, the map from sentinel errors to statuses, context copies, nil dereferences, time handling, wiring; each finding needs an input and its wrong output |
 | `correctness-b` | the storage and entities, against the index file | transactions around read-modify-write steps, deterministic and random IDs, not-found sentinels that do not leak driver codes |
+| `simplicity` | the files of the diff; for a large diff, one lens for each slice (`simplicity-a`, `simplicity-b`) | `references/simplicity.md`: the ladder and the rules; each finding names a concrete simpler replacement; what the task or a deliberate choice asks for is not a finding |
 
 A lens in `args.lenses`:
 

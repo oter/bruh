@@ -84,6 +84,8 @@ Pick the guides for each technology of the diff. When a technology has no row he
 | Effective Go | <https://go.dev/doc/effective_go> | idiomatic Go design: interfaces, embedding, errors |
 | DRY and orthogonality (Hunt and Thomas, The Pragmatic Programmer) | <https://www.artima.com/articles/orthogonality-and-the-dry-principle> | one authoritative representation of each piece of knowledge; no coupling of unrelated parts |
 | SOLID (Robert C. Martin) | <http://butunclebob.com/ArticleS.UncleBob.PrinciplesOfOod> (HTTP only: get it with `curl -L`, because WebFetch upgrades to HTTPS and the host refuses it), <https://blog.cleancoder.com/uncle-bob/2014/05/08/SingleReponsibilityPrinciple.html>, <https://blog.cleancoder.com/uncle-bob/2020/10/18/Solid-Relevance.html> | SRP, OCP, LSP, ISP, and DIP |
+| YAGNI (Martin Fowler) | <https://martinfowler.com/bliki/Yagni.html> | no code for a speculative need; the `simplicity` lens and `references/simplicity.md` |
+| KISS | <https://en.wikipedia.org/wiki/KISS_principle> | the simplest design that works; the `simplicity` lens and `references/simplicity.md` |
 
 ## Decisions and docs
 

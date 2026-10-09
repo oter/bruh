@@ -46,6 +46,7 @@ async function run(h = {}, args = baseArgs()) {
     implement: () => ({ head_sha: HEAD, deviations: [], conflict: '' }),
     adversarial: () => ({ findings: [] }),
     invariants: () => ({ findings: [] }),
+    simplicity: () => ({ findings: [] }),
     gates: cleanGates,
     refute: () => ({ confirmed: false, reason: 'not shown' }),
     fix: (p, o, n, fs) => ({ head_sha: HEAD, fixed: fs, deviations: [] }),
@@ -126,7 +127,7 @@ test('invalid args stop the run before any agent', async () => {
 
 test('reviewers diff against base_sha, never origin/main', async () => {
   const { byWord } = await run({}, baseArgs({ test_gates: ['go test ./...'] }))
-  for (const w of ['adversarial', 'invariants', 'gates']) {
+  for (const w of ['adversarial', 'invariants', 'simplicity', 'gates']) {
     const [c] = byWord(w)
     assert.ok(c.prompt.includes(`git diff ${SHA} HEAD`), `${w} does not diff against base_sha`)
     assert.doesNotMatch(c.prompt, /git diff[^\n]*origin\/main/)
@@ -142,7 +143,7 @@ test('reviewers run at low effort and implementers at high effort', async () => 
     adversarial: (p, o, n) => ({ findings: n === 1 ? [finding('src/a.go', 3)] : [] }),
     refute: () => ({ confirmed: true, reason: 'shown' }),
   })
-  for (const w of ['adversarial', 'invariants', 'gates', 'refute']) {
+  for (const w of ['adversarial', 'invariants', 'simplicity', 'gates', 'refute']) {
     for (const c of byWord(w)) assert.equal(c.opts.effort, 'low', `${w} effort`)
   }
   for (const w of ['plan', 'implement', 'fix']) {
@@ -180,6 +181,46 @@ test('refuted findings stay refuted', async () => {
   assert.deepEqual(refuters, ['refute src/a.go:1', 'refute src/b.go:2', 'refute src/b.go:2'])
   const a = result.findings.find((f) => f.file === 'src/a.go')
   assert.equal(a.state, 'refuted')
+})
+
+// Task 45 (owner Q-219): a simplicity reviewer runs next to the adversarial reviewer and the
+// invariant checker, and its findings take the same refuter and fix loop.
+test('the simplicity reviewer runs in each review round and its findings join the refuter loop', async () => {
+  const simpler = 'a wrapper for one call; call os.ReadFile directly'
+  const confirmed = await run({
+    simplicity: (p, o, n) => ({ findings: n === 1 ? [finding('src/a.go', 5, simpler)] : [] }),
+    refute: () => ({ confirmed: true, reason: 'shown' }),
+  })
+  assert.equal(confirmed.byWord('simplicity').length, confirmed.byWord('adversarial').length, 'one simplicity reviewer in each round')
+  assert.equal(confirmed.byWord('simplicity').length, 2)
+  assert.equal(confirmed.byWord('simplicity')[1].opts.label, 'simplicity 2')
+  const prompt = confirmed.byWord('simplicity')[0].prompt
+  for (const s of [
+    'abstraction that the task did not ask for', 'speculative need', 'standard library function',
+    'helper that the codebase already has', 'new dependency', 'scaffolding for later', 'longer than the problem needs',
+    'concrete simpler replacement', 'acceptance criteria', 'deliberate choice', 'is not over-engineering',
+  ]) assert.ok(prompt.includes(s), `the simplicity prompt does not name ${s}`)
+  assert.deepEqual(confirmed.byWord('refute').map((c) => c.opts.label), ['refute src/a.go:5'])
+  assert.match(confirmed.byWord('fix')[0].prompt, /^- \[F1\] src\/a\.go:5: a wrapper for one call; call os\.ReadFile directly$/m)
+  assert.equal(confirmed.result.status, 'done')
+  assert.deepEqual(confirmed.result.findings, [{ file: 'src/a.go', line: 5, summary: simpler, state: 'fixed' }])
+
+  // The same file:line from the adversarial reviewer and the simplicity reviewer gets one refuter.
+  const same = await run({
+    adversarial: () => ({ findings: [finding('src/a.go', 5, 'adversarial')] }),
+    simplicity: () => ({ findings: [finding('./src/a.go', 5, 'simplicity')] }),
+  })
+  assert.equal(same.byWord('refute').length, 1)
+  assert.deepEqual(same.result.findings.map((f) => f.summary), ['adversarial'])
+
+  // A refuted simplicity finding stays refuted in the next round.
+  const refuted = await run({
+    adversarial: () => ({ findings: [finding('src/b.go', 2)] }),
+    simplicity: () => ({ findings: [finding('src/a.go', 5, simpler)] }),
+    refute: (p) => ({ confirmed: p.includes('src/b.go:2'), reason: '' }),
+  })
+  assert.deepEqual(refuted.byWord('refute').map((c) => c.opts.label), ['refute src/b.go:2', 'refute src/a.go:5', 'refute src/b.go:2'])
+  assert.equal(refuted.result.findings.find((f) => f.file === 'src/a.go').state, 'refuted')
 })
 
 test('a refuter that dies is not a refutation: the finding stays open and the run stops', async () => {
@@ -269,6 +310,7 @@ test('a dead agent stops the run with FAILED, never done', async () => {
     ['dead fixer', { ...confirmedFinding, fix: () => null }, (result) => assert.equal(result.findings[0].state, 'open')],
     ['dead adversarial reviewer', { adversarial: () => null }],
     ['dead invariant checker', { invariants: () => null }],
+    ['dead simplicity reviewer', { simplicity: () => null }],
     ['dead gate agent', { gates: () => null }],
     ['dead planner', { plan: () => null }],
   ], async (label, h, check) => {
@@ -475,18 +517,19 @@ test('a stopped or findings_left run writes no phase done', async () => {
   }
 })
 
-// Task 36: the guides folder of the task reaches only the two reviewers and the refuters.
+// Task 36: the guides folder of the task reaches only the reviewers and the refuters.
 const guideHandlers = {
   adversarial: (p, o, n) => ({ findings: n === 1 ? [finding('src/a.go', 1)] : [] }),
   refute: () => ({ confirmed: true, reason: 'shown' }),
 }
-const reviewWords = ['adversarial', 'invariants', 'refute']
+const reviewWords = ['adversarial', 'invariants', 'simplicity', 'refute']
 
-test('deliver with a guides folder puts GUIDES ARE MANDATORY into both reviewers and the refuter', async () => {
+test('deliver with a guides folder puts GUIDES ARE MANDATORY into the three reviewers and the refuter', async () => {
   const { result, byWord, calls } = await run(guideHandlers, baseArgs({ guides: '/tmp/clerk-x-guides/' }))
   assert.equal(result.status, 'done')
   assert.equal(byWord('adversarial').length, 2)
   assert.equal(byWord('invariants').length, 2)
+  assert.equal(byWord('simplicity').length, 2)
   assert.equal(byWord('refute').length, 1)
   for (const w of reviewWords) {
     for (const c of byWord(w)) {

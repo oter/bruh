@@ -172,9 +172,10 @@ flowchart TD
     q -->|yes| ask[Ask through the question loop] --> plan
     q -->|no| impl["Implement the plan<br/>record deviations, stop at a conflict"]
     impl --> review
-    subgraph review["Review round, three checks in parallel"]
+    subgraph review["Review round, four checks in parallel"]
         adv["Adversarial reviewer:<br/>tries to refute the change"]
         chk["Independent checker:<br/>verifies invariants in the code"]
+        simp["Simplicity reviewer:<br/>finds over-engineering<br/>names a simpler replacement"]
         btl["Build, test, lint:<br/>ran, passed, failed, skipped<br/>a skip in a required suite is a finding"]
     end
     review --> dedup["Deduplicate findings by file:line"]
