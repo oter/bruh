@@ -1,16 +1,19 @@
-// The bruh board: /bruh-board opens a pane with the open P0 and P1 questions,
-// the role sessions by project (clankers, their clerks, a clerk's last done
-// and next step), and a collapsed Done group of the done and stopped ones.
+// The bruh board: /bruh-board opens a pane with the role sessions by project
+// (clankers, their clerks, a clerk's last done and next step), a collapsed
+// Done group of the done and stopped ones, and at the bottom the open P0 and
+// P1 questions with their answer buttons: what waits on the owner (R-16).
 // It reads the bruh data folder, the ledger "In progress" rows and
-// `claude agents --json --all`. Its one write is the expanded state: one
+// `claude agents --json --all`. It writes the expanded state, one
 // `open:<role key>` key per item (`open:done` for the Done group) in its own
-// $.store, shared by the sessions.
+// $.store, shared by the sessions, and one mail to bigm for each answer.
 // Three designs draw the same data: cards (bordered cards), buckets (sections
 // by state) and pipeline (a strip across the deliver phases). The plugin
 // option board_design picks one; a /config change draws at once (config.set)
 // and then reloads the module with the new options.
-// A press on an answer button submits "Q-<id>: <label>" as a prompt into this
-// session (bigm), which records it as the owner answer.
+// A press on an answer button, or Enter in the text box of a question, puts one
+// "ANSWER Q-<id>: ..." mail into the mailbox of bigm, with no prompt into any
+// session (owner, 2026-10-08): the waiter of bigm wakes it, and bigm records it
+// as the owner answer. Only a person presses a Button or types into an Input.
 // The data lives in module variables; a hot reload loses them and the drop of
 // its timer, so the next draw starts the refresh again and it fills them.
 
@@ -127,6 +130,35 @@ let timer = null
 let isRefreshing = false
 const skipped = new Set() // question files that are answered or below P1 stay so
 const expanded = new Map() // role key (or "done") -> true while the owner has it open; $.store keeps it
+const drafts = new Map() // question ID -> the text in its box, sent with a press
+let dataDir // the bruh data folder of the last refresh
+let mailSeq = 0
+
+// One answer of the owner as one mail to bigm, in the format of mcp/mail.go writeMail:
+// <data>/mail/bigm/<id>.json, the id sorts by time. The body has closed lines; the
+// text goes in word for word and is never judged by its wording. A blank text sends nothing.
+// Atomic like writeMail's atomicWrite: the plugin API has no rename, so the board writes
+// <id>.json.tmp (the waiter and mail_read take only *.json) and renames it with mv, one
+// rename(2) in one folder. The argv holds two paths, never the body.
+async function postAnswer($, q, { label, text = drafts.get(q.id) ?? '' }) {
+  const hasText = text.trim() !== ''
+  if (label === undefined && !hasText) return
+  const now = await $.clock.now()
+  const id = `${String(now).padStart(15, '0')}-${String(++mailSeq % 1e6).padStart(6, '0')}-${crypto.randomUUID().replace(/-/g, '').slice(0, 8)}`
+  const body = [`QUESTION: ${q.id}`, label !== undefined && `PICK: ${label}`, hasText && `TEXT: ${text}`].filter(Boolean).join('\n')
+  const msg = { id, from: 'bigm', to: 'bigm', header: `ANSWER ${q.id}: ${label?.trim() || 'own words'}`, body, at: new Date(now).toISOString() }
+  const path = `${dataDir}/mail/bigm/${id}.json`
+  try {
+    await $.fs.write(`${path}.tmp`, JSON.stringify(msg))
+    const moved = await $.process.run(['mv', '-f', `${path}.tmp`, path], { timeoutMs: 5000 })
+    if (moved.exitCode !== 0) throw new Error(moved.stderr.trim() || `mv exit ${moved.exitCode}`)
+  } catch (err) {
+    await $.ui.toast(`answer not sent: ${err?.message ?? err}`)
+    return
+  }
+  drafts.delete(q.id)
+  await $.ui.toast('answer sent to bigm')
+}
 
 async function readText($, path) {
   try { return await $.fs.read(path) } catch { return undefined }
@@ -186,6 +218,7 @@ async function refresh($) {
   isRefreshing = true
   try {
     const data = (await $.env.get('BRUH_DATA')) || `${await $.env.get('HOME')}/.claude/plugins/data/bruh-oter`
+    dataDir = data
     const notes = []
     let sessions = []
     try {
@@ -300,7 +333,7 @@ export const register = (on, options) => {
 
   on('ui.render', { component: 'Pane', requestId: PANE }, ($, e) => {
     if (!timer) void start($) // a reload dropped the timer while the pane stayed open
-    const { Box, Text, Button } = $.ui.resolve(e)
+    const { Box, Text, Button, Input } = $.ui.resolve(e)
     const cols = e.props.bodyColumns
     // One Text cut to the width; a keyed one sits in a keyed Box, as the test kit finds a Box by its key.
     const line = ({ key, ...props }, text, width = cols) => {
@@ -325,21 +358,27 @@ export const register = (on, options) => {
       spin(item, role),
       h(Text, {}, ' '),
       opener(item.key, label, width - indent.length - 3))
-    // A question: its line, then its answer buttons (task 15).
+    // A question: its line, its answer buttons (task 15), then its text box (task 42).
     const ask = (q, indent, width) => {
       // The ID number shows only to tell two questions with one subject apart.
       const isTwin = board.questions.some(other => other !== q && other.subject === q.subject)
       const number = isTwin ? ` (${String(q.id).split('-').at(-1)})` : ''
       const out = [line({ key: `q-${q.id}`, color: q.priority === 'P0' ? 'red' : 'yellow' }, `${indent}${q.priority}${number} ${mask(q.subject)}`, width)]
       const labels = answers(q)
-      if (!labels.length) return out
       // A Button draws "[ label ]" (label + 4), then a 1-character gap.
-      const each = Math.max(Math.floor((width - indent.length - 2) / labels.length) - 5, 1)
-      out.push(h(Box, { key: `answers-${q.id}`, flexDirection: 'row' }, h(Text, {}, `${indent}  `),
+      const each = Math.max(Math.floor((width - indent.length - 2) / Math.max(labels.length, 1)) - 5, 1)
+      if (labels.length) out.push(h(Box, { key: `answers-${q.id}`, flexDirection: 'row' }, h(Text, {}, `${indent}  `),
         ...labels.flatMap((label, i) => [
           i ? h(Text, {}, ' ') : undefined,
-          h(Button, { key: `answer-${q.id}-${i}`, label: fit(mask(label), each), onPress: () => $.prompt.submit({ text: `${q.id}: ${label}` }) }),
+          h(Button, { key: `answer-${q.id}-${i}`, label: fit(mask(label), each), onPress: () => postAnswer($, q, { label }) }),
         ])))
+      // The mobile surface has no Input: there the buttons stay alone.
+      if (Input) out.push(h(Box, { key: `write-${q.id}`, flexDirection: 'row' }, h(Text, {}, `${indent}  `),
+        h(Input, {
+          key: `text-${q.id}`, placeholder: fit('write your own answer', Math.max(width - indent.length - 2, 1)), submitLabel: 'send',
+          onInput: value => drafts.set(q.id, value),
+          onSubmit: value => postAnswer($, q, { text: value }),
+        })))
       return out
     }
     const details = (clerk, indent, width) => [
@@ -355,11 +394,10 @@ export const register = (on, options) => {
     ]
     const card = (key, style, color, children) => h(Box, { key: `card-${key}`, flexDirection: 'column', borderStyle: style, borderColor: color, paddingX: 1 }, ...children)
 
-    // Design 8: every item is a card, a border (and its padding) costs 4 columns.
+    // Design 8: every item is a card, a border (and its padding) costs 4 columns. The question cards come last (R-16).
     const cards = () => {
       const inner = cols - 4
-      const out = board.questions.map(q => card(q.id, 'double', q.priority === 'P0' ? 'red' : 'yellow', ask(q, '', inner)))
-      out.push(...notes())
+      const out = notes()
       for (const clanker of board.clankers) {
         const body = [toggleLine(clanker, 'clanker', '', `${clanker.path} · ${count(clanker)}`, inner)]
         if (expanded.get(clanker.key)) {
@@ -372,17 +410,14 @@ export const register = (on, options) => {
         out.push(card(clanker.key, 'bold', 'gray', body))
       }
       out.push(card('done', 'dashed', 'gray', doneGroup(inner)))
+      out.push(...board.questions.map(q => card(q.id, 'double', q.priority === 'P0' ? 'red' : 'yellow', ask(q, '', inner))))
       return out
     }
 
-    // Design 5: per clanker a bar per state, most urgent first; a clerk's question sits in its row.
+    // Design 5: per clanker a bar per state, most urgent first; then the Done bar, and last one bar with every open question (R-16).
     const buckets = () => {
       const bar = (key, state, title) => line({ key: `bar-${key}`, backgroundColor: SOFT[state], color: BAR_TEXT, bold: true }, ` ${title}`.padEnd(cols))
-      const shown = new Set(board.clankers.flatMap(c => c.clerks.map(k => k.key)))
-      const loose = board.questions.filter(q => !shown.has(q.asker))
-      const out = []
-      if (loose.length) out.push(bar('questions', 'owner', `${BARS.owner}  ${loose.length}`), ...loose.flatMap(q => ask(q, ' ', cols)))
-      out.push(...notes())
+      const out = notes()
       for (const clanker of board.clankers) {
         out.push(line({ key: `crumb-${clanker.key}`, dimColor: true }, `${clanker.path} · ${count(clanker)}`))
         for (const state of Object.keys(BARS)) {
@@ -391,12 +426,12 @@ export const register = (on, options) => {
           out.push(bar(`${clanker.key}-${state}`, state, `${BARS[state]}  ${rows.length}`))
           for (const clerk of rows) {
             out.push(toggleLine(clerk, 'clerk', ' ', clerk.name, cols))
-            out.push(...board.questions.filter(q => q.asker === clerk.key).flatMap(q => ask(q, '    ', cols)))
             if (expanded.get(clerk.key)) out.push(...details(clerk, '    ', cols))
           }
         }
       }
       out.push(h(Box, { key: 'bar-done', backgroundColor: SOFT.done, flexDirection: 'column' }, ...doneGroup(cols)))
+      if (board.questions.length) out.push(bar('questions', 'owner', `${BARS.owner}  ${board.questions.length}`), ...board.questions.flatMap(q => ask(q, ' ', cols)))
       return out
     }
 
@@ -433,10 +468,7 @@ export const register = (on, options) => {
         h(Box, { width: name }, head),
         h(Box, { key: `strip-${item.key}`, flexDirection: 'row' },
           ...cut(strip(item), cols - 2 - name).map(cell => h(Text, { wrap: 'truncate-end', ...(cell.color && { color: cell.color }), ...(cell.dim && { dimColor: true }) }, cell.text))))
-      const out = [line({ bold: true }, 'Waits on you')]
-      if (board.questions.length === 0) out.push(line({ dimColor: true }, 'nothing waits on you'))
-      out.push(...board.questions.flatMap(q => ask(q, '', cols)), ...notes())
-      if (board.clankers.length) out.push(line({}, ' '))
+      const out = notes()
       for (const clanker of board.clankers) {
         out.push(toggleLine(clanker, 'clanker', '', `${clanker.path} · ${count(clanker)}`, cols))
         if (!expanded.get(clanker.key)) continue
@@ -447,6 +479,10 @@ export const register = (on, options) => {
         }
       }
       out.push(line({}, ' '), ...doneGroup(cols, d => row(`done-${d.key}`, h(Text, { wrap: 'truncate-end', color: 'gray' }, fit(d.label, name - 1)), d)))
+      // What waits on the owner comes last (R-16).
+      out.push(line({}, ' '), line({ bold: true }, 'Waits on you'))
+      if (board.questions.length === 0) out.push(line({ dimColor: true }, 'nothing waits on you'))
+      out.push(...board.questions.flatMap(q => ask(q, '', cols)))
       return out
     }
 

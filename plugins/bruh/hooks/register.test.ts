@@ -41,7 +41,8 @@ function world(stored: Record<string, unknown> = {}) {
     { name: 'bigm', pid: 15, status: 'busy', startedAt: 8, cwd: '/w' },
   ]
   const store = new Map<string, unknown>(Object.entries(stored))
-  const calls = { run: 0, opened: [] as string[], registered: [] as string[], writes: [] as string[], sent: [] as string[] }
+  const fail = { write: '', mv: '' } // a deny reason makes $.fs.write fail; a reason makes mv exit 1
+  const calls = { run: 0, opened: [] as string[], registered: [] as string[], writes: [] as string[], sent: [] as string[], mail: [] as { path: string, text: string }[], moves: [] as string[][], toasts: [] as string[] }
   const stub = (on: On) => {
     mock.env(on, { HOME: '/h' })
     on('fs.read', ($, e) => (e.path in files ? { value: files[e.path] } : { deny: `ENOENT ${e.path}` }))
@@ -57,6 +58,15 @@ function world(stored: Record<string, unknown> = {}) {
         : { deny: `ENOENT ${e.path}` }
     })
     on('process.run', ($, e) => {
+      // The rename of a mail: mv -f <tmp> <final>, two paths and no body.
+      if (e.argv[0] === 'mv') {
+        calls.moves.push([...e.argv])
+        const [, , from, to] = e.argv
+        if (fail.mv || !(from in files)) return { value: { exitCode: 1, stdout: '', stderr: `mv: ${fail.mv || 'ENOENT'}`, isStdoutTruncated: false, isStderrTruncated: false } }
+        files[to] = files[from]
+        delete files[from]
+        return { value: { exitCode: 0, stdout: '', stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
+      }
       calls.run += 1
       expect(e.argv).toEqual(['claude', 'agents', '--json', '--all'])
       return { value: { exitCode: 0, stdout: JSON.stringify(sessions), stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
@@ -75,6 +85,16 @@ function world(stored: Record<string, unknown> = {}) {
       calls.sent.push(e.text)
       return { text: e.text }
     })
+    on('fs.write', ($, e) => {
+      calls.mail.push({ path: e.path, text: e.text })
+      if (fail.write) return { deny: fail.write }
+      files[e.path] = e.text
+      return { value: undefined }
+    })
+    on('ui.toast', ($, e) => {
+      calls.toasts.push(e.text)
+      return { value: undefined }
+    })
     on('config.set', ($, e) => ({ value: e.value }))
     on('command.register', ($, e) => {
       calls.registered.push(e.name)
@@ -82,7 +102,7 @@ function world(stored: Record<string, unknown> = {}) {
     })
     return mock.clock(on, { now: Date.parse('2026-10-05T16:30:00Z') })
   }
-  return { files, sessions, store, calls, stub }
+  return { files, sessions, store, calls, fail, stub }
 }
 
 const ALL_OPEN = { 'open:clanker-bruh': true, 'open:clanker-shop': true, 'open:clerk-bruh-pollerwait': true, 'open:clerk-bruh-liveui': true, 'open:clerk-shop-x': true }
@@ -307,7 +327,7 @@ for (const design of DESIGNS) {
     expect(v.texts.some(t => t.includes('pushed co'))).toBe(true)
     if (design === 'cards') {
       expect(v.texts).toContain('P1 merge oter/bruh#…')
-      expect(v.buttons[0].label).toBe('mer…')
+      expect(v.buttons.find(b => b.key === 'answer-Q-bruh-m-98-0')?.label).toBe('mer…')
       expect(v.buttons.find(b => b.key === 'toggle-clanker-bruh')?.label).toBe('▾ oter/bruh · 4 …')
       expect(v.texts).toContain('last: pushed co…')
     }
@@ -364,8 +384,27 @@ function withAnswers(w: ReturnType<typeof world>) {
   return w
 }
 
+// The mails the board wrote: each one file <data>/mail/bigm/<id>.json in the
+// format of mcp/mail.go writeMail, its id and at from the mock clock. Like
+// atomicWrite, the board writes <id>.json.tmp, which the waiter and mail_read
+// skip, and renames it: no *.json is ever written in place.
+const NOW = Date.parse('2026-10-05T16:30:00Z')
+const mails = (w: ReturnType<typeof world>) => w.calls.mail.map((m, i) => {
+  const msg = JSON.parse(m.text)
+  expect(Object.keys(msg)).toEqual(['id', 'from', 'to', 'header', 'body', 'at'])
+  expect(msg.id).toMatch(new RegExp(`^${String(NOW).padStart(15, '0')}-\\d{6}-[a-z0-9]{8}$`))
+  const path = `${D}/mail/bigm/${msg.id}.json`
+  expect(m.path).toBe(`${path}.tmp`)
+  expect(w.calls.moves[i]).toEqual(['mv', '-f', `${path}.tmp`, path])
+  expect(w.files[path]).toBe(m.text)
+  expect(`${path}.tmp` in w.files).toBe(false)
+  expect(msg.at).toBe('2026-10-05T16:30:00.000Z')
+  return { from: msg.from, to: msg.to, header: msg.header, body: msg.body }
+})
+const toBigm = (header: string, body: string) => ({ from: 'bigm', to: 'bigm', header, body })
+
 for (const design of DESIGNS) {
-  test(`a question shows one button per option, a refusal P0 ok and hold, and a press submits the exact text (${design})`, pick(design), async ($, on) => {
+  test(`a question shows one button per option, a refusal P0 ok and hold, and a press mails bigm and submits no prompt (${design})`, pick(design), async ($, on) => {
     const w = withAnswers(world(ALL_OPEN))
     w.stub(on)
     await $.command.run({ command: 'bruh-board' })
@@ -379,39 +418,139 @@ for (const design of DESIGNS) {
       { key: 'answer-Q-bruh-m-98-0', hotkey: undefined, label: 'merge now' },
       { key: 'answer-Q-bruh-m-98-1', hotkey: undefined, label: 'wait' },
     ]
-    // buckets: the clanker's P1 on top, the P0 in the row of its clerk
-    expect(answers).toEqual(design === 'buckets' ? [...p1, ...p0] : [...p0, ...p1])
+    // every design: the P0 first, then the P1
+    expect(answers).toEqual([...p0, ...p1])
     await ui.press({ key: 'answer-Q-bruh-m-98-0' })
     await ui.press({ key: 'answer-Q-bruh-m-93-1' })
-    expect(w.calls.sent).toEqual(['Q-bruh-m-98: merge now', 'Q-bruh-m-93: hold'])
+    expect(mails(w)).toEqual([
+      toBigm('ANSWER Q-bruh-m-98: merge now', 'QUESTION: Q-bruh-m-98\nPICK: merge now'),
+      toBigm('ANSWER Q-bruh-m-93: hold', 'QUESTION: Q-bruh-m-93\nPICK: hold'),
+    ])
+    expect(w.calls.sent).toEqual([])
     expect(w.calls.writes).toEqual([])
+    expect(w.calls.toasts).toEqual(['answer sent to bigm', 'answer sent to bigm'])
+  })
+
+  test(`the text box of a question mails bigm the owner's text word for word and submits no prompt (${design})`, pick(design), async ($, on) => {
+    const w = withAnswers(world(ALL_OPEN))
+    w.stub(on)
+    await $.command.run({ command: 'bruh-board' })
+    const ui = await mount($)
+    const text = '  no: wait | rebase on #44 first, "then" merge ✓ Q-x 2026-10-05T16:30:00Z  '
+    await ui.input({ key: 'text-Q-bruh-m-98', text })
+    expect(mails(w)).toEqual([toBigm('ANSWER Q-bruh-m-98: own words', `QUESTION: Q-bruh-m-98\nTEXT: ${text}`)])
+    // an empty or blank text sends nothing
+    await ui.input({ key: 'text-Q-bruh-m-93', text: '   ' })
+    await ui.input({ key: 'text-Q-bruh-m-93', text: '' })
+    expect(w.calls.mail).toHaveLength(1)
+    expect(w.calls.sent).toEqual([])
+    expect(w.calls.writes).toEqual([])
+  })
+}
+
+test('a press sends the text in the box of its question with the pick', async ($, on) => {
+  const w = withAnswers(world(ALL_OPEN))
+  w.stub(on)
+  await $.command.run({ command: 'bruh-board' })
+  const ui = await mount($)
+  await ui.input({ key: 'text-Q-bruh-m-98', text: 'squash it', kind: 'change' })
+  expect(w.calls.mail).toEqual([])
+  await ui.press({ key: 'answer-Q-bruh-m-93-0' }) // the box of another question stays out
+  await ui.press({ key: 'answer-Q-bruh-m-98-0' })
+  expect(mails(w)).toEqual([
+    toBigm('ANSWER Q-bruh-m-93: ok', 'QUESTION: Q-bruh-m-93\nPICK: ok'),
+    toBigm('ANSWER Q-bruh-m-98: merge now', 'QUESTION: Q-bruh-m-98\nPICK: merge now\nTEXT: squash it'),
+  ])
+  expect(w.calls.sent).toEqual([])
+})
+
+test('a P1 without options gets the text box and no answer button', async ($, on) => {
+  const w = world()
+  w.stub(on)
+  await $.command.run({ command: 'bruh-board' })
+  const ui = await mount($)
+  expect(await ui.find({ key: 'write-Q-bruh-m-98' })).toBeDefined()
+  expect((await view(ui)).buttons.filter(b => b.key.startsWith('answer-'))).toEqual([])
+  await ui.input({ key: 'text-Q-bruh-m-98', text: 'yes, merge it' })
+  expect(mails(w)).toEqual([toBigm('ANSWER Q-bruh-m-98: own words', 'QUESTION: Q-bruh-m-98\nTEXT: yes, merge it')])
+  expect(w.calls.sent).toEqual([])
+})
+
+test('a failed mail write says so in a toast and is not retried', async ($, on) => {
+  const w = withAnswers(world(ALL_OPEN))
+  w.stub(on)
+  w.fail.write = 'EACCES'
+  await $.command.run({ command: 'bruh-board' })
+  const ui = await mount($)
+  await ui.press({ key: 'answer-Q-bruh-m-98-1' })
+  expect(w.calls.mail).toHaveLength(1)
+  expect(w.calls.moves).toEqual([]) // nothing to rename
+  expect(w.calls.toasts).toHaveLength(1)
+  expect(w.calls.toasts[0]).toMatch(/^answer not sent: /)
+  expect(w.calls.sent).toEqual([])
+})
+
+test('a failed rename leaves no *.json in the mailbox, says so in a toast and is not retried', async ($, on) => {
+  const w = withAnswers(world(ALL_OPEN))
+  w.stub(on)
+  w.fail.mv = 'EXDEV'
+  await $.command.run({ command: 'bruh-board' })
+  const ui = await mount($)
+  await ui.press({ key: 'answer-Q-bruh-m-98-1' })
+  expect(w.calls.moves).toHaveLength(1)
+  expect(Object.keys(w.files).filter(f => f.startsWith(`${D}/mail/bigm/`) && f.endsWith('.json'))).toEqual([])
+  expect(w.calls.toasts).toEqual(['answer not sent: mv: EXDEV'])
+  expect(w.calls.sent).toEqual([])
+})
+
+// R-16 (owner, 2026-10-08): "what waits on me - must be in the bottom".
+const ASK = /^(q-|card-Q-|answers-|write-|bar-questions$)/
+for (const design of DESIGNS) {
+  test(`what waits on you is drawn last, below the clankers, clerks and the Done group (${design})`, pick(design), async ($, on) => {
+    const w = withEnded(withAnswers(world({ ...ALL_OPEN, 'open:done': true })))
+    w.stub(on)
+    await $.command.run({ command: 'bruh-board' })
+    const ui = await mount($)
+    const root: any = await ui.drawn()
+    const keys: string[] = root.children.map((c: any) => c.props?.key ?? '').filter(Boolean)
+    const first = keys.findIndex(k => ASK.test(k))
+    const other = keys.filter(k => !ASK.test(k))
+    expect(first).toBeGreaterThan(0)
+    expect(keys.slice(first).every(k => ASK.test(k))).toBe(true)
+    expect(keys.slice(first).filter(k => /Q-bruh-m-9[38]$/.test(k)).length).toBeGreaterThan(1)
+    // the clanker, the clerk and the Done items all come before the first question
+    const done = design === 'cards' ? 'card-done' : design === 'buckets' ? 'bar-done' : 'done-clerk-bruh-tabclose'
+    expect(other).toContain(done)
+    expect(other.some(k => k.includes('clanker-bruh'))).toBe(true)
+    // the last answer button is the last button of the pane
+    expect((await view(ui)).buttons.at(-1)?.key).toBe('answer-Q-bruh-m-98-1')
   })
 }
 
 // The cards, buckets and pipeline of one world, each test drawing one design.
 
-test('cards: a double card per question, a bold card per clanker, a round card per clerk in its state colour, a dashed Done card', pick('cards'), async ($, on) => {
+test('cards: a bold card per clanker, a round card per clerk in its state colour, a dashed Done card, then a double card per question', pick('cards'), async ($, on) => {
   const w = withAnswers(world(ALL_OPEN))
   w.stub(on)
   await $.command.run({ command: 'bruh-board' })
   const ui = await mount($)
   const boxes: any[] = (await ui.findAll({ type: 'Box' })).filter((b: any) => b.props.borderStyle)
   expect(boxes.map(b => [b.key, b.props.borderStyle, b.props.borderColor])).toEqual([
-    ['card-Q-bruh-m-93', 'double', 'red'],
-    ['card-Q-bruh-m-98', 'double', 'yellow'],
     ['card-clanker-bruh', 'bold', 'gray'],
     ['card-clerk-bruh-pollerwait', 'round', 'green'],
     ['card-clerk-bruh-liveui', 'round', 'yellow'], // the asker of the P0 waits on you
     ['card-clanker-shop', 'bold', 'gray'],
     ['card-clerk-shop-x', 'round', 'gray'],
     ['card-done', 'dashed', 'gray'],
+    ['card-Q-bruh-m-93', 'double', 'red'],
+    ['card-Q-bruh-m-98', 'double', 'yellow'],
   ])
-  const pollerwait = boxes[3]
+  const pollerwait = boxes[1]
   expect(pollerwait.text).toContain('last: pushed commit … to the branch')
   expect((await ui.find({ key: 'card-Q-bruh-m-98' }))?.text).toContain('P1 merge oter/bruh#29?')
 })
 
-test('buckets: a soft bar per state, most urgent first, and a clerk question inside its row', pick('buckets'), async ($, on) => {
+test('buckets: a soft bar per state, most urgent first, the Done bar, and last one bar with every open question', pick('buckets'), async ($, on) => {
   const w = withAnswers(world())
   w.stub(on)
   await $.command.run({ command: 'bruh-board' })
@@ -419,7 +558,7 @@ test('buckets: a soft bar per state, most urgent first, and a clerk question ins
   const root: any = await ui.drawn()
   const keys: string[] = root.children.map((c: any) => c.props?.key ?? '')
   const bars: any[] = (await ui.findAll({ type: 'Box' })).filter((b: any) => String(b.key).startsWith('bar-') && b.key !== 'bar-done')
-  expect(bars.map(b => b.text.trimEnd())).toEqual([' WAITS ON YOU  1', ' WAITS ON YOU  1', ' WORKING  1', ' IDLE  1'])
+  expect(bars.map(b => b.text.trimEnd())).toEqual([' WAITS ON YOU  1', ' WORKING  1', ' IDLE  1', ' WAITS ON YOU  2'])
   for (const bar of bars) {
     const props = bar.children[0].props
     expect([...bar.text].length).toBe(60)
@@ -428,15 +567,16 @@ test('buckets: a soft bar per state, most urgent first, and a clerk question ins
   }
   expect((await ui.find({ key: 'bar-done' }))?.props.backgroundColor).toBe(SOFT.done)
   expect(keys).toEqual([
-    'bar-questions', 'q-Q-bruh-m-98', 'answers-Q-bruh-m-98', // the clanker's own question
     'crumb-clanker-bruh',
-    'bar-clanker-bruh-owner', 'clerk-bruh-liveui', 'q-Q-bruh-m-93', 'answers-Q-bruh-m-93',
+    'bar-clanker-bruh-owner', 'clerk-bruh-liveui',
     'bar-clanker-bruh-working', 'clerk-bruh-pollerwait',
     'crumb-clanker-shop', 'bar-clanker-shop-idle', 'clerk-shop-x',
     'bar-done',
+    // what waits on you, last: a clerk's P0 and the clanker's own P1
+    'bar-questions', 'q-Q-bruh-m-93', 'answers-Q-bruh-m-93', 'write-Q-bruh-m-93', 'q-Q-bruh-m-98', 'answers-Q-bruh-m-98', 'write-Q-bruh-m-98',
   ])
   expect((await ui.find({ key: 'crumb-clanker-bruh' }))?.text).toBe('oter/bruh · 2 tasks')
-  expect((await ui.find({ key: 'q-Q-bruh-m-93' }))?.text).toBe('    P0 refused')
+  expect((await ui.find({ key: 'q-Q-bruh-m-93' }))?.text).toBe(' P0 refused')
   expect(await labels(ui)).toContain('▸ task 12 fix-poller-wait-lock')
 })
 
@@ -522,7 +662,7 @@ test('readPhase takes the latest line with a known top-level phase and reads not
 })
 
 for (const design of DESIGNS) {
-  test(`the Done group sits last, collapsed with its count, and opens on a press (${design})`, pick(design), async ($, on) => {
+  test(`the Done group sits after the clankers, collapsed with its count, and opens on a press (${design})`, pick(design), async ($, on) => {
     const w = withEnded(world())
     w.stub(on)
     await $.command.run({ command: 'bruh-board' })

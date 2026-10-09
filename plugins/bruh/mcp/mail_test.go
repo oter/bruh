@@ -134,6 +134,10 @@ func TestMailSenderPolicy(t *testing.T) {
 		{"clanker-a", "bigm", "ANSWER Q-a-host-7: x", false},
 		{"clanker-a", "bigm", "START: x", false},
 		{"clerk-ledger", "bigm", "ANSWER Q-a-host-8: x", false},
+		// Task 42: an ANSWER in the mailbox of bigm comes only from the /bruh-board pane, so
+		// mail_post refuses it from every role, bigm too.
+		{"bigm", "bigm", "ANSWER Q-a-host-9: x", false},
+		{"bigm", "bigm", "DONE: x", true},
 	} {
 		_, err := call(t, as(env, c.from), "mail_post", map[string]any{"to": c.to, "header": c.header, "body": "b"})
 		if (err == nil) != c.ok {

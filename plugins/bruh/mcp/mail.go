@@ -38,8 +38,10 @@ type Message struct {
 // from bigm to anyone. A clerk may also raise a P0 straight to bigm, except a scout: a scout
 // cannot open a question (question_open is in scoutDeny), so it reaches bigm only through its
 // clanker (spec 3.6.1). RULE comes only from
-// bigm; START and ANSWER come only from the parent of the receiver or from bigm. Like a deny
-// rule, it is a speed bump: a Bash command can set BRUH_ROLE_KEY (SECURITY.md).
+// bigm; START and ANSWER come only from the parent of the receiver or from bigm. An ANSWER
+// to bigm comes from no role at all: only the /bruh-board pane writes one, for a press or a
+// text of the owner (task 42). Like a deny rule, it is a speed bump: a Bash command can set
+// BRUH_ROLE_KEY or write a file into the mailbox (SECURITY.md).
 func mailAllowed(from, to, header string) error {
 	f, _ := ParseRoleKey(from)
 	t, _ := ParseRoleKey(to)
@@ -47,6 +49,8 @@ func mailAllowed(from, to, header string) error {
 		return fmt.Errorf("%s cannot post to %s: a message goes only to the parent or a child of the sender, or from bigm", from, to)
 	}
 	switch {
+	case strings.HasPrefix(header, "ANSWER ") && to == "bigm":
+		return errors.New("an ANSWER to bigm comes only from the /bruh-board pane")
 	case strings.HasPrefix(header, "RULE ") && from != "bigm":
 		return fmt.Errorf("only bigm posts a RULE, not %s", from)
 	case (strings.HasPrefix(header, "START:") || strings.HasPrefix(header, "ANSWER ")) && from != "bigm" && t.Parent() != from:

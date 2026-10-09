@@ -42,6 +42,7 @@ flowchart LR
 - A refusal P0 needs no nudge: the MCP server posts it straight to the mailbox of the parent of the asker and of bigm, and their waiters wake them.
 - An agent that waits with `answer_wait` gets the answer that any role wrote for its question ID: its clerk, its clanker, or bigm.
 - Each question has a priority. A clanker answers P2 questions from the project context. It also answers the P1 classes that you delegate to it in `priorities.md`. The other P1 questions (your decisions) and all P0 questions (blocks that only you can remove) go to bigm, and bigm shows them to you.
+- Each question to you is a question file first, also each ask of bigm itself and each question that bigm relays, so the `/bruh-board` pane shows it with its options as buttons (see "Watch bruh work"). A select of bigm in the terminal is a copy of an open question and names its `Q-<id>`: the hook `owner-ask.sh` blocks every other select of bigm. bigm puts what waits on you last, in its status report ("Ready for you", "In progress", "Waiting on you") and in its replies.
 - On a model with a 1M context window, each role stays below about 55 percent of its context window. A hook tells the role to write its handoff before compaction, and another hook gives the handoff back after compaction.
 - A remote clanker talks to bigm through the Orca remote runtime.
 
@@ -266,7 +267,7 @@ bigm starts a clanker for each project that has work. Tell bigm what to do. For 
 | `rsync` | The lanes of `/bruh:implement-tickets` (`scripts/lane.sh`) |
 | `glab` | GitLab repositories: the pick, the status, the watcher, the merges of the clanker (`glab mr merge`), and the posts (`glab mr note create`) |
 | `gh` | GitHub repositories, the merges of the clanker (`gh pr merge`), and the posts (`gh pr review`) |
-| `tea` or a `BRUH_GITEA_TOKEN_<HOST>` variable | Gitea repositories; the merges of the clanker need `tea` (`tea api`) |
+| `tea` or a `BRUH_GITEA_TOKEN_<HOST>` variable | Gitea repositories; the merges of the clanker need `tea` (`tea api`). The watcher calls `tea api --login <login>` when `tea logins list` has a login for the host, so no token passes through bruh; else it uses `BRUH_GITEA_TOKEN_<HOST>`, else no token |
 | `ssh` | Remotes with an SSH host alias (`ssh -G` finds the host) |
 | Orca | Remote machines; optional for local viewer tabs (app 1.4.218 or later) |
 | Bun | The Telegram channel plugin only |
@@ -279,7 +280,7 @@ Background sessions use the Claude account of the Claude Code supervisor. bruh n
 
 ### Upgrade from 0.10.0
 
-Do these steps after the release v0.12.0 is published. Let the running tasks finish first.
+Do these steps after the release v0.12.2 is published. Let the running tasks finish first.
 
 1. Update the marketplace and the plugin, in a terminal:
 
@@ -297,7 +298,7 @@ Do these steps after the release v0.12.0 is published. Let the running tasks fin
    claude plugin list
    ```
 
-   The entry of `bruh@oter` shows `Version: 0.12.0`.
+   The entry of `bruh@oter` shows `Version: 0.12.2`.
 3. Run the init skill again (step 3 of Install). It adds the allow rules of the new tools (`ledger_edit`, `monitor_start`, `monitor_stop`, `monitor_list`, `monitor_report`, and `session_tab_close`) and the new ledger parts (`monitors.md`, the table "Command grants" in `grants.md`, and the monitor keys of `mode.md`). In the ledger folder, start a session with no role key:
 
    ```bash
@@ -332,10 +333,10 @@ Do these steps after the release v0.12.0 is published. Let the running tasks fin
 5. Restart the background roles. Tell bigm:
 
    ```text
-   restart each clanker and clerk-ledger so that they run 0.12.0
+   restart each clanker and clerk-ledger so that they run 0.12.2
    ```
 
-   New clerks start on 0.12.0. A clerk that still runs keeps 0.10.0 until it ends.
+   New clerks start on 0.12.2. A clerk that still runs keeps 0.10.0 until it ends.
 6. Optional: local Orca tabs. The new plugin option `orca_local` is `auto` by default: when the Orca app 1.4.218 or later runs, each local clanker and clerk that bruh starts or resumes gets an Orca tab ("Local sessions in Orca" in step 1 of Install). To turn it off, set `orca_local` to `off` with `/config`.
 7. Check the upgrade. Wait one minute after the start of bigm. Then ask bigm:
 
@@ -343,7 +344,7 @@ Do these steps after the release v0.12.0 is published. Let the running tasks fin
    call bruh_info and monitor_list
    ```
 
-   `bruh_info` shows the version `0.12.0`. `monitor_list` exists since 0.11.0, and it shows `poller_down` false. If `poller_down` is still true after two minutes, run `/reload-plugins` in bigm and ask again.
+   `bruh_info` shows the version `0.12.2`. `monitor_list` exists since 0.11.0, and it shows `poller_down` false. If `poller_down` is still true after two minutes, run `/reload-plugins` in bigm and ask again.
 
 ## Watch bruh work
 
@@ -351,24 +352,26 @@ Run `/bruh-board` in a session with bruh, usually bigm. It opens a live pane tha
 
 The pane draws one of three designs, all from the same data. Pick it in `/config`, row `bruh: Board design` (the plugin option `board_design`). The open pane changes at once, with no restart and no new `/bruh-board`.
 
-- `cards` (the default): each open question is a double-bordered card with its answer buttons. Each clanker is a bold card that holds one round card for each clerk. The border colour of a clerk card is its state.
-- `buckets`: for each clanker, a dim line with the project path and the task count, then one bar for each state in soft colours: WAITS ON YOU, BLOCKED, WORKING, and IDLE, in that order, and only the bars with clerks. A question of a clerk sits in the row of that clerk. The other open questions sit under a WAITS ON YOU bar on top.
-- `pipeline`: the open questions on top, as **Waits on you**, then one line for each clanker. An expanded clanker shows a strip for each clerk across the deliver phases `plan`, `implement`, `review`, `fix`, and `merge` (see the phase strip below).
+In each design, what waits on you comes last: the open questions and their answer buttons sit at the bottom, below the clankers, the clerks, and the Done group.
 
-What the pane shows:
+- `cards` (the default): each clanker is a bold card that holds one round card for each clerk. The border colour of a clerk card is its state. Each open question is a double-bordered card with its answer buttons, at the bottom.
+- `buckets`: for each clanker, a dim line with the project path and the task count, then one bar for each state in soft colours: WAITS ON YOU, BLOCKED, WORKING, and IDLE, in that order, and only the bars with clerks. At the bottom, one WAITS ON YOU bar holds every open question, a question of a clerk too.
+- `pipeline`: one line for each clanker, and at the bottom the open questions, as **Waits on you**. An expanded clanker shows a strip for each clerk across the deliver phases `plan`, `implement`, `review`, `fix`, and `merge` (see the phase strip below).
 
-- **The open questions**: one short line for each open P0 or P1 question, P0 first, for example `P1 merge oter/bruh#29?`. A question is open while no answer file exists for it. Only when two open questions have the same subject, each line shows its number, for example `P1 (98) merge oter/bruh#29?`.
+What the pane shows, top to bottom:
+
 - **The clankers**: one collapsed line for each project, with a spinner, the project path, and the task count, for example `▸ oter/bruh · 2 tasks`.
-- **Done**: one collapsed line at the bottom, for example `▸ Done (3)`. It holds the done and stopped clerks, and each clanker whose own session and clerks are all done or stopped. Nothing is deleted: expand it to see one gray line for each, for example `✓ merge-simplify · done` or `■ tab-close · stopped`.
+- **Done**: one collapsed line below the clankers, for example `▸ Done (3)`. It holds the done and stopped clerks, and each clanker whose own session and clerks are all done or stopped. Nothing is deleted: expand it to see one gray line for each, for example `✓ merge-simplify · done` or `■ tab-close · stopped`.
+- **The open questions**, last: one short line for each open P0 or P1 question, P0 first, for example `P1 merge oter/bruh#29?`. A question is open while no answer file exists for it. Only when two open questions have the same subject, each line shows its number, for example `P1 (98) merge oter/bruh#29?`.
 
-Under each open question, the pane shows one button for each option of the question, or `ok` and `hold` for a refusal P0 without options. A press sends `Q-<id>: <label>` as a prompt into the session that shows the pane, and bigm records it as the answer of the owner. The prompt reaches only that session, so open the board in bigm.
+Under each open question, the pane shows one button for each option of the question, or `ok` and `hold` for a refusal P0 without options, and under them a text box, `write your own answer`. A question without options gets only the text box. A press, or Enter in the text box, puts one mail into the mailbox of bigm, with no prompt in any session: the header `ANSWER Q-<id>: <label>` for a press, or `ANSWER Q-<id>: own words` for the text box alone, and the body lines `QUESTION: Q-<id>`, `PICK: <label>` for a press, and `TEXT: <your text>`. Text that you typed in the box before a press goes with the press. Your text goes word for word, and a blank text sends nothing. The waiter of bigm wakes it, and bigm records the mail as your answer. A toast says `answer sent to bigm`, or `answer not sent:` with the error; then press again. `mail_post` refuses every `ANSWER` to bigm; like the other sender rules, this is a speed bump, because a Bash command can write a file into a mailbox. Open the board in your own session, usually bigm.
 
 Expand a line to see more, and collapse it again the same way:
 
 - A clanker line expands to its clerks, one line each: the task number and slug, and the state, for example `▸ task 12 fix-poller-wait-lock · working`. A clerk belongs to `clanker-<project>` by its role key `clerk-<project>-<name>`. In `buckets`, the clerks always show under their bars.
 - A clerk line expands to its details: its name, for example `oter/bruh pollerwait (clerk, task 12 fix-poller-wait-lock)`, then `last:`, the text of the last status or result line of its report file, and `next:`, the expected deliverable of its ledger "In progress" row. Each shows only when the data exists.
 
-The lines have no hotkeys. `/bruh-board` gives the pane the keyboard: Tab and the arrows move the focus, and Enter expands, collapses, or answers. Esc gives the keys back to the prompt, and Ctrl+X then Tab takes them again.
+The lines have no hotkeys. `/bruh-board` gives the pane the keyboard: Tab and the arrows move the focus, and Enter expands, collapses, answers, or sends the text box. Esc gives the keys back to the prompt, and Ctrl+X then Tab takes them again.
 
 The pane keeps the expanded state in the store of the mod, one key for each item and `open:done` for the Done group, so the next `/bruh-board` and your other sessions open the same lines. Each line is cut to the width of the pane and never wraps. The board shows no times, no session IDs, no run IDs, and no commit SHAs.
 
@@ -387,7 +390,7 @@ The phase strip of `pipeline` reads one field. A line of the report file of a cl
 
 The project path comes from `repos.json` (the MCP tool `repos_set` writes it), else the project key. The task number of a clerk comes from the ledger "In progress" row that names the clerk in its State column. The slug comes from the worktree folder of the clerk session. With neither, the line shows the name part of the role key, for example `liveui`. A clanker counts the tasks of its ledger rows and of its clerks (the number, else the slug), done ones too, also when the clanker has no session. With no task, it shows `no tasks`.
 
-The board reads `claude agents --json --all` and the bruh data and ledger files. Its only write is the expanded state in its own store. To turn it off, close the pane with its close mark. That stops the refresh, and the board reads nothing until the next `/bruh-board`.
+The board reads `claude agents --json --all` and the bruh data and ledger files. It writes only the expanded state in its own store and one mail to bigm for each answer. To turn it off, close the pane with its close mark. That stops the refresh, and the board reads nothing until the next `/bruh-board`.
 
 ## Documentation
 

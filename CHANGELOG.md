@@ -11,6 +11,33 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - A refusal P0 is no longer silent while its asker is held (#42): `question_open` with `hold` posts the P0 itself to the mailbox of the parent of the asker and of bigm, and their waiters wake them, so it needs no `SendMessage` nudge. The question file keeps the hold ID in the new field `hold`. On a post error, the output has `relay_error` and the asker sends the nudge itself.
 - `answer_wait` returns the answer that any role wrote for the question ID with `answer_write` (bigm, the clanker, or the asker), not only the copy of the caller, so a workflow agent no longer stays pending until its clerk writes its own copy.
 
+## [0.12.2] - 2026-10-09
+
+### Added
+
+- Each open question on the `/bruh-board` pane has a text box, `write your own answer`, under its buttons; a question without options gets only the text box. Enter sends the text of the owner to bigm word for word, and text in the box goes with a later press of a button of that question (task 42).
+
+### Changed
+
+- A press of an answer button on `/bruh-board` no longer submits a prompt into the session. It puts one quiet mail into the mailbox of bigm, `ANSWER Q-<id>: <label>` (or `ANSWER Q-<id>: own words` for the text box), with the body lines `QUESTION:`, `PICK:`, and `TEXT:`, and the waiter of bigm wakes it. bigm records the answer with `answer_write` and relays it as before. A toast says whether the mail was sent (task 42).
+- `mail_post` refuses every `ANSWER` to `bigm`, also from bigm, so an `ANSWER` in the mailbox of bigm comes only from the board (task 42).
+
+### Fixed
+
+- The watcher reads a private Gitea repository through `tea api --login <login>` when `tea logins list` has a login for the host of `api_url`, so a host with a tea login no longer gets 403 "Only signed in user is allowed to call APIs.". No token passes through bruh. Without such a login, `BRUH_GITEA_TOKEN_<HOST>` works as before, else the call has no token.
+
+## [0.12.1] - 2026-10-08
+
+### Added
+
+- Every question to the owner shows on the `/bruh-board` pane with its buttons (owner rule R-15). bigm opens each own ask with `question_open` first, and a local copy of each question of a remote clanker. A new plugin hook `owner-ask.sh` (`PreToolUse`, matcher `AskUserQuestion`) blocks a select of bigm unless the text of each of its questions names the `Q-<id>` of an open P0 or P1 question file with no answer file. Other roles pass.
+
+### Changed
+
+- The test suites are trimmed and grouped (task 33 test audit, [#41](https://github.com/oter/bruh/pull/41)): tests that checked nothing new are cut or folded into the tests that keep their checks, row tests are merged into tables that report every failing row, and five untested branches now have a test (the `handoff_percent` range, the slash rule of `lane.sh`, the empty default branch name, the empty-list guard of `remove_scratch`, and the tool names of the agents against the MCP server). Go `plugins/bruh/mcp` top-level tests 264 -> 241, node tests 168 -> 132, `tests/test.sh` 171 -> 91, all passing with 0 skipped. No production code changed.
+- The `/bruh-board` pane draws what waits on the owner last (owner rule R-16): the open questions and their answer buttons sit below the clankers, the clerks, and the Done group in `cards`, `buckets`, and `pipeline`. `buckets` shows every open question under one WAITS ON YOU bar at the bottom, and no question inside the row of its clerk any more.
+- bigm reports status in the order "Ready for you", "In progress", "Waiting on you", and shows a new P0 at the end of its next reply, not at the top (owner rule R-16).
+
 ## [0.12.0] - 2026-10-07
 
 ### Added
@@ -33,7 +60,6 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - A scout clerk may clone a public repository and download a file for research, into `/tmp/<scout key>-*` only: `role_settings_write` adds two allow rules for the exact forms `git clone https://<url> /tmp/<scout key>-<name>` and `curl -fsSL -o /tmp/<scout key>-<name> https://<url>`, plus guard deny rules for options, quotes, variables, `..`, file URLs, redirects, and home folders. A scout still never pushes or commits.
 - `answer_write`, `mail_post`, and `question_open` replace `{now}` in the text or body with the server time, so bigm, the clankers, and the clerks run no `date -u` for these calls.
 - From a worktree, a clerk and a clanker never run `git -C <main checkout>`: they run git inside their own worktree, or read other refs through `origin/<branch>`. The `root` of a clerk's implement or review workflow is a worktree, never the main checkout.
-- The test suites are trimmed and grouped (task 33 test audit): tests that checked nothing new are cut, row tests are merged into tables that report every failing row, and five untested branches now have a test (the `handoff_percent` range, the slash rule of `lane.sh`, the empty default branch name, the empty-list guard of `remove_scratch`, and the tool names of the agents against the MCP server).
 
 ### Removed
 
@@ -150,7 +176,9 @@ This is the first release of bruh. It contains all parts of the [specification](
 - `init_plan` does not write the plugin options (`pluginConfigs`).
 - The report file `reports/watcher.jsonl` and the role key `watcher` of `report_read`.
 
-[Unreleased]: https://github.com/oter/bruh/compare/v0.12.0...HEAD
+[Unreleased]: https://github.com/oter/bruh/compare/v0.12.2...HEAD
+[0.12.2]: https://github.com/oter/bruh/compare/v0.12.1...v0.12.2
+[0.12.1]: https://github.com/oter/bruh/compare/v0.12.0...v0.12.1
 [0.12.0]: https://github.com/oter/bruh/compare/v0.11.1...v0.12.0
 [0.11.1]: https://github.com/oter/bruh/compare/v0.11.0...v0.11.1
 [0.11.0]: https://github.com/oter/bruh/compare/v0.10.0...v0.11.0
