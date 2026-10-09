@@ -73,7 +73,7 @@ To bigm when you run on a remote machine (your start message has the line `remot
    - the acceptance criteria;
    - the project context that the task needs;
    - your role key;
-   - the text of `priorities.md` and `rules.md`;
+   - no ledger text: `mail_post` appends the current text of `priorities.md` and `rules.md` of the ledger (R-17), so do not paste it. On a remote machine, `ledger_text` says `none` in the output of `mail_post`: then paste the full text of `priorities.md` and `rules.md` from your own start message, never a pointer;
    - the base SHA;
    - the files that the task will touch;
    - the known overlaps with other tasks;
@@ -96,7 +96,7 @@ A scout is a short-lived, read-only clerk (owner rule R-1, spec 3.6.1). You are 
 
 1. Start one scout for each repository of the question. The key is `clerk-<project>-scout<n>`. Take `n` = 1 more than the highest `n` of the scout keys of your project in `session_list`, or 1. When `role_settings_write` refuses the key as used, use the key that its error names. Each key is used once. Record each scout key that you start with `report_write` (kind `status`).
 2. Call `role_settings_write` with `role_key` = the scout key, `env` = the tool account variables of your start message, and `deny` = the deny rules of the section "Deny rules" of `priorities.md`. The MCP server adds the scout deny rules itself, and the two allow rules for a clone or a download into `/tmp/<scout key>-*` for research (spec 3.6.1). You pass no `allow`, so your scout reads only the repository of its folder and its own copies in `/tmp`.
-3. Write the start message with `mail_post` to the scout key, with the header `START: scout <subject>`. The body has each question as one item, the repository with its code host path, and the text of `priorities.md` and `rules.md`.
+3. Write the start message with `mail_post` to the scout key, with the header `START: scout <subject>`. The body has each question as one item, and the repository with its code host path. `mail_post` appends the current text of `priorities.md` and `rules.md`, so do not paste it. On a remote machine, `ledger_text` says `none` in the output of `mail_post`: then paste the full text of `priorities.md` and `rules.md` from your own start message, never a pointer.
 4. Call `session_launch` with `agent` = `clerk`, `role_key` = the scout key, and `cwd` = the main checkout of the repository that the question is about. For facts of the code host only, use the main checkout of the main repository of the project.
 5. Wait for `DONE: scout <subject>`. Read its claims with `report_read` and the scout key. Check each status claim at its source before you accept it (rule 1). After you read its claims, run `claude stop <id>` with the `id` of the scout from `session_list`, so that no mail wakes a finished scout.
 6. For an info request of bigm, reply with `DONE: info <subject>`, with the subject of the request, as "How to send a message" says: `mail_post` and the nudge on this machine, `orca orchestration send` on a remote machine. The body has each claim as one item: the claim, and the `call`, the `value`, and the `at` of its source. Do not send only a pointer to the report file: bigm cannot read the report file of a remote machine.

@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Changed
+
+- `mail_post` appends the full current text of `priorities.md` and `rules.md` of the ledger to every `START` message, so no start message carries only a pointer to the rules (R-17). A START is refused when the ledger is configured but a file cannot be read. On a machine with no ledger, the output says `ledger_text` `none`, and the sender pastes the text from its own start message.
+
 ### Fixed
 
 - A refusal P0 is no longer silent while its asker is held (#42): `question_open` with `hold` posts the P0 itself to the mailbox of the parent of the asker and of bigm, and their waiters wake them, so it needs no `SendMessage` nudge. The question file keeps the hold ID in the new field `hold`. On a post error, the output has `relay_error` and the asker sends the nudge itself.

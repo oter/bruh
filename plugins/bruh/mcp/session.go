@@ -338,7 +338,7 @@ func sessionTools() []Tool {
 	return []Tool{
 		{
 			Name:        "session_launch",
-			Description: "Start a clanker or clerk as a background session. Only the parent of role_key. Write its role settings and its start message (mail_post) first.",
+			Description: "Start a clanker or clerk as a background session. Only the parent of role_key. Write its role settings and its start message (mail_post) first; mail_post appends the ledger's priorities.md and rules.md to the START.",
 			InputSchema: objectSchema(map[string]any{
 				"agent":    map[string]any{"type": "string", "enum": []string{"clanker", "clerk"}},
 				"role_key": stringSchema(),

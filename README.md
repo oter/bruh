@@ -39,6 +39,7 @@ flowchart LR
 ```
 
 - A local message goes to the durable mailbox of the bruh MCP server. A `SendMessage` nudge carries only its header line.
+- Each start message (`START: <subject>`) gets the full current text of `priorities.md` and `rules.md` of the ledger: `mail_post` appends it, so each clanker, clerk, and scout knows the rules. A remote clanker has no ledger on its machine, so bigm and the remote clanker paste the text there.
 - A refusal P0 needs no nudge: the MCP server posts it straight to the mailbox of the parent of the asker and of bigm, and their waiters wake them.
 - An agent that waits with `answer_wait` gets the answer that any role wrote for its question ID: its clerk, its clanker, or bigm.
 - Each question has a priority. A clanker answers P2 questions from the project context. It also answers the P1 classes that you delegate to it in `priorities.md`. The other P1 questions (your decisions) and all P0 questions (blocks that only you can remove) go to bigm, and bigm shows them to you.
