@@ -17,6 +17,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - A refusal P0 is no longer silent while its asker is held (#42): `question_open` with `hold` posts the P0 itself to the mailbox of the parent of the asker and of bigm, and their waiters wake them, so it needs no `SendMessage` nudge. The question file keeps the hold ID in the new field `hold`. On a post error, the output has `relay_error` and the asker sends the nudge itself.
 - `answer_wait` returns the answer that any role wrote for the question ID with `answer_write` (bigm, the clanker, or the asker), not only the copy of the caller, so a workflow agent no longer stays pending until its clerk writes its own copy.
 - A clerk agent no longer freezes on a chained git command: in a clerk session, the new `PreToolUse` hook `git-chain.sh` denies a Bash command that has the word git together with `;`, `&&`, `||`, `|`, or `cd`, with a text that says to split the command, run each part alone, and go on. The deny sets no hold and opens no question. The gates step of `/bruh:deliver` gets the head SHA from the step that made the last commit and runs no git, and the implement prompt lists the gates (task 41 part 2, Q-207).
+- The guard hold of `refusal-stop.sh` and `git-chain.sh` count git only as a command word, so a path such as `.claude/worktrees/no-git-freeze` no longer turns a guard refusal of a no-git command into a hold or a deny. `clanker.md` says that a task name and its branch never contain git (task 41b).
 
 ## [0.12.2] - 2026-10-09
 

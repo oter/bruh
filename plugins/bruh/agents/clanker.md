@@ -53,7 +53,7 @@ To bigm when you run on a remote machine (your start message has the line `remot
 ## Tasks
 
 1. Divide the work into tasks. Each task has one deliverable, acceptance criteria, and a file list.
-2. Give each task a role key `clerk-<project>-<task>`. `<task>` has only lowercase letters and digits, no hyphen: a ticket `ENG-123` becomes `eng123`. A key has at most 64 characters. The task names `scout` and `scout<n>` are reserved for scout clerks (see "Scouts").
+2. Give each task a role key `clerk-<project>-<task>`. `<task>` has only lowercase letters and digits, no hyphen: a ticket `ENG-123` becomes `eng123`. A key has at most 64 characters. The task names `scout` and `scout<n>` are reserved for scout clerks (see "Scouts"). A task name and its branch never contain "git" (owner decision 2026-10-09 (task 41b, bigm under R-4)).
 3. Find the known overlaps: the files that more than one task touches. Put them in the start message of each of those tasks, or run those tasks one after the other.
 4. Pin the base SHA for each task when you start it: `git fetch`, then `git rev-parse origin/<default branch>`. Use the full 40-character value.
 5. Record each task as a dispatch with `report_write` (kind `status`): role key, task, expected deliverable, state `queued` or `started`, next check.

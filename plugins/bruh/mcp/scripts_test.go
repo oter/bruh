@@ -633,6 +633,28 @@ func TestRefusalWorktreeGuardHolds(t *testing.T) {
 	}
 }
 
+// TestGitCommandWord (task 41b): git-chain.sh and the guard hold of refusal-stop.sh count git only
+// as a command word, so a path segment such as no-git-freeze is no git (spec 15.1.6).
+func TestGitCommandWord(t *testing.T) {
+	for _, c := range []struct {
+		cmd string
+		git bool
+	}{
+		{"cd /w/no-git-freeze/x && go test ./...; echo x", false},
+		{"cd x && git status", true},
+	} {
+		data := t.TempDir()
+		refusal(t, data, guardFailure(c.cmd, guardError("is too complex to verify that it stays inside the worktree")), refusalKey)
+		holds := holdFiles(t, data)
+		if c.git && (len(holds) != 1 || holds[0]["denial_source"] != "worktree_guard") || !c.git && len(holds) != 0 {
+			t.Errorf("%q: holds = %v, want git %v", c.cmd, holds, c.git)
+		}
+		if denied := denyReason(t, gitChain(t, c.cmd, refusalKey)) != ""; denied != c.git {
+			t.Errorf("%q: git-chain denied = %v, want %v", c.cmd, denied, c.git)
+		}
+	}
+}
+
 func TestRefusalNoRoleKey(t *testing.T) {
 	data := t.TempDir()
 	in := map[string]any{"hook_event_name": "PermissionDenied", "session_id": "S", "tool_name": "Bash", "reason": "[Merge Without Review]"}
@@ -821,8 +843,8 @@ func gitChain(t *testing.T, command string, env ...string) string {
 	return out
 }
 
-// TestGitChain (task 41 part 2, Q-207): in a clerk session, a Bash command with the word git
-// together with ;, &&, ||, |, a line break, or cd is denied; every other command passes.
+// TestGitChain (task 41 part 2, Q-207): in a clerk session, a Bash command with git as a command
+// word together with ;, &&, ||, |, a line break, or cd is denied; every other command passes.
 func TestGitChain(t *testing.T) {
 	clerk := "BRUH_ROLE_KEY=clerk-bruh-x"
 	for _, c := range []string{
@@ -833,9 +855,8 @@ func TestGitChain(t *testing.T) {
 		"cd /wt && git status",
 		"cd /wt; git status",
 		"git add a\ngit commit -m x",
-		`find . -name '*.go' -not -path '*/.git/*' | wc -l`,
 		`git log --format='%H|%s'`,
-		"cd /w/no-git-freeze && go test ./...",
+		"cd x && git status",
 		// The shellcheck run line of .github/workflows/ci.yml:36 chains git into a pipe; in a
 		// clerk session the gate runs shellcheck on the files with no git word (below).
 		`git ls-files -z '*.sh' | xargs -0 -r shellcheck`,
@@ -851,6 +872,10 @@ func TestGitChain(t *testing.T) {
 		"find . -path ./.git -prune -o -print",
 		"ls .github && grep -rn digit .gitignore",
 		"echo abcd; ls",
+		// git counts only as a command word: a path segment or a hyphenated or dotted name does not.
+		"cd /w/no-git-freeze/x && go test ./...; echo x",
+		"echo nogitfreeze; ls",
+		`find . -name '*.go' -not -path '*/.git/*' | wc -l`,
 		// Each run line of .github/workflows/ci.yml except the shellcheck line (denied above),
 		// the go lines in the cd form of their working-directory, plus the shellcheck gate.
 		`cd plugins/bruh/mcp && test -z "$(gofmt -l .)"`,
