@@ -83,7 +83,7 @@ const BASE_ARGS = {
   }),
 }
 
-const COMMON_BAD = [{ deadline_seconds: 0 }, { deadline_seconds: 'x' }, { answers: [] }, { answers: 'x' }]
+const COMMON_BAD = [{ deadline_seconds: 0 }, { deadline_seconds: 'x' }, { answers: [] }, { answers: 'x' }, { decided: [] }, { decided: 'x' }]
 const BAD_ARGS = {
   tickets: [{ root: 'relative' }, { spec: '' }, { issues: "/x'y" }, { guides: undefined }, { rules: '' }, { round_cap: 0 }, { ground: 'x' }, ...COMMON_BAD],
   'implement-tickets': [
@@ -241,6 +241,15 @@ for (const name of SCRIPTS) {
     const three = await run(name, always, { ...askArgs(), answers: { 'Q-app-host-5': ['B', 'C', 'D'] } })
     assert.equal(three.result.status, 'stopped')
     assert.match(three.result.deviations.at(-1), /Q-app-host-5 is pending again after 3 answers/)
+  })
+
+  test(`${name}: args.decided reaches the ${asker} prompt in a new run`, async () => {
+    const decided = { 'Q-t-h-1': 'Use the existing table.', 'Q-t-h-2': ['first answer', 'second answer'] }
+    const { byWord } = await run(name, BUSY[name], { ...BUSY_ARGS[name](), decided })
+    const p = byWord(asker)[0].prompt
+    for (const s of ['Decisions already made:', '- Q-t-h-1: Use the existing table.', '- Q-t-h-2: first answer', '- Q-t-h-2: second answer']) {
+      assert.ok(p.includes(s), `the ${asker} prompt does not have ${s}`)
+    }
   })
 }
 

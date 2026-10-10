@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Fixed
+
+- The workflows `/bruh:deliver`, `/bruh:tickets`, `/bruh:implement-tickets`, `/bruh:review-and-fix`, and `/bruh:review-only` take the new optional argument `args.decided`. It has the same shape as `args.answers`. Its answers go into each agent prompt that can ask a question, as a "Decisions already made" block. A clerk sets `args.decided` for a new run after a `CONFLICT:` stop, or after a `FAILED:` stop of `/bruh:implement-tickets`, and stores it with the other arguments. Thus the plan agent does not ask an answered question again. A resume keeps the `args.decided` of its run unchanged, so it keeps its prompts and its cache.
+
 ## [0.12.3] - 2026-10-10
 
 ### Added
