@@ -724,7 +724,7 @@ The code is `mcp/ledger.go`, and its tests are in `mcp/ledger_test.go`.
 | `words` | close, close_line, close_rule, add_rule | The words of the owner, word for word. In autonomous mode, the decision of bigm and its reasons (section 11). |
 | `source` | close, close_line, close_rule, add_rule | Where the words come from, one line: `terminal`, the channel and its thread, or the question ID. |
 | `decision_by` | close, close_line, close_rule | `owner` or `bigm`. |
-| `text` | add_line, close_line, commit | The bullet text without `- `, one line. For `commit`, notes for the commit body, for example the `gone_docs` of `learn_refresh`. |
+| `text` | add_line, close_line, commit | The bullet text without the leading dash and its space, one line. For `commit`, notes for the commit body, for example the `gone_docs` of `learn_refresh`. |
 | `rule` | close_rule | The rule ID, for example `R-2`. |
 | `paths` | commit | The changed files, relative to the ledger folder or absolute inside it, as `init_apply` and `learn_refresh` return them. |
 
