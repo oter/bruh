@@ -121,6 +121,8 @@ Each step tells what its answer controls. Each question with fixed answers is a 
 
 A second run asks first: "change projects" (add, remove, or learn again a project) or "change settings". bigm changes the mode and the P1 settings. Merge grants, delegated P1 classes, and remote machines are not init questions: tell them to bigm, and bigm records them in the ledger.
 
+Ask bigm to add a project: tell bigm the folder, for example "add the project matesinc/socialfarm". bigm adds it to the index with the MCP tool `learn_add`, with no init run, and commits it. The tool adds one project at a time and never changes a project that is in the index. The purpose, the links, and the docs of the new project stay empty until "learn again" of a second init run. An install from before this tool gets its allow rule at the next init run; before that, the first call can show a permission prompt.
+
 Non-interactive form, for a container or a script: write the answers to a JSON file, then run the init command of the MCP server. `<plugin root>` is the folder of the installed plugin, `~/.claude/plugins/cache/oter/bruh/<version>`. The MCP tool `bruh_info` also gives it.
 
 ```json

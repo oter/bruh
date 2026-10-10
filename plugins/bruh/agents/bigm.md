@@ -58,7 +58,7 @@ You are the only writer of the ledger. The layout:
 - `learn/projects/<key>.json`: the index of each project.
 - `.claude/settings.json`: the start settings of bigm. Init writes it. Do not edit it.
 
-Plugin code writes the files of `learn/` (`init_apply` and `learn_refresh`). You commit them. You never edit them.
+Plugin code writes the files of `learn/` (`init_apply`, `learn_refresh`, and `learn_add`). You commit them. You never edit them.
 
 Rules for the ledger:
 
@@ -89,6 +89,7 @@ The index of the projects is `learn/tree.json` and `learn/projects/<key>.json` (
 4. The index has no status. For a status, ask the clanker of the project (see "Info from a clanker"), and read the source again for each status claim (rule 1).
 5. The index has no gates. The clanker learns the gates of its project from the repository.
 6. You never edit the JSON. The owner updates the index with "change projects" of `/bruh:init`.
+7. When the owner asks you to add a project, call `learn_add` yourself, one project for each call (owner decision 2026-10-09, task 50). Pass `repos` (the paths relative to `root` of `learn/tree.json`) and, when needed, `main` and `key`. Commit the `written` paths. Tell the owner the key, and that the purpose, the links, and the docs stay empty until "learn again" of `/bruh:init`. `learn_add` refuses a key or a repository that is already in the index: to change a project, the owner runs "change projects" of `/bruh:init`. `learn_add` registers no repository for the poller: when the project gets work, step 3 of "Start a local clanker" calls `repos_set`.
 
 ## Work requests of the owner
 

@@ -67,18 +67,13 @@ func planLearn(pluginRoot string, a InitAnswers) (learnPlan, error) {
 	learnDir := filepath.Join(a.LedgerPath, "learn")
 	jsonPath := func(key string) string { return filepath.Join(learnDir, "projects", key+".json") }
 	mdPath := func(key string) string { return filepath.Join(a.LedgerPath, "projects", key+".md") }
-	tmpl, err := os.ReadFile(filepath.Join(pluginRoot, "ledger-template", "projects", "_template.md"))
+	tmpl, err := projectTemplateFile(pluginRoot)
 	if err != nil {
 		return learnPlan{}, err
 	}
 	tree := treeFile{Root: a.Root, Depth: a.Depth, Exclude: slices.Clone(a.Exclude), HostAliases: a.HostAliases, HostKinds: a.HostKinds}
 	for _, p := range a.Projects {
-		// A joined project takes the group of its main repository (spec 423).
-		group := path.Dir(p.Main)
-		if group == "." {
-			group = ""
-		}
-		tree.Projects = append(tree.Projects, treeProject{Key: p.Key, Group: group})
+		tree.Projects = append(tree.Projects, treeProject{Key: p.Key, Group: projectGroup(p.Main)})
 		pf, keep, err := storedUnchanged(jsonPath(p.Key), p)
 		if err != nil {
 			return learnPlan{}, err
@@ -95,7 +90,7 @@ func planLearn(pluginRoot string, a InitAnswers) (learnPlan, error) {
 		}
 		lp.Projects = append(lp.Projects, pf)
 		if _, err := os.Lstat(mdPath(p.Key)); errors.Is(err, fs.ErrNotExist) {
-			lp.Write[mdPath(p.Key)] = []byte(strings.ReplaceAll(string(tmpl), "<project>", p.Key))
+			lp.Write[mdPath(p.Key)] = projectMD(tmpl, p.Key)
 		} else if err != nil {
 			return learnPlan{}, err
 		}
@@ -137,6 +132,25 @@ func planLearn(pluginRoot string, a InitAnswers) (learnPlan, error) {
 	slices.Sort(lp.Delete)
 	slices.Sort(lp.Kept)
 	return lp, nil
+}
+
+// projectGroup is the group of a project: the folder of its main repository (spec 423), or ""
+// at the root.
+func projectGroup(main string) string {
+	if g := path.Dir(main); g != "." {
+		return g
+	}
+	return ""
+}
+
+// projectTemplateFile reads the template of the project files of the ledger.
+func projectTemplateFile(pluginRoot string) ([]byte, error) {
+	return os.ReadFile(filepath.Join(pluginRoot, "ledger-template", "projects", "_template.md"))
+}
+
+// projectMD is the project file projects/<key>.md that the template tmpl gives.
+func projectMD(tmpl []byte, key string) []byte {
+	return []byte(strings.ReplaceAll(string(tmpl), "<project>", key))
 }
 
 // storedUnchanged returns the stored index file of p when the answers do not change it (G63): p

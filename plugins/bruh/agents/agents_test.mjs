@@ -50,7 +50,7 @@ const REQUIRED = {
     'START: ', 'role-settings clanker-<project>', 'mcp__plugin_telegram_telegram__reply', 'chat_id',
     'has no section "Never without the owner"',
     'not running; mail pending', 'unread mail',
-    'learn_refresh', 'close <kind>: <subject>', 'ledger_max_lines', 'remote_environments', 'gone_docs', 'long_files',
+    'learn_refresh', 'learn_add', 'close <kind>: <subject>', 'ledger_max_lines', 'remote_environments', 'gone_docs', 'long_files',
     'purpose', 'allow', 'remove: true', 'orca orchestration send', 'DONE: event <project>: <subject>',
     'answer_write', 'answer_wait', 'AskUserQuestion', 'OPTION <n>: <label> | <description>', '(Recommended)',
     'ANSWER Q-<id>: reask', '(attempt <n>)',
