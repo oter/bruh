@@ -130,13 +130,42 @@ test('reviewers diff against base_sha, never origin/main', async () => {
   const { byWord } = await run({}, baseArgs({ test_gates: ['go test ./...'] }))
   for (const w of ['adversarial', 'invariants', 'simplicity', 'gates']) {
     const [c] = byWord(w)
-    assert.ok(c.prompt.includes(`git diff ${SHA} HEAD`), `${w} does not diff against base_sha`)
+    if (w !== 'gates') assert.ok(c.prompt.includes(`git diff ${SHA} HEAD`), `${w} does not diff against base_sha`)
     assert.doesNotMatch(c.prompt, /git diff[^\n]*origin\/main/)
     assert.ok(c.prompt.includes('HOUSE RULES TEXT'), `${w} has no house rules`)
     assert.ok(c.prompt.includes('the global lock'), `${w} has no deliberate choices`)
   }
   // The gate agent gets the list of the test gates.
   assert.match(byWord('gates')[0].prompt, /These gates are test suites and must run tests:\n- go test \.\/\.\.\./)
+})
+
+// Task 41 part 2 (Q-207): the gate agent runs no git. It gets head_sha from the step that made
+// the last commit, and the implement prompt lists the gates.
+test('the gates step takes head_sha and runs no git', async () => {
+  const A = 'c'.repeat(40)
+  const B = 'd'.repeat(40)
+  const { result, byWord } = await run({
+    implement: () => ({ head_sha: A, deviations: [], conflict: '' }),
+    adversarial: (p, o, n) => ({ findings: n === 1 ? [finding('src/a.go', 3)] : [] }),
+    refute: () => ({ confirmed: true, reason: 'shown' }),
+    fix: (p, o, n, fs) => ({ head_sha: B, fixed: fs, deviations: [] }),
+    gates: () => ({ tests: {}, gates: [...cleanGates().gates, { command: 'make lint', exit_code: 0, ran: 0, passed: 0, failed: 0, skipped: 0, problems: [] }] }),
+  }, baseArgs({ gates: ['go test ./...', 'make lint'] }))
+  assert.equal(result.status, 'done')
+  const [g1, g2] = byWord('gates')
+  for (const g of [g1, g2]) {
+    // The step text of the workflow; the context (task, house rules) is the text of the clerk.
+    const step = g.prompt.slice(g.prompt.indexOf('Step: gates'))
+    assert.doesNotMatch(step, /git rev-parse|git diff|`git /)
+    assert.match(step, /single plain Bash call/)
+  }
+  assert.ok(g1.prompt.includes(A), 'round 1 gates prompt lacks the head of implement')
+  assert.ok(g2.prompt.includes(B), 'round 2 gates prompt lacks the head of the fix')
+  assert.equal(result.head_sha, B)
+  const impl = byWord('implement')[0].prompt
+  assert.ok(impl.includes('- go test ./...\n- make lint'), 'the implement prompt lists the gates')
+  assert.match(impl, /single plain Bash call/)
+  for (const p of [impl, byWord('fix')[0].prompt]) assert.match(p, /plain single `git rev-parse HEAD` Bash call, never chained/)
 })
 
 test('reviewers run at low effort and implementers at high effort', async () => {

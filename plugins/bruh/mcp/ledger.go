@@ -5,12 +5,14 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io/fs"
 	"maps"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 	"unicode"
@@ -20,7 +22,18 @@ import (
 // a time that a human writes look the same (spec 8.7).
 const ledgerTimeLayout = "2006-01-02T15:04:05Z"
 
-var setKeyRE = regexp.MustCompile(`^[a-z0-9_]+$`)
+var (
+	setKeyRE = regexp.MustCompile(`^[a-z0-9_]+$`)
+	ruleIDRE = regexp.MustCompile(`^R-[0-9]+$`)
+	// ruleHeadRE matches the heading line of a rule section of rules.md, and ruleLogRE the subject
+	// of a commit that added or retired a rule.
+	ruleHeadRE = regexp.MustCompile(`^## R-([0-9]+):`)
+	ruleLogRE  = regexp.MustCompile(`^(?:add|close) rule: R-([0-9]+) `)
+)
+
+// ledgerActions are the actions of ledger_edit. The last six are the text actions of task 51
+// (owner rule R-19): bigm writes no ledger file by hand.
+var ledgerActions = []string{"add", "update", "close", "set_key", "add_line", "close_line", "add_rule", "close_rule", "new_project", "commit"}
 
 type ledgerEditArgs struct {
 	Action     string            `json:"action"`
@@ -33,6 +46,9 @@ type ledgerEditArgs struct {
 	Words      string            `json:"words"`
 	Source     string            `json:"source"`
 	DecisionBy string            `json:"decision_by"`
+	Text       string            `json:"text"`
+	Rule       string            `json:"rule"`
+	Paths      []string          `json:"paths"`
 }
 
 type ledgerEditResult struct {
@@ -56,22 +72,25 @@ func ledgerEditTool() Tool {
 	str := map[string]any{"type": "string"}
 	return Tool{
 		Name:        "ledger_edit",
-		Description: "Change one row or one key line of a ledger file, commit only that file, and write the DONE mail to clerk-ledger, whose waiter wakes it: send no nudge. Only bigm calls it. It never pushes.",
+		Description: "Change the ledger and commit: one row or one key line (add, update, close, set_key), one bullet line of a section such as Decisions (add_line, close_line), one rule section of rules.md (add_rule, close_rule), a new project file from the template (new_project), or the listed files that init_apply or learn_refresh wrote (commit). It commits only those files and writes the DONE mail to clerk-ledger, whose waiter wakes it: send no nudge. Only bigm calls it; bigm writes no ledger file by hand (R-19). It never pushes.",
 		InputSchema: map[string]any{
 			"type": "object",
 			"properties": map[string]any{
-				"action":      map[string]any{"type": "string", "enum": []string{"add", "update", "close", "set_key"}},
-				"file":        map[string]any{"type": "string", "description": "Path relative to the ledger folder, for example owed.md or projects/shop.md"},
-				"table":       map[string]any{"type": "string", "description": "Text of the heading above the table; optional when the file has one table"},
+				"action":      map[string]any{"type": "string", "enum": ledgerActions},
+				"file":        map[string]any{"type": "string", "description": "Each action except commit: path relative to the ledger folder, for example owed.md, rules.md, or projects/shop.md; new_project: projects/<key>.md, which must not exist"},
+				"table":       map[string]any{"type": "string", "description": "Text of the heading above the table (optional when the file has one table), or above the bullet lines for add_line and close_line, for example Decisions"},
 				"match":       map[string]any{"type": "object", "additionalProperties": str, "description": "update and close: header text to exact cell text; exactly one row must match"},
 				"cells":       map[string]any{"type": "object", "additionalProperties": str, "description": "add: each header to its value; update: the changed cells; set_key: one key to its value. A time column (header ends with (UTC)) takes now, now+<duration>, none, or empty"},
-				"kind":        map[string]any{"type": "string", "description": "add, update, close: one word, for example task or question"},
-				"subject":     map[string]any{"type": "string", "description": "One line for the commit subject"},
-				"words":       map[string]any{"type": "string", "description": "close: the words of the owner, word for word, or the decision and reasons of bigm"},
-				"source":      map[string]any{"type": "string", "description": "close: where the words come from, one line"},
-				"decision_by": map[string]any{"type": "string", "enum": []string{"owner", "bigm"}},
+				"kind":        map[string]any{"type": "string", "description": "add, update, close, add_line, close_line, commit: one word, for example task, question, decision, or learn"},
+				"subject":     map[string]any{"type": "string", "description": "One line for the commit subject; for add_rule, the subject of the rule heading"},
+				"words":       map[string]any{"type": "string", "description": "close, close_line, close_rule, add_rule: the words of the owner, word for word, or the decision and reasons of bigm"},
+				"source":      map[string]any{"type": "string", "description": "close, close_line, close_rule, add_rule: where the words come from, one line"},
+				"decision_by": map[string]any{"type": "string", "enum": []string{"owner", "bigm"}, "description": "close, close_line, close_rule"},
+				"text":        map[string]any{"type": "string", "description": "add_line, close_line: the bullet text without \"- \", one line; commit: notes for the commit body, for example the gone_docs of learn_refresh"},
+				"rule":        map[string]any{"type": "string", "description": "close_rule: the rule ID, for example R-2"},
+				"paths":       map[string]any{"type": "array", "items": str, "description": "commit: the changed files, relative to the ledger folder or absolute inside it, as init_apply and learn_refresh return them"},
 			},
-			"required": []string{"action", "file", "subject"},
+			"required": []string{"action", "subject"},
 		},
 		Handler: func(c *Call, raw json.RawMessage) (any, error) {
 			me, err := c.Env.Caller()
@@ -99,14 +118,32 @@ func ledgerLine(s string) bool { return s != "" && !hasControl(s) }
 
 // checkLedgerArgs checks the inputs before any file read.
 func checkLedgerArgs(a ledgerEditArgs) error {
-	if !slices.Contains([]string{"add", "update", "close", "set_key"}, a.Action) {
-		return fmt.Errorf("unknown action %q: use add, update, close, or set_key", a.Action)
+	if !slices.Contains(ledgerActions, a.Action) {
+		return fmt.Errorf("unknown action %q: use one of %s", a.Action, strings.Join(ledgerActions, ", "))
 	}
 	if !ledgerLine(a.Subject) {
 		return errors.New("subject must be one line with no control character")
 	}
-	if a.Action != "set_key" && (!ledgerLine(a.Kind) || strings.Contains(a.Kind, " ")) {
+	needKind := !slices.Contains([]string{"set_key", "add_rule", "close_rule", "new_project"}, a.Action)
+	if needKind && (!ledgerLine(a.Kind) || strings.Contains(a.Kind, " ")) {
 		return fmt.Errorf("kind must be one word, got %q", a.Kind)
+	}
+	switch a.Action {
+	case "add_line", "close_line":
+		if !ledgerLine(a.Text) || strings.Trim(a.Text, " \t") != a.Text {
+			return fmt.Errorf("%s needs text: one line with no control character and no space or tab at either end", a.Action)
+		}
+	case "close_rule":
+		if !ruleIDRE.MatchString(a.Rule) {
+			return fmt.Errorf("close_rule needs rule, for example R-2, got %q", a.Rule)
+		}
+	case "commit":
+		if len(a.Paths) == 0 {
+			return errors.New("commit needs paths")
+		}
+		if hasControl(a.Text, '\n', '\t') {
+			return errors.New("text has a control character other than a newline and a tab")
+		}
 	}
 	for what, m := range map[string]map[string]string{"cells": a.Cells, "match": a.Match} {
 		for k, v := range m {
@@ -133,18 +170,27 @@ func checkLedgerArgs(a ledgerEditArgs) error {
 	if (a.Action == "update" || a.Action == "close") && len(a.Match) == 0 {
 		return fmt.Errorf("%s needs match", a.Action)
 	}
-	if a.Action == "close" {
+	if quotesWords(a.Action) {
 		if a.Words == "" || hasControl(a.Words, '\n', '\t') {
-			return errors.New("close needs words, with no control character other than a newline and a tab")
+			return fmt.Errorf("%s needs words, with no control character other than a newline and a tab", a.Action)
+		}
+		// add_rule writes words into the one-line "- Words:" bullet of the rule section.
+		if a.Action == "add_rule" && !ledgerLine(a.Words) {
+			return errors.New("add_rule needs words on one line, with no control character")
 		}
 		if !ledgerLine(a.Source) {
-			return errors.New("close needs source, one line")
+			return fmt.Errorf("%s needs source, one line", a.Action)
 		}
-		if a.DecisionBy != "owner" && a.DecisionBy != "bigm" {
-			return errors.New("close needs decision_by: owner or bigm")
+		if a.Action != "add_rule" && a.DecisionBy != "owner" && a.DecisionBy != "bigm" {
+			return fmt.Errorf("%s needs decision_by: owner or bigm", a.Action)
 		}
 	}
 	return nil
+}
+
+// quotesWords reports whether the commit body of action quotes words: each close, and add_rule.
+func quotesWords(action string) bool {
+	return strings.HasPrefix(action, "close") || action == "add_rule"
 }
 
 // ledgerFile checks the file rule and returns the absolute path: an existing regular *.md file
@@ -452,52 +498,38 @@ func ledgerEdit(env Env, a ledgerEditArgs) (any, error) {
 	if err != nil {
 		return nil, err
 	}
-	path, err := ledgerFile(ledger, a.File)
+	var path string
+	switch a.Action {
+	case "commit":
+		a.Paths, err = commitPaths(ledger, a.Paths)
+	case "new_project":
+		path, err = newProjectFile(ledger, a.File)
+	default:
+		path, err = ledgerFile(ledger, a.File)
+	}
 	if err != nil {
 		return nil, err
 	}
-	rel := filepath.ToSlash(filepath.Clean(a.File))
+	if path != "" {
+		a.Paths = []string{filepath.ToSlash(filepath.Clean(a.File))}
+	}
+	rels := a.Paths
 	now := env.Now().UTC()
 	var res ledgerEditResult
 	err = env.WithLock("ledger", func() error {
-		out, err := ledgerGit(ledger, "", "status", "--porcelain", "--", rel)
+		var restore func() error
+		var err error
+		if a.Action == "commit" {
+			restore, err = stageChanged(ledger, rels)
+		} else {
+			restore, res.Row, err = writeLedgerFile(env, ledger, path, rels[0], &a, now)
+		}
 		if err != nil {
 			return err
-		}
-		if out != "" {
-			return fmt.Errorf("%s has uncommitted changes; nothing written: %s", rel, strings.TrimSpace(out))
-		}
-		fi, err := os.Stat(path)
-		if err != nil {
-			return err
-		}
-		old, err := os.ReadFile(path)
-		if err != nil {
-			return err
-		}
-		raw := strings.Split(string(old), "\n")
-		lines := make([]string, len(raw))
-		for i, l := range raw {
-			lines[i] = strings.TrimSuffix(l, "\r")
-		}
-		e, err := planEdit(lines, a, now)
-		if err != nil {
-			return err
-		}
-		restore := func(cause error) error {
-			werr := atomicWrite(path, old)
-			_, rerr := ledgerGit(ledger, "", "reset", "-q", "--", rel)
-			return errors.Join(fmt.Errorf("commit failed; %s and its index entry restored", rel), cause, werr, os.Chmod(path, fi.Mode().Perm()), rerr)
-		}
-		if err := atomicWrite(path, []byte(strings.Join(applyEdit(raw, e), "\n"))); err != nil {
-			return err
-		}
-		if err := os.Chmod(path, fi.Mode().Perm()); err != nil { // atomicWrite makes a 0600 file
-			return restore(err)
 		}
 		msg := commitMessage(a, now)
-		if _, err := ledgerGit(ledger, msg, "commit", "--only", "--cleanup=verbatim", "-F", "-", "--", rel); err != nil {
-			return restore(err)
+		if _, err := ledgerGit(ledger, msg, append([]string{"commit", "--only", "--cleanup=verbatim", "-F", "-", "--"}, rels...)...); err != nil {
+			return errors.Join(fmt.Errorf("commit failed; %s and its index entry restored", strings.Join(rels, ", ")), err, restore())
 		}
 		sha, err := ledgerGit(ledger, "", "rev-parse", "HEAD")
 		if err != nil {
@@ -511,10 +543,10 @@ func ledgerEdit(env Env, a ledgerEditArgs) (any, error) {
 		header := "DONE: ledger commit " + short
 		subject, _, _ := strings.Cut(msg, "\n")
 		// The waiter of clerk-ledger (spec 9.5) wakes it on this mail, so the output has no nudge.
-		if _, err := postMail(env, "bigm", "clerk-ledger", header, fmt.Sprintf("Commit: %s\nSubject: %s\nFile: %s\n", sha, subject, rel)); err != nil {
+		if _, err := postMail(env, "bigm", "clerk-ledger", header, fmt.Sprintf("Commit: %s\nSubject: %s\nFile: %s\n", sha, subject, strings.Join(rels, " "))); err != nil {
 			return fmt.Errorf("committed %s, but the DONE mail failed: %w; post %q to clerk-ledger with mail_post", sha, err, header)
 		}
-		res = ledgerEditResult{SHA: sha, Row: e.row}
+		res.SHA = sha
 		return nil
 	})
 	if err != nil {
@@ -523,8 +555,255 @@ func ledgerEdit(env Env, a ledgerEditArgs) (any, error) {
 	return res, nil
 }
 
+// commitPaths checks the paths of a commit and returns them relative to the ledger folder, with /
+// separators: each path is relative with no .., or absolute inside the ledger folder, as init_apply
+// and learn_refresh return them, and not under .git/.
+func commitPaths(ledger string, paths []string) ([]string, error) {
+	var rels []string
+	for _, p := range paths {
+		abs := p
+		if !filepath.IsAbs(p) {
+			abs = filepath.Join(ledger, p)
+		}
+		rel, err := filepath.Rel(resolveExisting(ledger), resolveExisting(abs))
+		rel = filepath.ToSlash(rel)
+		first, _, _ := strings.Cut(rel, "/")
+		if hasControl(p) || (!filepath.IsAbs(p) && !relPath(p)) || !inside(ledger, abs) || err != nil || first == ".git" {
+			return nil, fmt.Errorf("path %q: use a path inside the ledger folder, not under .git/", p)
+		}
+		rels = append(rels, rel)
+	}
+	return rels, nil
+}
+
+// stageChanged stages the paths of a commit, after it checks that each one has a change (any
+// output of git status, an untracked or a deleted file too). The restore unstages them.
+func stageChanged(ledger string, rels []string) (func() error, error) {
+	for _, r := range rels {
+		out, err := ledgerGit(ledger, "", "status", "--porcelain", "--", r)
+		if err != nil {
+			return nil, err
+		}
+		if out == "" {
+			return nil, fmt.Errorf("%s has no change to commit; nothing committed", r)
+		}
+	}
+	restore := func() error {
+		_, err := ledgerGit(ledger, "", append([]string{"reset", "-q", "--"}, rels...)...)
+		return err
+	}
+	if _, err := ledgerGit(ledger, "", append([]string{"add", "-A", "--"}, rels...)...); err != nil {
+		return nil, errors.Join(err, restore())
+	}
+	return restore, nil
+}
+
+// newProjectFile checks the file of new_project and returns its absolute path: projects/<key>.md,
+// where <key> is a project key (projectRE, at most 40 characters, as init checks it).
+func newProjectFile(ledger, file string) (string, error) {
+	rel := filepath.ToSlash(filepath.Clean(file))
+	dir, name, _ := strings.Cut(rel, "/")
+	key, ok := strings.CutSuffix(name, ".md")
+	p := filepath.Join(ledger, filepath.FromSlash(rel))
+	if !relPath(file) || dir != "projects" || !ok || !projectRE.MatchString(key) || len(key) > 40 || !inside(ledger, p) {
+		return "", fmt.Errorf("file %q: new_project makes projects/<key>.md, where <key> matches %s", file, projectRE)
+	}
+	return p, nil
+}
+
+// writeLedgerFile writes the change of one file action, after it checks that the file has no
+// uncommitted change, and stages a new file. It returns the restore, which puts back the old bytes
+// and the index entry, and the row of the output.
+func writeLedgerFile(env Env, ledger, path, rel string, a *ledgerEditArgs, now time.Time) (func() error, map[string]string, error) {
+	out, err := ledgerGit(ledger, "", "status", "--porcelain", "--", rel)
+	if err != nil {
+		return nil, nil, err
+	}
+	if out != "" {
+		return nil, nil, fmt.Errorf("%s has uncommitted changes; nothing written: %s", rel, strings.TrimSpace(out))
+	}
+	reset := func() error {
+		_, err := ledgerGit(ledger, "", "reset", "-q", "--", rel)
+		return err
+	}
+	if a.Action == "new_project" {
+		if _, err := os.Lstat(path); !errors.Is(err, fs.ErrNotExist) {
+			return nil, nil, fmt.Errorf("%s exists; nothing written", rel)
+		}
+		tmpl, err := os.ReadFile(filepath.Join(env.PluginRoot, "ledger-template", "projects", "_template.md"))
+		if err != nil {
+			return nil, nil, err
+		}
+		key := strings.TrimSuffix(filepath.Base(path), ".md")
+		// The same content as the project file that init makes (planLearn).
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			return nil, nil, err
+		}
+		restore := func() error { return errors.Join(reset(), os.Remove(path)) }
+		if err := atomicWrite(path, []byte(strings.ReplaceAll(string(tmpl), "<project>", key))); err != nil {
+			return nil, nil, err
+		}
+		if err := os.Chmod(path, 0o644); err != nil { // atomicWrite makes a 0600 file
+			return nil, nil, errors.Join(err, restore())
+		}
+		if _, err := ledgerGit(ledger, "", "add", "--", rel); err != nil {
+			return nil, nil, errors.Join(err, restore())
+		}
+		return restore, map[string]string{"project": key}, nil
+	}
+	fi, err := os.Stat(path)
+	if err != nil {
+		return nil, nil, err
+	}
+	old, err := os.ReadFile(path)
+	if err != nil {
+		return nil, nil, err
+	}
+	raw := strings.Split(string(old), "\n")
+	lines := make([]string, len(raw))
+	for i, l := range raw {
+		lines[i] = strings.TrimSuffix(l, "\r")
+	}
+	var content string
+	var row map[string]string
+	switch a.Action {
+	case "add_rule":
+		log, err := ledgerGit(ledger, "", "log", "--format=%s")
+		if err != nil {
+			return nil, nil, err
+		}
+		content, row = addRule(string(old), lines, log, a, now)
+	case "close_rule":
+		content, row, err = closeRule(raw, lines, a.Rule)
+	case "add_line", "close_line":
+		content, row, err = editLine(raw, lines, a)
+	default:
+		var e lineEdit
+		e, err = planEdit(lines, *a, now)
+		content, row = strings.Join(applyEdit(raw, e), "\n"), e.row
+	}
+	if err != nil {
+		return nil, nil, err
+	}
+	restore := func() error {
+		werr := atomicWrite(path, old)
+		return errors.Join(werr, os.Chmod(path, fi.Mode().Perm()), reset())
+	}
+	if err := atomicWrite(path, []byte(content)); err != nil {
+		return nil, nil, err
+	}
+	if err := os.Chmod(path, fi.Mode().Perm()); err != nil { // atomicWrite makes a 0600 file
+		return nil, nil, errors.Join(err, restore())
+	}
+	return restore, row, nil
+}
+
+// addRule appends the next rule section to rules.md, in the form of the ledger template, after one
+// empty line. The next ID is 1 more than the highest ID of a rule heading of the file and of a
+// subject "add rule: R-<n> - ..." or "close rule: R-<n> - ..." of the ledger history, so a retired
+// ID is not used again. The date and the tag come from the server clock. It sets a.Rule.
+func addRule(old string, lines []string, log string, a *ledgerEditArgs, now time.Time) (string, map[string]string) {
+	n := 0
+	for _, l := range append(lines, strings.Split(log, "\n")...) {
+		m := ruleHeadRE.FindStringSubmatch(l)
+		if m == nil {
+			m = ruleLogRE.FindStringSubmatch(l)
+		}
+		if m != nil {
+			v, _ := strconv.Atoi(m[1])
+			n = max(n, v)
+		}
+	}
+	a.Rule = fmt.Sprintf("R-%d", n+1)
+	if old != "" && !strings.HasSuffix(old, "\n") {
+		old += "\n"
+	}
+	if old != "" && !strings.HasSuffix(old, "\n\n") {
+		old += "\n"
+	}
+	old += fmt.Sprintf("## %s: %s\n\n- Words: \"%s\"\n- Date: %s\n- Source: %s\n- Tag: owner decision %s\n",
+		a.Rule, a.Subject, a.Words, now.Format(ledgerTimeLayout), a.Source, now.Format(time.DateOnly))
+	return old, map[string]string{"rule": a.Rule}
+}
+
+// isSectionHead reports whether l is a heading of level 1 or 2, the end of a rule section.
+func isSectionHead(l string) bool { return strings.HasPrefix(l, "# ") || strings.HasPrefix(l, "## ") }
+
+// closeRule deletes the section "## <rule>: ..." of rules.md up to the next heading of level 1 or
+// 2. The last section goes with the empty lines above it.
+func closeRule(raw, lines []string, rule string) (string, map[string]string, error) {
+	var hits []int
+	for i, l := range lines {
+		if strings.HasPrefix(l, "## "+rule+":") {
+			hits = append(hits, i)
+		}
+	}
+	if len(hits) != 1 {
+		return "", nil, fmt.Errorf("%d sections start with %q, need exactly 1; nothing written", len(hits), "## "+rule+":")
+	}
+	start, end := hits[0], len(raw)
+	for i := start + 1; i < len(lines); i++ {
+		if isSectionHead(lines[i]) {
+			end = i
+			break
+		}
+	}
+	row := map[string]string{"rule": rule}
+	if end == len(raw) {
+		return strings.TrimRight(strings.Join(raw[:start], "\n"), "\r\n") + "\n", row, nil
+	}
+	return strings.Join(slices.Concat(raw[:start], raw[end:]), "\n"), row, nil
+}
+
+// editLine adds the bullet line "- <text>" after the last line of the section under the heading
+// a.Table (up to the next heading), or deletes the one bullet line that equals it. An empty section
+// gets an empty line, then the bullet.
+func editLine(raw, lines []string, a *ledgerEditArgs) (string, map[string]string, error) {
+	var heads []int
+	for i, l := range lines {
+		if strings.HasPrefix(l, "#") && strings.TrimSpace(strings.TrimLeft(l, "#")) == a.Table {
+			heads = append(heads, i)
+		}
+	}
+	if len(heads) != 1 {
+		return "", nil, fmt.Errorf("%d headings %q, need exactly 1; nothing written", len(heads), a.Table)
+	}
+	h, end := heads[0], len(lines)
+	for i := h + 1; i < len(lines); i++ {
+		if strings.HasPrefix(lines[i], "#") {
+			end = i
+			break
+		}
+	}
+	item := "- " + a.Text
+	row := map[string]string{"text": a.Text}
+	if a.Action == "close_line" {
+		var hits []int
+		for i := h + 1; i < end; i++ {
+			if lines[i] == item {
+				hits = append(hits, i)
+			}
+		}
+		if len(hits) != 1 {
+			return "", nil, fmt.Errorf("%d lines %q under %q, need exactly 1; nothing written", len(hits), item, a.Table)
+		}
+		return strings.Join(applyEdit(raw, lineEdit{op: 'd', at: hits[0]}), "\n"), row, nil
+	}
+	last := h
+	for i := h + 1; i < end; i++ {
+		if strings.TrimSpace(lines[i]) != "" {
+			last = i
+		}
+	}
+	raw = applyEdit(raw, lineEdit{op: 'i', at: last + 1, eolOf: h, text: item})
+	if last == h {
+		raw = applyEdit(raw, lineEdit{op: 'i', at: h + 1, eolOf: h})
+	}
+	return strings.Join(raw, "\n"), row, nil
+}
+
 // commitMessage is the subject of spec 8.6 and the body of spec 8.7. The close body quotes the
-// words as a > block (owner decision 2026-10-04).
+// words as a > block (owner decision 2026-10-04); the body of add_rule does too.
 func commitMessage(a ledgerEditArgs, now time.Time) string {
 	stamp := now.Format(ledgerTimeLayout)
 	if a.Action == "set_key" {
@@ -532,11 +811,34 @@ func commitMessage(a ledgerEditArgs, now time.Time) string {
 			return fmt.Sprintf("set %s: %s\n\nRecorded (UTC): %s\n", k, a.Subject, stamp)
 		}
 	}
+	verb, kind, subject := a.Action, a.Kind, a.Subject
+	switch a.Action {
+	case "add_line", "close_line":
+		verb, _, _ = strings.Cut(a.Action, "_")
+	case "add_rule", "close_rule":
+		verb, _, _ = strings.Cut(a.Action, "_")
+		kind, subject = "rule", a.Rule+" - "+a.Subject
+	case "new_project":
+		verb, kind = "add", "project"
+	}
 	var b strings.Builder
-	fmt.Fprintf(&b, "%s %s: %s\n\n", a.Action, a.Kind, a.Subject)
-	if a.Action != "close" {
+	fmt.Fprintf(&b, "%s %s: %s\n\n", verb, kind, subject)
+	if a.Action == "commit" {
+		b.WriteString("Paths:\n")
+		for _, p := range a.Paths {
+			b.WriteString("- " + p + "\n")
+		}
+		if a.Text != "" {
+			b.WriteString("Notes:\n" + strings.TrimRight(a.Text, "\n") + "\n")
+		}
+	}
+	if !quotesWords(a.Action) {
 		fmt.Fprintf(&b, "Recorded (UTC): %s\n", stamp)
 		return b.String()
+	}
+	by := a.DecisionBy
+	if a.Action == "add_rule" {
+		by = "owner" // a rule is a standing rule of the owner
 	}
 	b.WriteString("Words:\n")
 	for l := range strings.SplitSeq(a.Words, "\n") {
@@ -546,6 +848,6 @@ func commitMessage(a ledgerEditArgs, now time.Time) string {
 			b.WriteString("> " + l + "\n")
 		}
 	}
-	fmt.Fprintf(&b, "Source: %s\nRecorded (UTC): %s\nTag: %s decision %s\n", a.Source, stamp, a.DecisionBy, now.Format(time.DateOnly))
+	fmt.Fprintf(&b, "Source: %s\nRecorded (UTC): %s\nTag: %s decision %s\n", a.Source, stamp, by, now.Format(time.DateOnly))
 	return b.String()
 }

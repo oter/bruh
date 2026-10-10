@@ -11,9 +11,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - The review step of `/bruh:deliver` has a simplicity reviewer next to the adversarial reviewer and the invariant checker. It finds unrequested abstractions, code for a speculative need, a re-implemented standard library function or existing helper, an unneeded dependency, scaffolding for later, and a diff that is longer than the problem needs. Each finding names a concrete simpler replacement and goes through the same refuter and fix loop. What the task or a deliberate choice asks for is never a finding (task 45).
 - A `simplicity` example lens for `/bruh:review-and-fix` and `/bruh:review-only` in `skills/implement/references/example-args.md`, and its guide `skills/implement/references/simplicity.md` with the ladder and the rules. The idea comes from the ponytail plugin; bruh does not need it installed (task 45).
 - YAGNI and KISS rows under "Design principles" in `skills/implement/references/guide-sources.md` (task 45).
+- New `ledger_edit` actions, so bigm writes no ledger file by hand (owner rule R-19, task 51): `add_line` and `close_line` add or delete one bullet line of a section such as "Decisions"; `add_rule` adds the next `R-<n>` section to `rules.md` with the date and the tag from the server clock, and `close_rule` deletes one; `new_project` makes `projects/<key>.md` from the template; `commit` commits the listed files that `init_apply` or `learn_refresh` wrote.
+- A `PreToolUse` hook in the bigm start settings `<ledger>/.claude/settings.json` blocks each file write of bigm by hand: the Edit, Write, and NotebookEdit tools, and a shell write (a `>`, `>>`, `>|`, or `&>` redirect to a file, `tee`, `cp`, `mv`, or `sed -i`, also with a heredoc). It acts only when `BRUH_ROLE_KEY` is `bigm`, so `clerk-ledger` keeps its writes (task 51).
 
 ### Changed
 
+- bigm.md has no hand commit: each ledger change of bigm goes through `ledger_edit`. Run `/bruh:init` again: it adds the write hook to an existing ledger settings file (task 51).
 - `mail_post` appends the full current text of `priorities.md` and `rules.md` of the ledger to every `START` message, so no start message carries only a pointer to the rules (R-17). A START is refused when the ledger is configured but a file cannot be read. On a machine with no ledger, the output says `ledger_text` `none`, and the sender pastes the text from its own start message.
 
 ### Fixed
@@ -22,6 +25,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - `answer_wait` returns the answer that any role wrote for the question ID with `answer_write` (bigm, the clanker, or the asker), not only the copy of the caller, so a workflow agent no longer stays pending until its clerk writes its own copy.
 - The gates step of `/bruh:deliver` counts a Go test gate whose output has no test count (`ok <pkg>` or `ok <pkg> (cached)`) with a second plain run with `-count=1 -v`, so a passing Go gate no longer reports 0 tests ran. The gate list of the project does not change (task 49).
 - At the round cap of `/bruh:deliver`, a gate finding that its refuter refuted stays refuted; only a real gate failure (exit not 0, a failed or skipped test) stays open (task 49).
+- A clerk agent no longer freezes on a chained git command: in a clerk session, the new `PreToolUse` hook `git-chain.sh` denies a Bash command that has the word git together with `;`, `&&`, `||`, `|`, or `cd`, with a text that says to split the command, run each part alone, and go on. The deny sets no hold and opens no question. The gates step of `/bruh:deliver` gets the head SHA from the step that made the last commit and runs no git, and the implement prompt lists the gates (task 41 part 2, Q-207).
+- The guard hold of `refusal-stop.sh` and `git-chain.sh` count git only as a command word, so a path such as `.claude/worktrees/no-git-freeze` no longer turns a guard refusal of a no-git command into a hold or a deny. `clanker.md` says that a task name and its branch never contain git (task 41b).
 
 ## [0.12.2] - 2026-10-09
 

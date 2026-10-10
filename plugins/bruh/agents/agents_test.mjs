@@ -249,6 +249,16 @@ test('the clanker merges with the head SHA and confirms at the API', () => {
 })
 
 // Final review M4 and build spec A29.4: a question is the pair of its asker and its ID.
+// Task 51 (owner rule R-19): bigm writes no file by hand, so each ledger change of its procedure
+// names a ledger_edit action and no step has a hand commit.
+test('bigm changes the ledger only with ledger_edit', () => {
+  assert.doesNotMatch(agents.bigm, /git add|git commit|hand procedure|hand commit/)
+  for (const action of ['add_line', 'close_line', 'add_rule', 'close_rule', 'new_project', '`commit`']) {
+    assert.ok(agents.bigm.includes(action), `bigm.md names ${action}`)
+  }
+  assert.match(agents.bigm, /R-19/)
+})
+
 test('bigm keys a question by its asker and its ID', () => {
   const questions = agents.bigm.split('## Questions')[1].split('\n## ')[0]
   assert.match(questions, /Never match a question by its ID alone/)
@@ -512,5 +522,13 @@ test('the routing eval driver: dry run and compare rule', async () => {
     assert.equal(compare(offer, ask, result('I send the watcher fix to clanker-bruh as task 5.')), 0, 'allows an AskUserQuestion call with no NOASK')
   } finally {
     rmSync(tmp, { recursive: true, force: true })
+  }
+})
+
+// Task 41 part 2 (Q-207): a deny of git-chain.sh is no refusal, so a rule-following agent opens no P0 for it.
+test('house rule 8 and clerk rule 3 exempt the git-chain deny from escalation', () => {
+  const rule = (text, n) => text.split('\n').find((l) => l.startsWith(`${n}. A refusal`))
+  for (const line of [rule(read(join(plugin, 'defaults', 'house-rules.md')), 8), rule(agents.clerk, 3)]) {
+    assert.ok(line.includes('`git-chain.sh`') && line.includes('open no question'), line)
   }
 })

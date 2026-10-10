@@ -154,7 +154,6 @@ const COUNTS = {
 const GATES = {
   type: 'object',
   properties: {
-    head_sha: { type: 'string' },
     tests: { type: 'object', properties: COUNTS, required: ['ran', 'passed', 'failed', 'skipped'] },
     gates: {
       type: 'array',
@@ -181,7 +180,7 @@ const GATES = {
       },
     },
   },
-  required: ['head_sha', 'tests', 'gates'],
+  required: ['tests', 'gates'],
 }
 const PLAN = {
   type: 'object',
@@ -354,7 +353,10 @@ ${plan.value.plan}
 2. Record each deviation from the plan, with its reason, in deviations.
 3. Edit only the files that the task lists. If you must edit another file, or you meet a conflict with the plan, the task, or the code, stop and return conflict with the reason. Do not guess. Otherwise return an empty conflict.
 4. Obey each STOP condition of the plan.
-5. Return head_sha from \`git rev-parse HEAD\` after your last commit.`,
+5. After your last commit, read head_sha with a plain single \`git rev-parse HEAD\` Bash call, never chained with another command, and return it.
+
+The gates of the task (the review runs each alone, as a single plain Bash call; run them the same way, never chained with git):
+${bullets(gateCommands)}`,
   IMPLEMENT,
 )
 if (impl.failed) return fail(impl.failed)
@@ -377,12 +379,12 @@ for (let round = 1; ; round++) {
     // The two lists come from skills/implement/references/simplicity.md; deliver.test.mjs checks that they agree.
     () => agent(`${CONTEXT}\n\nStep: simplicity review, round ${round}. Do not edit files.\n${DIFF}${GUIDES}\nFind where the change is more complex than the task needs. Finding kinds: an abstraction that the task did not ask for (for example, an interface that only one type implements, a factory that makes only one kind of object, or an option for a constant); code for a speculative need; a re-implemented standard library function, or a helper that the codebase has already; a new dependency that a few lines can replace; scaffolding for later; a diff that is longer than the problem needs. Report each finding with the file, the line, and a summary that ends with a concrete simpler replacement. A simplicity finding never overrides the acceptance criteria or a deliberate choice. Do not report: something that the task or the acceptance criteria ask for; a deliberate choice of the task; input validation at a trust boundary; error handling that prevents data loss; a security check; accessibility basics; the test that the task needs. Report nothing that you cannot show in the code.`, { label: `simplicity ${round}`, effort: 'low', schema: FINDINGS }),
     () => agent(`${CONTEXT}\n\nStep: invariant check, round ${round}. Do not edit files.\n${DIFF}${GUIDES}\nDo not trust the claims of the author. List the invariants that the code must keep, from the code, the tests, and the docs. Verify each invariant against the changed code. Report each broken invariant as a finding with the file, the line, and a summary.`, { label: `invariants ${round}`, effort: 'low', schema: FINDINGS }),
-    () => agent(`${CONTEXT}\n\nStep: gates, round ${round}. Do not edit files.\n${DIFF}\nRun each gate command, in this order:\n${bullets(gateCommands)}\nEach gate is required: it must exit 0. These gates are test suites and must run tests:\n${bullets(testGates)}\nA gate that is not a test suite (for example lint or build) returns 0 for each count when its output has no test count. When the output of a Go test gate has no test count (go test without -v prints only \`ok <pkg>\` or \`ok <pkg> (cached)\`), count its tests with a second plain run of the same go test part, from the same directory, with -count=1 -v added, as a single Bash call. Read ran, passed, failed, and skipped from its \`--- PASS\`, \`--- FAIL\`, and \`--- SKIP\` lines. The exit code stays that of the gate command. Return exactly one result for each gate command above, with the command text unchanged, and run no other gate. For each gate, return its exit code and how many tests ran, passed, failed, and were skipped. Read the counts from the output; do not estimate. For each failed or skipped test, give the file and the line of the test, a summary, and the kind (failed or skipped). When a gate fails or skips a test, return the last 40 lines of its output in output_tail; otherwise return an empty output_tail. Return tests with the totals of all gates, and head_sha from \`git rev-parse HEAD\`.`, { label: `gates ${round}`, effort: 'low', schema: GATES }),
+    // Task 41 part 2 (Q-207): the gate agent runs no git; head comes from the step that made the last commit.
+    () => agent(`${CONTEXT}\n\nStep: gates, round ${round}. Do not edit files.\nThe head SHA of the change is ${head}, from the step that made the last commit; do not run git.\nRun each gate command alone, as a single plain Bash call, in this order:\n${bullets(gateCommands)}\nEach gate is required: it must exit 0. These gates are test suites and must run tests:\n${bullets(testGates)}\nA gate that is not a test suite (for example lint or build) returns 0 for each count when its output has no test count. When the output of a Go test gate has no test count (go test without -v prints only \`ok <pkg>\` or \`ok <pkg> (cached)\`), count its tests with a second plain run of the same go test part, from the same directory, with -count=1 -v added, as a single Bash call. Read ran, passed, failed, and skipped from its \`--- PASS\`, \`--- FAIL\`, and \`--- SKIP\` lines. The exit code stays that of the gate command. Return exactly one result for each gate command above, with the command text unchanged, and run no other gate. For each gate, return its exit code and how many tests ran, passed, failed, and were skipped. Read the counts from the output; do not estimate. For each failed or skipped test, give the file and the line of the test, a summary, and the kind (failed or skipped). When a gate fails or skips a test, return the last 40 lines of its output in output_tail; otherwise return an empty output_tail. Return tests with the totals of all gates.`, { label: `gates ${round}`, effort: 'low', schema: GATES }),
   ])
   if (!adv || !simp || !inv || !gates) return fail(`a review check of round ${round} did not return a result`)
   // The totals come from the per-gate counts, added in code.
   tests = { ran: sum(gates, 'ran'), passed: sum(gates, 'passed'), failed: sum(gates, 'failed'), skipped: sum(gates, 'skipped') }
-  if (gates.head_sha) head = gates.head_sha
 
   // Deduplicate by key (file:line for review findings; first occurrence wins).
   // Refuted review findings stay refuted. Gate findings always get a refuter.
@@ -457,7 +459,7 @@ ${batch.map((f) => `- [${f.id}] ${f.file}:${f.line}: ${f.summary}`).join('\n')}
 
 1. Fix each finding at its root. Edit only the files that the task lists.
 2. Commit your work on the branch ${branch}.
-3. Return fixed with the ID (the [F<n>] before the finding) of each finding that you fixed, and its file and line now, deviations with each deviation and its reason, and head_sha from \`git rev-parse HEAD\`.`,
+3. Return fixed with the ID (the [F<n>] before the finding) of each finding that you fixed, and its file and line now, deviations with each deviation and its reason, and head_sha, read after your last commit with a plain single \`git rev-parse HEAD\` Bash call, never chained with another command.`,
       FIX,
     )
     if (fix.failed) return fail(fix.failed)
