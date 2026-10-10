@@ -380,7 +380,7 @@ for (let round = 1; ; round++) {
     () => agent(`${CONTEXT}\n\nStep: simplicity review, round ${round}. Do not edit files.\n${DIFF}${GUIDES}\nFind where the change is more complex than the task needs. Finding kinds: an abstraction that the task did not ask for (for example, an interface that only one type implements, a factory that makes only one kind of object, or an option for a constant); code for a speculative need; a re-implemented standard library function, or a helper that the codebase has already; a new dependency that a few lines can replace; scaffolding for later; a diff that is longer than the problem needs. Report each finding with the file, the line, and a summary that ends with a concrete simpler replacement. A simplicity finding never overrides the acceptance criteria or a deliberate choice. Do not report: something that the task or the acceptance criteria ask for; a deliberate choice of the task; input validation at a trust boundary; error handling that prevents data loss; a security check; accessibility basics; the test that the task needs. Report nothing that you cannot show in the code.`, { label: `simplicity ${round}`, effort: 'low', schema: FINDINGS }),
     () => agent(`${CONTEXT}\n\nStep: invariant check, round ${round}. Do not edit files.\n${DIFF}${GUIDES}\nDo not trust the claims of the author. List the invariants that the code must keep, from the code, the tests, and the docs. Verify each invariant against the changed code. Report each broken invariant as a finding with the file, the line, and a summary.`, { label: `invariants ${round}`, effort: 'low', schema: FINDINGS }),
     // Task 41 part 2 (Q-207): the gate agent runs no git; head comes from the step that made the last commit.
-    () => agent(`${CONTEXT}\n\nStep: gates, round ${round}. Do not edit files.\nThe head SHA of the change is ${head}, from the step that made the last commit; do not run git.\nRun each gate command alone, as a single plain Bash call, in this order:\n${bullets(gateCommands)}\nEach gate is required: it must exit 0. These gates are test suites and must run tests:\n${bullets(testGates)}\nA gate that is not a test suite (for example lint or build) returns 0 for each count when its output has no test count. Return exactly one result for each gate command above, with the command text unchanged, and run no other gate. For each gate, return its exit code and how many tests ran, passed, failed, and were skipped. Read the counts from the output; do not estimate. For each failed or skipped test, give the file and the line of the test, a summary, and the kind (failed or skipped). When a gate fails or skips a test, return the last 40 lines of its output in output_tail; otherwise return an empty output_tail. Return tests with the totals of all gates.`, { label: `gates ${round}`, effort: 'low', schema: GATES }),
+    () => agent(`${CONTEXT}\n\nStep: gates, round ${round}. Do not edit files.\nThe head SHA of the change is ${head}, from the step that made the last commit; do not run git.\nRun each gate command alone, as a single plain Bash call, in this order:\n${bullets(gateCommands)}\nEach gate is required: it must exit 0. These gates are test suites and must run tests:\n${bullets(testGates)}\nA gate that is not a test suite (for example lint or build) returns 0 for each count when its output has no test count. When the output of a Go test gate has no test count (go test without -v prints only \`ok <pkg>\` or \`ok <pkg> (cached)\`), count its tests with a second plain run of the same go test part, from the same directory, with -count=1 -v added, as a single Bash call. Read ran, passed, failed, and skipped from its \`--- PASS\`, \`--- FAIL\`, and \`--- SKIP\` lines. The exit code stays that of the gate command. Return exactly one result for each gate command above, with the command text unchanged, and run no other gate. For each gate, return its exit code and how many tests ran, passed, failed, and were skipped. Read the counts from the output; do not estimate. For each failed or skipped test, give the file and the line of the test, a summary, and the kind (failed or skipped). When a gate fails or skips a test, return the last 40 lines of its output in output_tail; otherwise return an empty output_tail. Return tests with the totals of all gates.`, { label: `gates ${round}`, effort: 'low', schema: GATES }),
   ])
   if (!adv || !simp || !inv || !gates) return fail(`a review check of round ${round} did not return a result`)
   // The totals come from the per-gate counts, added in code.
@@ -429,8 +429,9 @@ for (let round = 1; ; round++) {
   })
   if (dead) return fail(`${dead} refuter(s) of round ${round} did not return a result`)
 
-  // A gate failure is a fact of this round: at the end of the run it stays
-  // open even when its refuter did not confirm it.
+  // A real gate failure (exit not 0, a failed or skipped test) is a fact of this round: at the end
+  // of the run it stays open even when its refuter did not confirm it. A refuted gate finding of
+  // another kind (ran 0, a missing or extra result) stays refuted (task 49).
   const open = [...found.entries()].filter(([, f]) => f.state === 'open')
   if (!open.length && clean(gates)) {
     // The phase line is a board mark, not evidence: a dead agent does not change the status.
@@ -438,7 +439,9 @@ for (let round = 1; ; round++) {
     return result('done')
   }
   if (round >= cap) {
-    for (const f of gateNow) found.get(key(f)).state = 'open'
+    for (const f of gateNow) {
+      if ((gates.gates || []).some((x) => x.command === f.gate && (x.exit_code !== 0 || x.failed > 0 || x.skipped > 0))) found.get(key(f)).state = 'open'
+    }
     return result('findings_left')
   }
   if (!open.length) continue // only refuted gate failures: run the gates again in the next round
