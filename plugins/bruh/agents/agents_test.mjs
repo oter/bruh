@@ -258,6 +258,29 @@ test('bigm keys a question by its asker and its ID', () => {
   assert.doesNotMatch(questions, /If you already answered this question ID, ignore it/)
 })
 
+// Task 46 (R-17): mail_post appends the ledger's priorities.md and rules.md to every START, so a
+// local START does not paste them; the remote spec text of bigm does not go through mail_post, so
+// it pastes them, and a remote clanker pastes the text of its own start message.
+test('each START names the ledger text that mail_post appends, and the remote hops paste it', () => {
+  const appends = 'mail_post` appends the current text of `priorities.md` and `rules.md`'
+  const paste = 'the text of `priorities.md` and `rules.md`'
+  const local = {
+    'bigm clanker START': agents.bigm.split('### Start a local clanker')[1].split('\n3. ')[0],
+    'bigm clerk-ledger START': agents.bigm.split('\n').find((l) => l.includes('`START: ledger pushes`')),
+    'clanker clerk START': agents.clanker.split('### Start a clerk')[1].split('\n3. ')[0],
+    'clanker scout START': agents.clanker.split('### Scouts')[1].split('\n').find((l) => l.includes('`START: scout <subject>`')),
+  }
+  for (const [name, text] of Object.entries(local)) {
+    assert.ok(text.includes(appends), `${name}: does not say that mail_post appends the ledger text`)
+    assert.ok(!text.includes(paste), `${name}: still tells the role to paste the ledger text`)
+  }
+  for (const name of ['clanker clerk START', 'clanker scout START']) {
+    assert.match(local[name], /`ledger_text` says `none`.*paste the full text of `priorities\.md` and `rules\.md` from your own start message/, `${name}: no remote case`)
+  }
+  const remote = agents.bigm.split('## Remote clankers')[1].split('\n## ')[0]
+  assert.match(remote, /paste the full text of `priorities\.md` and `rules\.md`/, 'bigm remote spec text: does not paste the ledger text')
+})
+
 // Final review M5: bigm registers the repositories of a project with repos_set and its project.
 test('bigm calls repos_set with the project of the clanker key', () => {
   const start = agents.bigm.split('### Start a local clanker')[1].split('\n## ')[0]
