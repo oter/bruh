@@ -16,6 +16,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 - A refusal P0 is no longer silent while its asker is held (#42): `question_open` with `hold` posts the P0 itself to the mailbox of the parent of the asker and of bigm, and their waiters wake them, so it needs no `SendMessage` nudge. The question file keeps the hold ID in the new field `hold`. On a post error, the output has `relay_error` and the asker sends the nudge itself.
 - `answer_wait` returns the answer that any role wrote for the question ID with `answer_write` (bigm, the clanker, or the asker), not only the copy of the caller, so a workflow agent no longer stays pending until its clerk writes its own copy.
+- The gates step of `/bruh:deliver` counts a Go test gate whose output has no test count (`ok <pkg>` or `ok <pkg> (cached)`) with a second plain run with `-count=1 -v`, so a passing Go gate no longer reports 0 tests ran. The gate list of the project does not change (task 49).
+- At the round cap of `/bruh:deliver`, a gate finding that its refuter refuted stays refuted; only a real gate failure (exit not 0, a failed or skipped test) stays open (task 49).
 
 ## [0.12.2] - 2026-10-09
 
