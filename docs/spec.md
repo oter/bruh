@@ -368,7 +368,9 @@ Agent-derived, accepted 2026-09-30.
 
 Agent-derived, accepted 2026-09-30, except where tagged. `deliver` adapts two scripts of the setup of the owner: `implement-tickets.js` for stages 1 and 2, and `review-and-fix.js` for stages 3 and 4.
 
-Inputs in `args`: the task, the acceptance criteria, the base SHA, the gate commands of the project, the house rules file, the guides folder of the task (an absolute path with `INDEX.md`, or empty), the deliberate choices that reviewers must not flag, the answer folder and deadline, and the review-round cap.
+Inputs in `args`: the task, the acceptance criteria, the base SHA, the gate commands of the project, the house rules text (optional), the guides folder of the task (an absolute path with `INDEX.md`, or empty), the deliberate choices that reviewers must not flag, the answer folder and deadline, and the review-round cap.
+
+- When the house rules text is missing or empty, `deliver`, `review-and-fix`, and `review-only` use the bundled text of `defaults/house-rules.md`. A passed text wins. Agent-derived, needs owner decision (plugin-split line b). Each of the three scripts embeds a copy of the file, because the Workflow runtime has no imports and no filesystem, and a test checks each copy byte for byte against the file. Clanker decision 2026-10-10 (Q-bruh-maksyms-macbook-pro-296).
 
 1. **Plan.** Read the task, the code, and the guides of the project. Pin the base SHA. Write a plan with written STOP conditions for each step. Send each open question through section 6.2.
 2. **Implement.** Implement the plan. Record deviations from the plan, and stop at a conflict instead of guessing.
@@ -1004,6 +1006,13 @@ The plugin ships a stdio MCP server written in Go with the standard library only
 The input and the output of `learn_scan` and `learn_refresh` are in section 8.5, "Schema". Agent-derived, needs owner decision.
 
 The tool `ledger_edit` (section 8.7) changes one row, one key line, one bullet line, or one rule section of a ledger file, makes a new project file, or commits the listed files of init and of the learn step, and commits the change. Since task 51 (R-19), it is the only way that bigm changes the ledger. The MCP server runs `git` only in the ledger folder, and never pushes. Agent-derived, needs owner decision.
+
+The skills and the workflows run without the coordinator (`docs/design/plugin-split.md`, task 55):
+
+- The workflow agents find `question_open`, `answer_wait`, and `report_write` with ToolSearch by short name, so any plugin prefix works, and use them when they are there. The session finds `result_save` the same way. Owner decision 2026-10-09 (Q-240).
+- Without `question_open`, the agent does not wait: it stops and returns the question with an empty id, its options ranked, and its recommendation. The run returns `status: question` with the id `chat:<step>` (`chat:<label>`, or `chat:fix <area> round <n>` for a fix step). The session asks it in chat, adds the answer to `args.answers` under that id, and relaunches with `resumeFromRunId` (section 6.2). Owner decision 2026-10-09 (Q-240): ask in chat. The id `chat:<step>` and the round in the id of a fix step: clanker decision 2026-10-10 (Q-bruh-maksyms-macbook-pro-297).
+- Without `report_write`, the agent skips the phase line and goes on. Owner decision 2026-10-09 (Q-240).
+- Without `result_save`, the session writes the result object with the Write tool to `.bruh/results/<name>.json` in the root of the run (`args.root`; for `deliver`, the working tree), and the project ignores `.bruh/` in its `.gitignore`. Principle 3 holds when the coordinator is there. Agent-derived, needs owner decision (plugin-split line a).
 
 ### 10.2 Local and container
 

@@ -210,10 +210,35 @@ for (const name of SCRIPTS) {
     assert.equal(result.status, 'question')
     assert.deepEqual(result.question, Q)
     const p = byWord(asker)[0].prompt
-    for (const s of ['question_open', 'SendMessage', 'main', 'answer_wait', 'deadline_seconds 600', 'pending', 'options', 'the body that question_open returned']) {
+    for (const s of ['question_open', 'SendMessage', 'main', 'answer_wait', 'deadline_seconds 600', 'pending', 'options', 'the body that question_open returned', 'ToolSearch']) {
       assert.ok(p.includes(s), `the ${asker} prompt does not name ${s}`)
     }
     if (name === 'implement-tickets') assert.equal(byWord('review').length, 0)
+  })
+
+  // Task 55: without question_open the agent returns the question with an empty id, and the
+  // session asks it in chat under the id chat:<step>.
+  test(`${name}: a question without question_open goes to chat, and its answer reaches the next attempt`, async () => {
+    const chatId = { tickets: 'chat:write', 'implement-tickets': 'chat:impl t-01-a', 'review-and-fix': 'chat:fix src round 1', 'review-only': 'chat:review correctness' }[name]
+    const CQ = { id: '', header: 'P1 which table?', body: 'Use table A or table B?\nOPTION 1: A\nOPTION 2: B\nRecommendation: B' }
+    const h = {
+      ...BUSY[name],
+      [asker]: (p, o, n) => (n > 1 || p.includes(`${chatId} (P1 which table?)`) ? BUSY[name][asker](p, o, n) : { ...BUSY[name][asker](p, o, n), question: CQ }),
+    }
+    const first = await run(name, h, askArgs())
+    assert.equal(first.result.status, 'question')
+    assert.deepEqual(first.result.question, { ...CQ, id: chatId })
+    const p = first.byWord(asker)[0].prompt
+    for (const s of ['Find the tool question_open with ToolSearch (any plugin prefix)', 'Call answer_wait (also found with ToolSearch)', 'If question_open is not there: do not wait and send nothing', 'an empty id', 'the options ranked, and your recommendation', 'The session asks it in chat.']) {
+      assert.ok(p.includes(s), `the ${asker} prompt does not have: ${s}`)
+    }
+    const answer = 'Use table B. (owner, chat)'
+    const second = await run(name, h, { ...askArgs(), answers: { [chatId]: answer } })
+    assert.notEqual(second.result.status, 'question')
+    assert.notEqual(second.result.status, 'stopped', JSON.stringify(second.result.deviations))
+    const withAnswer = second.calls.filter((c) => c.prompt.includes(answer))
+    assert.equal(withAnswer.length, 1)
+    assert.equal(withAnswer[0], second.calls[first.calls.length])
   })
 
   test(`${name}: the answer reaches only prompts after the question`, async () => {
@@ -900,8 +925,50 @@ test('review-and-fix: the gate and the first fixer of each round write the phase
     verify: () => ({ confirmed: true, reason: '', adjusted_fix: '' }),
   }), RF())
   assert.equal(result.status, 'done')
-  const phaseOf = (p) => p.match(/report_write \(mcp__plugin_bruh_bruh__report_write; load it with ToolSearch\) with kind event, text "phase (\w+)", and phase "\1"/)?.[1]
+  const phaseOf = (p) => p.match(/find the tool report_write with ToolSearch\. If it is there, call it with kind event, text "phase (\w+)", and phase "\1"/)?.[1]
   assert.deepEqual(calls.map((c) => phaseOf(c.prompt)).filter(Boolean), ['review', 'fix', 'review'])
   assert.ok(phaseOf(byWord('gate')[0].prompt) === 'review' && phaseOf(byWord('fix')[0].prompt) === 'fix')
   assert.equal(phaseOf(byWord('fix')[1].prompt), undefined, 'only the first fixer of a round writes the phase')
+  // Without report_write the agent goes on with its step.
+  assert.ok(byWord('gate')[0].prompt.includes('If the tool is not there or the call fails, go on. Then do this step.'))
+})
+
+// ---------- task 55: without the coordinator ----------
+
+test('review-and-fix: a chat question of the fix step of one area gets another id in each round (Q-297)', async () => {
+  const CQ = { id: '', header: 'P1 which fix?', body: 'Fix A or B?' }
+  const h = rfHandlers({
+    review: (p, o, n) => ({ findings: n === 1 ? [f('src/a.go', 1)] : n === 3 ? [f('src/a.go', 5)] : [], summary: '' }),
+    verify: () => ({ confirmed: true, reason: '', adjusted_fix: '' }),
+    fix: (p) => (p.includes('Earlier questions of this step') ? { fixed: listed(p), report: '' } : { fixed: [], report: '', question: CQ }),
+  })
+  const one = await run('review-and-fix', h, RF({ round_cap: 3 }))
+  assert.equal(one.result.question.id, 'chat:fix src round 1')
+  const two = await run('review-and-fix', h, RF({ round_cap: 3, answers: { 'chat:fix src round 1': 'A' } }))
+  assert.equal(two.result.status, 'question')
+  assert.equal(two.result.question.id, 'chat:fix src round 2')
+  assert.deepEqual(two.byWord('fix').map((c) => c.opts.label), ['fix src', 'fix src attempt 2', 'fix src'])
+})
+
+const HOUSE_RULES_FILE = readFileSync(join(import.meta.dirname, '../defaults/house-rules.md'), 'utf8')
+
+test('review-and-fix and review-only: without house_rules each reviewer has defaults/house-rules.md byte for byte', async () => {
+  for (const name of ['review-and-fix', 'review-only']) {
+    for (const hr of [undefined, '', '   ']) {
+      const { calls } = await run(name, BUSY[name], { ...BUSY_ARGS[name](), house_rules: hr })
+      const reviews = calls.filter((c) => c.word === 'review')
+      assert.ok(reviews.length)
+      for (const c of reviews) assert.ok(c.prompt.includes(`House rules:\n${HOUSE_RULES_FILE}\n`), `${name} ${JSON.stringify(hr)}: ${c.opts.label}`)
+    }
+    // A passed house_rules wins.
+    const { calls } = await run(name, BUSY[name], { ...BUSY_ARGS[name](), house_rules: 'HOUSE RULES TEXT' })
+    for (const c of calls.filter((x) => x.word === 'review')) {
+      assert.ok(c.prompt.includes('House rules:\nHOUSE RULES TEXT\n'), `${name}: ${c.opts.label}`)
+      assert.ok(!c.prompt.includes(HOUSE_RULES_FILE), `${name}: ${c.opts.label}`)
+    }
+  }
+})
+
+test('review-and-fix and review-only: whenToUse names the result file without result_save', () => {
+  for (const name of ['review-and-fix', 'review-only']) assert.match(loaded[name].meta.whenToUse, /result_save, or without it in \.bruh\/results\/<name>\.json of the root/)
 })

@@ -75,11 +75,11 @@ The other keys of `/bruh:review-and-fix`:
   "gates": ["go vet ./...", "go test -race -timeout 30m ./..."],
   "test_gates": ["go test -race -timeout 30m ./..."],
   "deadline_seconds": 3600,
-  "house_rules": "<the text of house-rules.md>",
+  "house_rules": "<optional: the text of the house rules; when missing or empty, the text of defaults/house-rules.md bundled in the workflow>",
   "round_cap": 2
 }
 ```
 
 For `/bruh:review-only`, `root` is a detached worktree at the head of the pull request, `base` is its base SHA, and `head` is its head SHA. It has no `gates` and no `round_cap`.
 
-Without `head`, the workflow takes HEAD of `root` and checks that the tree is clean. Add `answers` only on a relaunch after `status: question`. Set `decided` (the same object as `answers`) only for a new run after a `CONFLICT:` stop. A resume keeps the `decided` of its run unchanged.
+Without `head`, the workflow takes HEAD of `root` and checks that the tree is clean. Add `answers` only on a relaunch after `status: question`: `{"Q-<id>": "<answer>"}` for a question of `question_open`, or `{"chat:<step>": "<answer>"}` for a question that the session asked in chat because the coordinator plugin is not installed. Set `decided` (the same object as `answers`) only for a new run after a `CONFLICT:` stop. A resume keeps the `decided` of its run unchanged.

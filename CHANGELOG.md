@@ -6,6 +6,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Added
+
+- The workflows run without the coordinator (task 55). Without `question_open`, an agent stops at once and returns its question with the options ranked and its recommendation; the run returns `status: question` with the id `chat:<step>` (`chat:fix <area> round <n>` for a fix step). Ask it in chat, add the answer to `args.answers` under that id, and relaunch with `resumeFromRunId`. Without `report_write`, the agents skip the phase line. Without `result_save`, the session writes the result to `.bruh/results/<name>.json` in the root of the run.
+- This repository ignores `.bruh/`. A project without the coordinator ignores `.bruh/` in its `.gitignore` too (task 55).
+
+### Changed
+
+- The workflow agents find `question_open`, `answer_wait`, and `report_write` with ToolSearch by short name, not by the full name `mcp__plugin_bruh_bruh__<tool>`, so the tools work under any plugin prefix (task 55).
+- `/bruh:deliver`, `/bruh:review-and-fix`, and `/bruh:review-only` use the text of `defaults/house-rules.md`, bundled in each script, when `args.house_rules` is missing or empty. A passed text still wins. Before, `deliver` gave an empty text and the two reviews gave `(none)` (task 55).
+
 ### Fixed
 
 - The workflows `/bruh:deliver`, `/bruh:tickets`, `/bruh:implement-tickets`, `/bruh:review-and-fix`, and `/bruh:review-only` take the new optional argument `args.decided`. It has the same shape as `args.answers`. Its answers go into each agent prompt that can ask a question, as a "Decisions already made" block. A clerk sets `args.decided` for a new run after a `CONFLICT:` stop, or after a `FAILED:` stop of `/bruh:implement-tickets`, and stores it with the other arguments. Thus the plan agent does not ask an answered question again. A resume keeps the `args.decided` of its run unchanged, so it keeps its prompts and its cache.

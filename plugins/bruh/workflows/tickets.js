@@ -53,12 +53,15 @@ const RULES = `Rules of this run:
 - Do not post outside the project: no comments on pull requests, merge requests, or issues, no chat messages, no emails.
 - Write only in ${A.issues}/. Do not edit ${A.spec} or the code.`
 
+// Task 55: the coordinator tools are found by short name with ToolSearch (deliver.js).
 const ASK = `Questions: when you need a decision that the spec, the rules, and the code do not answer, do not guess.
-1. Call the bruh MCP tool question_open (mcp__plugin_bruh_bruh__question_open; load it with ToolSearch) with priority (P0, P1, or P2: your estimate), subject (one line), body (the question, the options ranked, and your recommendation), and blocks (the work that waits for the answer), and options (2 to 4, each a label and a description) when the question has fixed answers.
+Find the tool question_open with ToolSearch (any plugin prefix). If it is there:
+1. Call question_open with priority (P0, P1, or P2: your estimate), subject (one line), body (the question, the options ranked, and your recommendation), and blocks (the work that waits for the answer), and options (2 to 4, each a label and a description) when the question has fixed answers.
 2. Send the returned header, and only the header, to main with SendMessage.
-3. Call answer_wait (mcp__plugin_bruh_bruh__answer_wait) with question_id set to the returned id and deadline_seconds ${deadline}.
+3. Call answer_wait (also found with ToolSearch) with question_id set to the returned id and deadline_seconds ${deadline}.
 4. If it returns answered, use the answer text and continue.
-5. If it returns pending, stop at once and do no more work. Return your result with question set to the id and the header of the question, and the body that question_open returned (with its OPTION lines).`
+5. If it returns pending, stop at once and do no more work. Return your result with question set to the id and the header of the question, and the body that question_open returned (with its OPTION lines).
+If question_open is not there: do not wait and send nothing. Stop at once and do no more work. Return your result with question set to an empty id, the header "<P0, P1, or P2> <subject in one line>", and a body with the question, the options ranked, and your recommendation. The session asks it in chat.`
 
 const QUESTION = {
   type: 'object',
@@ -124,8 +127,9 @@ const DECIDED = decidedLines.length ? `\n\nDecisions already made:\n${decidedLin
 // plain prompt. Each later attempt adds the earlier questions of this step and
 // their answers from args.answers, in order, so the prompts of the earlier
 // attempts never change. Returns {value}, {question, repeat}, {stop}, or {failed}.
+// A question with an empty id (no question_open) gets the id chat:<chat key or label>.
 const MAX_ANSWERS = 3
-async function askable(label, prompt, opts) {
+async function askable(label, prompt, opts, chat) {
   const given = []
   for (;;) {
     const earlier = given.length
@@ -134,7 +138,7 @@ async function askable(label, prompt, opts) {
     const r = await agent(`${prompt}${DECIDED}${earlier}\n\n${ASK}`, { ...opts, label: given.length ? `${label} attempt ${given.length + 1}` : label })
     if (!r) return { failed: `the ${label} agent did not return a result` }
     if (!r.question) return { value: r }
-    const q = { id: r.question.id, header: r.question.header, body: r.question.body }
+    const q = { id: r.question.id || `chat:${chat || label}`, header: r.question.header, body: r.question.body }
     const used = given.filter((g) => g.q.id === q.id).length
     const texts = answerList(q.id)
     if (used >= MAX_ANSWERS) return { stop: `${q.id} is pending again after ${used} answers` }

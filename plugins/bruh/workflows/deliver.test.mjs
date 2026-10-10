@@ -2,7 +2,7 @@
 // Run: node --test plugins/bruh/workflows/deliver.test.mjs
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { readFileSync } from 'node:fs'
+import { readdirSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 
 const source = readFileSync(join(import.meta.dirname, 'deliver.js'), 'utf8')
@@ -488,6 +488,78 @@ test('question path returns status question', async () => {
   }
 })
 
+// Task 55: the workflows run without the coordinator plugin.
+test('no workflow file names a coordinator tool by its full plugin name', () => {
+  const files = readdirSync(import.meta.dirname).filter((f) => f.endsWith('.js'))
+  assert.deepEqual(files.sort(), ['deliver.js', 'implement-tickets.js', 'review-and-fix.js', 'review-only.js', 'tickets.js'])
+  for (const f of files) assert.ok(!readFileSync(join(import.meta.dirname, f), 'utf8').includes('mcp__plugin_bruh_bruh__'), f)
+})
+
+test('the question and phase texts find the tools by short name and have a path without them', async () => {
+  const { calls } = await run({
+    adversarial: (p, o, n) => ({ findings: n === 1 ? [finding('src/a.go', 1)] : [] }),
+    refute: () => ({ confirmed: true }),
+  })
+  const plan = calls[0].prompt
+  // Tool present: the tool path of today, with the tools found by short name.
+  for (const s of ['Find the tool question_open with ToolSearch (any plugin prefix). If it is there:', '1. Call question_open with priority', 'to main with SendMessage', 'Call answer_wait (also found with ToolSearch)', 'If it returns pending, stop at once']) {
+    assert.ok(plan.includes(s), `the plan prompt does not have: ${s}`)
+  }
+  // Tool absent: no wait, an empty id, and the question for the chat.
+  assert.ok(plan.includes('If question_open is not there: do not wait and send nothing. Stop at once and do no more work. Return your result with question set to an empty id, the header "<P0, P1, or P2> <subject in one line>", and a body with the question, the options ranked, and your recommendation. The session asks it in chat.'))
+  // report_write: used when it is there, skipped when it is not.
+  for (const c of calls.filter((x) => phasesOf([x]).length)) {
+    assert.ok(c.prompt.includes('If the tool is not there or the call fails, go on. Then do this step.'), c.opts.label)
+  }
+  assert.deepEqual(phasesOf(calls), ['plan', 'implement', 'review', 'fix', 'review', 'done'])
+})
+
+const CHAT_Q = { id: '', header: 'P1 which table?', body: 'Use table A or table B?\nOPTION 1: A\nOPTION 2: B\nRecommendation: B' }
+
+test('a question without question_open returns status question with a chat id, and its answer resumes the step', async () => {
+  const plan = (p) => (p.includes('chat:plan (P1 which table?): use B') ? { plan: 'use table B', stop: false, reason: '' } : { plan: '', stop: false, reason: '', question: CHAT_Q })
+  const first = await run({ plan })
+  assert.equal(first.result.status, 'question')
+  assert.deepEqual(first.result.question, { ...CHAT_Q, id: 'chat:plan' })
+  assert.equal(first.calls.length, 1)
+  const second = await run({ plan }, baseArgs({ answers: { 'chat:plan': 'use B' } }))
+  assert.equal(second.result.status, 'done')
+  assert.equal(second.calls[0].prompt, first.calls[0].prompt)
+  assert.equal(second.calls[1].opts.label, 'plan attempt 2')
+  assert.ok(second.calls[1].prompt.includes('- chat:plan (P1 which table?): use B'))
+  assert.ok(second.byWord('implement')[0].prompt.includes('use table B'))
+})
+
+test('a chat question of the fix step of one area gets another id in each round (Q-297)', async () => {
+  const h = {
+    adversarial: (p, o, n) => ({ findings: n === 1 ? [finding('src/a.go', 1)] : n === 2 ? [finding('src/a.go', 5)] : [] }),
+    refute: () => ({ confirmed: true }),
+    fix: (p, o, n, fs) => (p.includes('Earlier questions of this step') ? { head_sha: HEAD, fixed: fs, deviations: [] } : { head_sha: HEAD, fixed: [], deviations: [], question: CHAT_Q }),
+  }
+  const one = await run(h, baseArgs({ round_cap: 3 }))
+  assert.equal(one.result.question.id, 'chat:fix src round 1')
+  const two = await run(h, baseArgs({ round_cap: 3, answers: { 'chat:fix src round 1': 'go on' } }))
+  assert.equal(two.result.status, 'question')
+  assert.equal(two.result.question.id, 'chat:fix src round 2')
+  assert.deepEqual(two.byWord('fix').map((c) => c.opts.label), ['fix src', 'fix src attempt 2', 'fix src'])
+})
+
+const HOUSE_RULES_FILE = readFileSync(join(import.meta.dirname, '../defaults/house-rules.md'), 'utf8')
+
+test('without house_rules every prompt has the text of defaults/house-rules.md byte for byte', async () => {
+  for (const hr of [undefined, '', '   ']) {
+    const { result, calls } = await run({}, baseArgs({ house_rules: hr }))
+    assert.equal(result.status, 'done')
+    for (const c of calls) assert.ok(c.prompt.includes(`House rules:\n${HOUSE_RULES_FILE}\n`), `${JSON.stringify(hr)}: ${c.opts.label}`)
+  }
+  // A passed house_rules wins.
+  const { calls } = await run()
+  for (const c of calls) {
+    assert.ok(c.prompt.includes('House rules:\nHOUSE RULES TEXT\n'), c.opts.label)
+    assert.ok(!c.prompt.includes(HOUSE_RULES_FILE), c.opts.label)
+  }
+})
+
 test('answer reaches only prompts after the question', async () => {
   const plan = (p) => (p.includes('Q-app-host-5') ? { plan: 'use table B', stop: false, reason: '' } : { plan: '', stop: false, reason: '', question: Q })
   const first = await run({ plan })
@@ -554,7 +626,7 @@ test('no agent prompt allows posts outside the project or pushes', async () => {
 })
 
 // Task 30: the agents write each phase of the task with report_write, in step order.
-const phasesOf = (calls) => calls.flatMap((c) => [...c.prompt.matchAll(/report_write \(mcp__plugin_bruh_bruh__report_write; load it with ToolSearch\) with kind event, text "phase (\w+)", and phase "\1"/g)].map((m) => m[1]))
+const phasesOf = (calls) => calls.flatMap((c) => [...c.prompt.matchAll(/find the tool report_write with ToolSearch\. If it is there, call it with kind event, text "phase (\w+)", and phase "\1"/g)].map((m) => m[1]))
 
 test('the deliver flow writes the phases plan, implement, review, fix, and done in order', async () => {
   const { result, calls, byWord } = await run({
