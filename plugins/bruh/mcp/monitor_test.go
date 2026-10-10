@@ -201,15 +201,16 @@ func TestMonitorBaselineThenChanges(t *testing.T) {
 	if strings.Join(got, "\n") != strings.Join(want, "\n") {
 		t.Errorf("events =\n%s\nwant\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))
 	}
-	// A duplicate ID is an error event, once for the same error text.
-	*f.now = f.now.Add(2 * time.Minute)
+	// A duplicate ID fails the poll: an error event only on the 3rd failed poll in a row, and
+	// none for the 4th.
 	f.items(t, `{"data": {"list": [`+item("1", "2", "a")+`, `+item("1", "3", "b")+`]}}`)
-	f.loop(t)
-	*f.now = f.now.Add(2 * time.Minute)
-	f.loop(t)
-	msgs := f.mail(t, "clanker-shop")
-	if len(msgs) != 1 || !strings.Contains(msgs[0].Header, `two items have the id "1"`) {
-		t.Errorf("mail after a duplicate ID = %+v, want one error", msgs)
+	for poll, want := range []int{0, 0, 1, 0} {
+		*f.now = f.now.Add(2 * time.Minute)
+		f.loop(t)
+		msgs := f.mail(t, "clanker-shop")
+		if len(msgs) != want || want == 1 && !strings.Contains(msgs[0].Header, `two items have the id "1"`) {
+			t.Errorf("mail after failed poll %d with a duplicate ID = %+v, want %d error", poll+1, msgs, want)
+		}
 	}
 	if !strings.Contains(f.print.String(), `"type":"error"`) {
 		t.Errorf("an error event is printed for bigm: %q", f.print.String())

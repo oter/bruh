@@ -54,6 +54,10 @@ type feedState struct {
 // yet (external CI often registers after the push). At 60 seconds it is about half an hour.
 const maxCheckPolls = 30
 
+// errorAfterFails is the count of failed polls in a row of one source key that sends its error
+// event; a shorter streak (a reset connection, a DNS miss) sends nothing (task 52).
+const errorAfterFails = 3
+
 type repoState struct {
 	Branches   map[string]string     `json:"branches"`
 	Checks     map[string]string     `json:"checks"`      // head SHA -> last Checks value
@@ -61,6 +65,7 @@ type repoState struct {
 	Feeds      map[string]*feedState `json:"feeds"`       // issue_comments, review_comments, reviews
 	Merged     []int                 `json:"merged"`
 	LastError  string                `json:"last_error,omitempty"`
+	Fails      int                   `json:"fails,omitempty"` // failed polls of the key in a row
 	// Items is the cursor of a command or mcp source: item ID -> version. nil before the baseline.
 	Items map[string]string `json:"items,omitzero"`
 	// The last good read of the source key, which monitor_start returns for a shared key.
@@ -81,7 +86,7 @@ type pullCheck struct {
 
 type watchEvent struct {
 	// push, red, comment, review, merge (codehost); checks (codehost monitor with number, GitHub);
-	// new, changed, gone (command, mcp); error; expired
+	// new, changed, gone (command, mcp); error; recovered; expired
 	Type    string `json:"type"`
 	Monitor string `json:"monitor,omitempty"` // the monitor ID of the subscriber
 	Key     string `json:"key,omitempty"`     // the source key
@@ -117,7 +122,7 @@ type watcher struct {
 // with the monitor ID, appended once for each project to reports/clanker-<project>.jsonl; the
 // line as mail from bigm with the header DONE: event <project>: <text> to each local subscriber;
 // and the printed line, which reaches bigm as a notification of the plugin monitor, only for a
-// remote subscriber (bigm relays it through Orca) and once for an error.
+// remote subscriber (bigm relays it through Orca) and once for an error or a recovered event.
 func (w *watcher) emit(ev watchEvent, text, call, value string) error {
 	at := w.env.Stamp()
 	ev.Key = w.key
@@ -153,7 +158,7 @@ func (w *watcher) emit(ev watchEvent, text, call, value string) error {
 				return err
 			}
 		}
-		if !local || (e.Type == "error" && !printed) {
+		if !local || ((e.Type == "error" || e.Type == "recovered") && !printed) {
 			printed = true
 			if _, err := w.out.Write(line); err != nil {
 				return err
@@ -397,8 +402,9 @@ func loadWatchState(file string) (map[string]*repoState, error) {
 // pollAll is one loop of the poller (spec 9.5). It stops the monitors that expired or lost
 // their command grant, polls each codehost key of repos.json and each command key that is due,
 // once for all subscribers of the key, saves each cursor, prunes the cursors of keys with no
-// monitor, and writes watch/poller_at. An error of one key is an event (once for each new error
-// text), and the other keys are still polled.
+// monitor, and writes watch/poller_at. An error of one key is an error event only on its
+// errorAfterFails-th failed poll in a row, and the next good poll is one recovered event; the
+// other keys are still polled.
 func (w *watcher) pollAll(ctx context.Context, cfg reposConfig, hosts []codeHost) error {
 	file, err := watchFile(w.env)
 	if err != nil {
@@ -429,14 +435,21 @@ func (w *watcher) pollAll(ctx context.Context, cfg reposConfig, hosts []codeHost
 			st = &repoState{}
 		}
 		if err := call(st); err != nil {
-			if err.Error() != st.LastError {
-				st.LastError = err.Error()
+			st.Fails++
+			st.LastError = err.Error()
+			if st.Fails == errorAfterFails {
 				if eerr := w.emit(errEv, errText+": "+err.Error(), lastCall(), "error"); eerr != nil {
 					return eerr
 				}
 			}
 		} else {
-			st.LastError = ""
+			if st.Fails >= errorAfterFails {
+				errEv.Type = "recovered"
+				if eerr := w.emit(errEv, strings.Replace(errText, "error", "recovered", 1), lastCall(), cmp.Or(st.LastValue, "ok")); eerr != nil {
+					return eerr
+				}
+			}
+			st.Fails, st.LastError = 0, ""
 		}
 		return updateWatchState(w.env, func(s map[string]*repoState) error { s[key] = st; return nil })
 	}
