@@ -300,6 +300,28 @@ test('a red gate never gives done while it stays red', async () => {
   ], async (label, h, args, check) => check(await run(h, args)))
 })
 
+// Task 49: at the round cap a refuted gate finding stays refuted (a Go gate without -v prints no
+// count), and a real gate failure (exit not 0, a failed or skipped test) stays open.
+test('at the round cap a refuted gate finding stays refuted and a real gate failure stays open', async () => {
+  const gate = (x) => () => ({ head_sha: HEAD, tests: {}, gates: [{ command: 'go test ./...', exit_code: 0, ran: 5, passed: 5, failed: 0, skipped: 0, problems: [], ...x }] })
+  await eachRow([
+    ['a test gate with no count: refuted', { ran: 0, passed: 0 }, 'refuted'],
+    ['a gate that exits 1 with a failed test: open', { exit_code: 1, passed: 4, failed: 1 }, 'open'],
+    ['a gate that skips a test: open', { passed: 4, skipped: 1 }, 'open'],
+  ], async (label, x, state) => {
+    const { result } = await run({ gates: gate(x) }, baseArgs({ round_cap: 1, test_gates: ['go test ./...'] }))
+    assert.equal(result.status, 'findings_left')
+    assert.deepEqual(result.findings.map((f) => f.state), [state])
+  })
+})
+
+test('the gates prompt counts a Go gate that prints no test count', async () => {
+  const { byWord } = await run()
+  const prompt = byWord('gates')[0].prompt
+  assert.match(prompt, /no test count \(go test without -v prints only `ok <pkg>` or `ok <pkg> \(cached\)`\)/)
+  assert.match(prompt, /-count=1 -v/)
+})
+
 // The gate results must cover exactly args.gates; each gate must report and exit 0, and only
 // the gates of args.test_gates must run tests (final review M6).
 test('gate results become findings', async () => {
