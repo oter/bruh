@@ -98,7 +98,7 @@ When the folder is empty, the init skill creates the layout: `README.md`, `mode.
 
 The Markdown files hold only the current state. When an item closes, bigm deletes its row in the commit that closes it, with the subject `close <kind>: <subject>`. Git is the history: `git log --grep` finds each closed item.
 
-bigm writes the Markdown files. It changes a table row or a key line with the tool `ledger_edit`, which commits that file and writes the DONE mail to the ledger clerk. The waiter of the ledger clerk wakes it on that mail, so bigm sends no nudge. Plugin code writes `learn/` (the init skill, and the refresh at each sweep of bigm). The init skill writes `.claude/settings.json`. bigm is the only role that commits the ledger. The ledger clerk pushes the ledger after each commit of bigm.
+bigm changes the Markdown files only with the tool `ledger_edit`: a table row, a key line, a bullet line such as a decision, a rule section, a new project file, or a commit of the files that plugin code wrote. The tool commits those files and writes the DONE mail to the ledger clerk. bigm writes no file by hand (owner rule R-19): a hook of the ledger settings file blocks its Edit, Write, and shell writes. The waiter of the ledger clerk wakes it on that mail, so bigm sends no nudge. Plugin code writes `learn/` (the init skill, and the refresh at each sweep of bigm). The init skill writes `.claude/settings.json`. bigm is the only role that commits the ledger. The ledger clerk pushes the ledger after each commit of bigm.
 
 ### 3. Run the init skill
 
@@ -255,7 +255,7 @@ When you set up Slack or Telegram (step 4), start bigm only with the full comman
 
 Run one bigm at a time. Each other `claude` in the ledger folder is a second bigm, which reads the mailbox of bigm and starts a second sweep. To open another session in the ledger folder, use `claude --setting-sources user`.
 
-The ledger settings file holds the role key, the env values, and the deny rules of bigm. If you installed bruh before this file existed, run `/bruh:init` again (step 3) to write it. bigm stays an interactive session. Do not start it with `--bg`.
+The ledger settings file holds the role key, the env values, the deny rules, and the hooks of bigm. If you installed bruh before this file existed, or before its write hook, run `/bruh:init` again (step 3) to write it. bigm stays an interactive session. Do not start it with `--bg`.
 
 bigm starts a clanker for each project that has work. Tell bigm what to do. For a project that init learned, bigm takes the repositories from `learn/projects/<key>.json`, and records them with the `repos_set` tool of bruh, so that the watcher (the poller in the plugin monitor of bigm) knows them. After your approval (an answer to a merge question, or a merge grant), the clanker of the project merges the pull request with `gh pr merge --match-head-commit` (or `glab` or `tea` with the head SHA) and confirms the merge at the code host API. Tell bigm the code host repositories (`owner/name` and the host: GitHub, GitLab, or Gitea) only for a project on a remote machine.
 

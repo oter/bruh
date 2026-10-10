@@ -355,8 +355,8 @@ func TestInitBigmSkillHook(t *testing.T) {
 	}
 	apply(t, env, plan(t, env, answers(ledger, nil)))
 	hooks := ledgerSettings(t, ledger)["hooks"].(map[string]any)
-	if pre := hooks["PreToolUse"].([]any); len(pre) != 2 || pre[0].(map[string]any)["matcher"] != "Bash" || hooks["Stop"] == nil {
-		t.Fatalf("hooks = %v, want the own Stop and Bash groups kept and one more group", hooks)
+	if pre := hooks["PreToolUse"].([]any); len(pre) != 3 || pre[0].(map[string]any)["matcher"] != "Bash" || hooks["Stop"] == nil {
+		t.Fatalf("hooks = %v, want the own Stop and Bash groups kept and two more groups (Skill and write)", hooks)
 	}
 	groups := skillGroups(t, ledger)
 	if len(groups) != 1 {
@@ -478,9 +478,142 @@ func TestInitReplacesOldBigmSkillHook(t *testing.T) {
 		g := g.(map[string]any)
 		cmds = append(cmds, g["matcher"].(string)+" "+g["hooks"].([]any)[0].(map[string]any)["command"].(string))
 	}
-	want := []string{"Bash true", "Skill true", "Skill " + bigmSkillHook}
+	want := []string{"Bash true", "Skill true", "Skill " + bigmSkillHook, "Edit|Write|NotebookEdit|Bash " + bigmWriteHook}
 	if !slices.Equal(cmds, want) {
 		t.Fatalf("PreToolUse = %q, want %q", cmds, want)
+	}
+	if d := plan(t, env, answers(ledger, nil))["diff"]; d != "" {
+		t.Fatalf("second init_plan: diff = %q, want empty", d)
+	}
+}
+
+// writeGroups returns the PreToolUse hook groups of the ledger settings with the matcher of the
+// write hook of bigm.
+func writeGroups(t *testing.T, ledger string) []map[string]any {
+	t.Helper()
+	hooks, _ := ledgerSettings(t, ledger)["hooks"].(map[string]any)
+	pre, _ := hooks["PreToolUse"].([]any)
+	var out []map[string]any
+	for _, g := range pre {
+		if g := g.(map[string]any); g["matcher"] == "Edit|Write|NotebookEdit|Bash" {
+			out = append(out, g)
+		}
+	}
+	return out
+}
+
+// runWriteHook runs the write hook command with BRUH_ROLE_KEY set to role and returns its exit
+// code and output.
+func runWriteHook(t *testing.T, command, role, input string) (int, string) {
+	t.Helper()
+	cmd := exec.Command("sh", "-c", command)
+	cmd.Stdin = strings.NewReader(input)
+	cmd.Env = append(os.Environ(), "BRUH_ROLE_KEY="+role)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		ee, ok := err.(*exec.ExitError)
+		if !ok {
+			t.Fatal(err)
+		}
+		return ee.ExitCode(), string(out)
+	}
+	return 0, string(out)
+}
+
+// bashInput is the hook input of a Bash call of command.
+func bashInput(command string) string {
+	b, _ := json.Marshal(map[string]any{"tool_name": "Bash", "tool_input": map[string]string{"command": command}})
+	return string(b)
+}
+
+// Task 51 (R-19): the bigm start settings stop each file write of bigm by hand with a PreToolUse
+// hook: the Edit, Write, and NotebookEdit tools, and a shell file write in a closed grammar. Other
+// roles, clerk-ledger too, pass.
+func TestInitBigmWriteHook(t *testing.T) {
+	if _, err := exec.LookPath("jq"); err != nil {
+		t.Fatal("jq is not on PATH: the write hook of bigm needs it")
+	}
+	env, ledger := initEnv(t)
+	apply(t, env, plan(t, env, answers(ledger, nil)))
+	groups := writeGroups(t, ledger)
+	if len(groups) != 1 {
+		t.Fatalf("write hook groups = %v, want one", groups)
+	}
+	h := groups[0]["hooks"].([]any)[0].(map[string]any)
+	if h["type"] != "command" || h["command"] != bigmWriteHook {
+		t.Fatalf("write hook = %v, want the command %q", h, bigmWriteHook)
+	}
+	command := h["command"].(string)
+	heredoc := "orca orchestration send --to dispatch:1 --subject s --type status --body \"$(cat <<'EOF'\na -> b > c\nit's >> here\nEOF\n)\""
+	for _, c := range []struct {
+		input string
+		code  int
+	}{
+		{`{"tool_name":"Edit","tool_input":{"file_path":"rules.md"}}`, 2},
+		{`{"tool_name":"Write","tool_input":{"file_path":"rules.md"}}`, 2},
+		{`{"tool_name":"NotebookEdit","tool_input":{}}`, 2},
+		{bashInput("echo x > rules.md"), 2},
+		{bashInput("echo x>rules.md"), 2},
+		{bashInput("echo x >> rules.md"), 2},
+		{bashInput("echo x >| rules.md"), 2},
+		{bashInput("echo x > \"rules.md\""), 2},
+		{bashInput("echo x 1>rules.md"), 2},
+		{bashInput("echo x &> rules.md"), 2},
+		{bashInput("echo x >& rules.md"), 2},
+		{bashInput("echo x >>/dev/null2"), 2},
+		{bashInput("printf a | tee rules.md"), 2},
+		{bashInput("printf a | /usr/bin/tee -a rules.md"), 2},
+		{bashInput("sed -i '' s/a/b/ rules.md"), 2},
+		{bashInput("sed -Ei s/a/b/ rules.md"), 2},
+		{bashInput("sed -n p f; sed --in-place s/a/b/ rules.md"), 2},
+		{bashInput("cp a rules.md"), 2},
+		{bashInput("git status && mv a projects/x.md"), 2},
+		{bashInput("cat <<EOF > owed.md\nx\nEOF"), 2},
+		{bashInput("cat > owed.md <<'EOF'\nx\nEOF"), 2},
+		{`{"tool_name":"Bash","tool_input":{}}`, 2},
+		{`not json`, 2},
+		{bashInput("git status --porcelain"), 0},
+		{bashInput("date -u +%Y-%m-%dT%H:%M:%SZ"), 0},
+		{bashInput("orca orchestration check --json 2>&1"), 0},
+		{bashInput("orca orchestration check >/dev/null 2>&1"), 0},
+		{bashInput("cmd &>/dev/null; cmd 2> /dev/null >&2"), 0},
+		{bashInput("orca orchestration send --to dispatch:1 --body \"a -> b\" --subject 'x > y'"), 0},
+		{bashInput("sed -n 's/a/b/p' f | grep -i x"), 0},
+		{bashInput("git log --format=%s -- projects/cpu.md"), 0},
+		{bashInput(heredoc), 0},
+		{`{"tool_name":"Read","tool_input":{"file_path":"rules.md"}}`, 0},
+	} {
+		code, out := runWriteHook(t, command, "bigm", c.input)
+		if code != c.code || (code == 2) != strings.Contains(out, "R-19") {
+			t.Errorf("write hook of bigm with %s: exit %d, output %q, want exit %d", c.input, code, out, c.code)
+		}
+	}
+	// Each other role passes: clerk-ledger keeps its writes in the ledger folder.
+	for _, role := range []string{"clerk-ledger", ""} {
+		for _, in := range []string{bashInput("echo x > rules.md"), `{"tool_name":"Write","tool_input":{"file_path":"rules.md"}}`} {
+			if code, out := runWriteHook(t, command, role, in); code != 0 {
+				t.Errorf("write hook of role %q with %s: exit %d, output %q, want 0", role, in, code, out)
+			}
+		}
+	}
+	// Without jq the hook blocks bigm, even a read-only command.
+	if code, _ := runWriteHook(t, "PATH=/nonexistent; "+command, "bigm", bashInput("git status")); code != 2 {
+		t.Errorf("write hook without jq: exit %d, want 2", code)
+	}
+}
+
+// Task 51 (R-19): a second init upgrades a ledger settings file of an earlier version: it adds
+// the write hook group and changes nothing else.
+func TestInitUpgradesBigmWriteHook(t *testing.T) {
+	env, ledger := initEnv(t)
+	// The file as init wrote it before task 51: only the Skill group.
+	q, _ := json.Marshal(bigmSkillHook)
+	writeFile(t, filepath.Join(ledger, ".claude", "settings.json"),
+		`{"agent":"bruh:bigm","hooks":{"PreToolUse":[{"matcher":"Skill","hooks":[{"type":"command","command":`+string(q)+`}]}]}}`)
+	apply(t, env, plan(t, env, answers(ledger, nil)))
+	pre := ledgerSettings(t, ledger)["hooks"].(map[string]any)["PreToolUse"].([]any)
+	if len(pre) != 2 || pre[0].(map[string]any)["matcher"] != "Skill" || len(writeGroups(t, ledger)) != 1 {
+		t.Fatalf("PreToolUse = %v, want the Skill group and then the write hook group", pre)
 	}
 	if d := plan(t, env, answers(ledger, nil))["diff"]; d != "" {
 		t.Fatalf("second init_plan: diff = %q, want empty", d)

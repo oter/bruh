@@ -407,13 +407,36 @@ var oldBigmSkillHooks = []string{
 	`jq -e '.tool_input.skill | startswith("bruh:")' >/dev/null || { echo 'bigm runs no skill: send the ask to a clanker' >&2; exit 2; }`,
 }
 
-// bigmSkillGroup returns the PreToolUse hook group of the Skill hook command cmd.
-func bigmSkillGroup(cmd string) *object {
+// bigmWriteHook is the PreToolUse command of the bigm start settings for owner rule R-19 (task 51):
+// bigm writes no file by hand, it changes the ledger with ledger_edit. It acts only when
+// BRUH_ROLE_KEY is bigm, so clerk-ledger, which starts in the ledger folder with its own role key,
+// keeps its writes. It blocks Edit, Write, and NotebookEdit, and a Bash command whose text, after
+// the heredoc bodies and the quoted strings are cut out, has a closed-grammar file write: a >, >>,
+// >|, or &> redirect to a target other than /dev/null or &<fd>, the command word tee, cp, or mv, or
+// sed with -i, -<letters>i, or --in-place. It reads the structure of the text, never its meaning.
+// jq exit 1 (no write) passes; any other exit, also a missing jq, bad JSON, or no command, blocks
+// with exit 2. The jq text makes the single quote ($q) and the backtick ($b) with implode, so it
+// fits in one sh word.
+// ponytail: a speed bump (principle 2): another writer such as python -c or dd passes; add a word
+// to the list when one shows up.
+const bigmWriteHook = `[ "${BRUH_ROLE_KEY:-}" = bigm ] || exit 0; jq -e '` +
+	`([39] | implode) as $q | ([96] | implode) as $b` +
+	` | if .tool_name == "Bash" then .tool_input.command | if type == "string" then . else error("no command") end` +
+	` | gsub("<<-?[ \t]*[\"\($q)]?(?<d>[A-Za-z_][A-Za-z0-9_]*)[\"\($q)]?(?<r>[^\n]*)\n(?:[\\s\\S]*?\n)?[ \t]*\\k<d>(?=[ \t]*(?:\n|$|\\)))"; "<<\(.r)")` +
+	` | gsub("\"(?:[^\"\\\\]|\\\\[\\s\\S])*\"|\($q)[^\($q)]*\($q)"; "q")` +
+	` | test("(?:&>>?|>>?\\|?)(?![>|])[ \t]*+(?!/dev/null(?:[ \t\n;&|)]|$)|&[0-9-])")` +
+	` or test("(?:^|[\\s;&|(\($b){])(?:\\S*/)?(?:tee|cp|mv)(?:\\s|$)")` +
+	` or test("(?:^|[\\s;&|(\($b){])(?:\\S*/)?sed(?:[ \t]+[^ \t\n;&|]+)*?[ \t]+(?:-[A-Za-z]*i|--in-place)")` +
+	` else .tool_name | IN("Edit", "Write", "NotebookEdit") end' >/dev/null 2>&1; [ $? = 1 ] && exit 0; ` +
+	`echo 'R-19: bigm writes no file by hand: change the ledger with ledger_edit' >&2; exit 2`
+
+// bigmHookGroup returns the PreToolUse hook group of the hook command cmd with matcher.
+func bigmHookGroup(matcher, cmd string) *object {
 	h := newObject()
 	h.set("type", "command")
 	h.set("command", cmd)
 	g := newObject()
-	g.set("matcher", "Skill")
+	g.set("matcher", matcher)
 	g.set("hooks", []any{h})
 	return g
 }
@@ -422,8 +445,9 @@ func bigmSkillGroup(cmd string) *object {
 // existing file (an empty file is {}), or from the bigm role settings when there is no file. It sets
 // agent to bruh:bigm and each env key of the role settings, so it replaces the old values of these
 // keys. It adds each deny rule of the role settings that the file does not have yet, and the Skill
-// hook group (bigmSkillGroup) to hooks.PreToolUse when the file does not have it yet, after it removes
-// each group that equals the group of an old command (oldBigmSkillHooks), and keeps every other key. A file whose env, permissions, permissions.deny, hooks, or hooks.PreToolUse has another
+// hook group and the write hook group (bigmHookGroup) to hooks.PreToolUse when the file does not have
+// them yet, after it removes each group that equals the group of an old command (oldBigmSkillHooks),
+// and keeps every other key. A file whose env, permissions, permissions.deny, hooks, or hooks.PreToolUse has another
 // JSON type is an error, so init does not drop such a value.
 func planLedgerSettings(exists bool, old, role []byte) ([]byte, error) {
 	r, err := parseOrdered(role)
@@ -476,18 +500,26 @@ func planLedgerSettings(exists bool, old, role []byte) ([]byte, error) {
 	if _, has := hooks.vals["PreToolUse"]; has && !ok {
 		return nil, errors.New("ledger settings file: hooks.PreToolUse is not a JSON array")
 	}
-	var stale [][]byte
-	for _, c := range oldBigmSkillHooks {
-		stale = append(stale, encodeOrdered(bigmSkillGroup(c), ""))
-	}
-	pre = slices.DeleteFunc(pre, func(v any) bool {
-		e := encodeOrdered(v, "")
-		return slices.ContainsFunc(stale, func(o []byte) bool { return bytes.Equal(e, o) })
-	})
-	group := bigmSkillGroup(bigmSkillHook)
-	want := encodeOrdered(group, "")
-	if !slices.ContainsFunc(pre, func(v any) bool { return bytes.Equal(encodeOrdered(v, ""), want) }) {
-		pre = append(pre, group)
+	for _, hk := range []struct {
+		matcher, cmd string
+		old          []string // the earlier commands, an exact-value list
+	}{
+		{"Skill", bigmSkillHook, oldBigmSkillHooks},
+		{"Edit|Write|NotebookEdit|Bash", bigmWriteHook, nil},
+	} {
+		var stale [][]byte
+		for _, c := range hk.old {
+			stale = append(stale, encodeOrdered(bigmHookGroup(hk.matcher, c), ""))
+		}
+		pre = slices.DeleteFunc(pre, func(v any) bool {
+			e := encodeOrdered(v, "")
+			return slices.ContainsFunc(stale, func(o []byte) bool { return bytes.Equal(e, o) })
+		})
+		group := bigmHookGroup(hk.matcher, hk.cmd)
+		want := encodeOrdered(group, "")
+		if !slices.ContainsFunc(pre, func(v any) bool { return bytes.Equal(encodeOrdered(v, ""), want) }) {
+			pre = append(pre, group)
+		}
 	}
 	hooks.set("PreToolUse", pre)
 	return encodeOrdered(top, indentOf(src)), nil

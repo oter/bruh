@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -407,6 +408,260 @@ func TestLedgerEditRestoresOnFailedCommit(t *testing.T) {
 	}
 	if fi, err := os.Stat(filepath.Join(dir, "owed.md")); err != nil || fi.Mode().Perm() != 0o644 {
 		t.Errorf("mode after the restore = %v, %v", fi.Mode(), err)
+	}
+}
+
+// ruleSection is one rule of rules.md in the form of the ledger template.
+func ruleSection(n int, subject, words, date string) string {
+	return fmt.Sprintf("## R-%d: %s\n\n- Words: \"%s\"\n- Date: %s\n- Source: terminal\n- Tag: owner decision %s\n", n, subject, words, date, date[:10])
+}
+
+// rulesFile is a rules.md with the rules 1 to n, separated by an empty line.
+func rulesFile(n int) string {
+	var s []string
+	for i := range n {
+		s = append(s, ruleSection(i+1, fmt.Sprintf("rule %d", i+1), fmt.Sprintf("words %d", i+1), "2026-10-03T10:00:00Z"))
+	}
+	return "# Rules\n\nText.\n\n## Rules\n\n" + strings.Join(s, "\n")
+}
+
+// at sets the fake clock of env to 2026-10-09T19:04:47Z, the time of owner rule R-19.
+func at(env Env) Env {
+	env.Now = func() time.Time { return time.Date(2026, 10, 9, 19, 4, 47, 0, time.UTC) }
+	return env
+}
+
+// Task 51 (R-19): add_rule writes the next R-<n> section in the form of the other sections, with
+// the date and the tag from the server clock.
+func TestLedgerEditAddRule(t *testing.T) {
+	tmpl, err := os.ReadFile(filepath.Join("..", "ledger-template", "rules.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	words := "NO BRUH, YOU AS bign MUST NOT MODIFY FILES!"
+	for _, c := range []struct {
+		name, file string
+		next       int
+	}{
+		{"template with no rule", string(tmpl), 1},
+		{"two rules", rulesFile(2), 3},
+		{"eighteen rules", rulesFile(18), 19},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			env, dir := ledgerFixture(t, map[string]string{"rules.md": c.file})
+			env = at(env)
+			out, err := edit(t, env, map[string]any{"action": "add_rule", "file": "rules.md", "subject": "bigm does not modify files",
+				"words": words, "source": "terminal"})
+			if err != nil {
+				t.Fatal(err)
+			}
+			want := c.file + "\n" + ruleSection(c.next, "bigm does not modify files", words, "2026-10-09T19:04:47Z")
+			if got := readT(t, dir, "rules.md"); got != want {
+				t.Fatalf("rules.md:\n%s\nwant\n%s", got, want)
+			}
+			id := fmt.Sprintf("R-%d", c.next)
+			checkCommit(t, env, dir, out, "add rule: "+id+" - bigm does not modify files", "rules.md")
+			body := "add rule: " + id + " - bigm does not modify files\n\nWords:\n> " + words +
+				"\nSource: terminal\nRecorded (UTC): 2026-10-09T19:04:47Z\nTag: owner decision 2026-10-09\n\n"
+			if got := gitT(t, dir, "log", "-1", "--format=%B"); got != body {
+				t.Errorf("body = %q, want %q", got, body)
+			}
+			if out["row"].(map[string]any)["rule"] != id {
+				t.Errorf("row = %v, want rule %s", out["row"], id)
+			}
+		})
+	}
+	// Words go into the one-line "- Words:" bullet: a newline or a tab would break the section or
+	// inject a fake "## R-<n>:" heading.
+	env, dir := ledgerFixture(t, map[string]string{"rules.md": rulesFile(2)})
+	env = at(env)
+	headSHA := strings.TrimSpace(gitT(t, dir, "rev-parse", "HEAD"))
+	for _, w := range []string{"x\n## R-99: fake", "a\tb"} {
+		if _, err := edit(t, env, map[string]any{"action": "add_rule", "file": "rules.md", "subject": "s", "words": w, "source": "terminal"}); err == nil {
+			t.Errorf("add_rule accepted words %q", w)
+		}
+	}
+	checkNothing(t, dir, headSHA, "rules.md", rulesFile(2))
+}
+
+// Task 51 (R-19): close_rule deletes one rule section, and the next add_rule skips each ID that a
+// close commit retired.
+func TestLedgerEditCloseRule(t *testing.T) {
+	env, dir := ledgerFixture(t, map[string]string{"rules.md": rulesFile(3)})
+	env = at(env)
+	closeRule := func(rule string) (map[string]any, error) {
+		return edit(t, env, map[string]any{"action": "close_rule", "file": "rules.md", "rule": rule, "subject": "old rule",
+			"words": "drop it", "source": "terminal", "decision_by": "owner"})
+	}
+	out, err := closeRule("R-2")
+	if err != nil {
+		t.Fatal(err)
+	}
+	r1, r3 := ruleSection(1, "rule 1", "words 1", "2026-10-03T10:00:00Z"), ruleSection(3, "rule 3", "words 3", "2026-10-03T10:00:00Z")
+	head := "# Rules\n\nText.\n\n## Rules\n\n"
+	if got := readT(t, dir, "rules.md"); got != head+r1+"\n"+r3 {
+		t.Fatalf("after close R-2:\n%s", got)
+	}
+	checkCommit(t, env, dir, out, "close rule: R-2 - old rule", "rules.md")
+	if got := gitT(t, dir, "log", "-1", "--format=%B"); !strings.Contains(got, "Words:\n> drop it\nSource: terminal\n") {
+		t.Errorf("body = %q", got)
+	}
+	// The last section goes with the empty line above it.
+	if _, err := closeRule("R-3"); err != nil {
+		t.Fatal(err)
+	}
+	if got := readT(t, dir, "rules.md"); got != head+r1 {
+		t.Fatalf("after close R-3:\n%q", got)
+	}
+	gitT(t, dir, "commit", "-q", "--allow-empty", "-m", "close rule: R-7 - by hand")
+	before := readT(t, dir, "rules.md")
+	headSHA := strings.TrimSpace(gitT(t, dir, "rev-parse", "HEAD"))
+	for _, r := range []string{"R-9", "R-1x", ""} {
+		if _, err := closeRule(r); err == nil {
+			t.Errorf("close_rule %q accepted", r)
+		}
+	}
+	checkNothing(t, dir, headSHA, "rules.md", before)
+	if _, err := call(t, as(env, "clerk-ledger"), "mail_read", map[string]any{}); err != nil {
+		t.Fatal(err)
+	}
+	out, err = edit(t, env, map[string]any{"action": "add_rule", "file": "rules.md", "subject": "s", "words": "w", "source": "terminal"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if out["row"].(map[string]any)["rule"] != "R-8" {
+		t.Errorf("next rule = %v, want R-8 after the retired R-7", out["row"])
+	}
+}
+
+// Task 51 (R-19): new_project makes a project file from the template, add_line and close_line
+// change one bullet of "Decisions", and the add of a "Sessions" row lands in "Sessions".
+func TestLedgerEditProjectFile(t *testing.T) {
+	env, dir := ledgerFixture(t, map[string]string{"owed.md": owedFixture})
+	tmpl, err := os.ReadFile(filepath.Join("..", "ledger-template", "projects", "_template.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	out, err := edit(t, env, map[string]any{"action": "new_project", "file": "projects/shop.md", "subject": "shop"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := strings.ReplaceAll(string(tmpl), "<project>", "shop")
+	if got := readT(t, dir, "projects/shop.md"); got != want {
+		t.Fatalf("projects/shop.md:\n%s", got)
+	}
+	checkCommit(t, env, dir, out, "add project: shop", "projects/shop.md")
+	if fi, err := os.Stat(filepath.Join(dir, "projects", "shop.md")); err != nil || fi.Mode().Perm() != 0o644 {
+		t.Errorf("mode = %v, %v; want 0644", fi.Mode(), err)
+	}
+
+	line := func(action, text string) (map[string]any, error) {
+		return edit(t, env, map[string]any{"action": action, "file": "projects/shop.md", "table": "Decisions", "kind": "decision",
+			"subject": text, "text": text, "words": "newer decision", "source": "Q-shop-h-1", "decision_by": "owner"})
+	}
+	steps := []struct{ action, text, decisions string }{
+		{"add_line", "use postgres (owner decision 2026-10-09)", "## Decisions\n\n- use postgres (owner decision 2026-10-09)\n\n## Sessions"},
+		{"add_line", "ship on friday", "## Decisions\n\n- use postgres (owner decision 2026-10-09)\n- ship on friday\n\n## Sessions"},
+		{"close_line", "use postgres (owner decision 2026-10-09)", "## Decisions\n\n- ship on friday\n\n## Sessions"},
+	}
+	for _, s := range steps {
+		out, err := line(s.action, s.text)
+		if err != nil {
+			t.Fatalf("%s %q: %v", s.action, s.text, err)
+		}
+		want = regexpDecisions.ReplaceAllLiteralString(want, s.decisions)
+		if got := readT(t, dir, "projects/shop.md"); got != want {
+			t.Fatalf("%s %q:\n%s\nwant\n%s", s.action, s.text, got, want)
+		}
+		verb, _, _ := strings.Cut(s.action, "_")
+		checkCommit(t, env, dir, out, verb+" decision: "+s.text, "projects/shop.md")
+	}
+	out, err = edit(t, env, map[string]any{"action": "add", "file": "projects/shop.md", "table": "Sessions", "kind": "session", "subject": "clanker-shop",
+		"cells": map[string]string{"Role key": "clanker-shop", "Session ID": "s1", "Session name": "clanker-shop", "Machine": "mac",
+			"State": "running", "Compaction count": "0", "Source read": "session_list"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	row := "| clanker-shop | s1 | clanker-shop | mac | running | 0 | session_list |\n"
+	sep := "| Role key | Session ID | Session name | Machine | State | Compaction count | Source read |\n|---|---|---|---|---|---|---|\n"
+	if got := readT(t, dir, "projects/shop.md"); got != strings.Replace(want, sep, sep+row, 1) {
+		t.Fatalf("after the Sessions add:\n%s", got)
+	}
+	checkCommit(t, env, dir, out, "add session: clanker-shop", "projects/shop.md")
+
+	// Refusals write nothing: a close_line with 0 or 2 matches, a new_project of an existing file
+	// or of a bad key, and a heading that is not there.
+	if _, err := line("add_line", "ship on friday"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := call(t, as(env, "clerk-ledger"), "mail_read", map[string]any{}); err != nil {
+		t.Fatal(err)
+	}
+	head := strings.TrimSpace(gitT(t, dir, "rev-parse", "HEAD"))
+	before := readT(t, dir, "projects/shop.md")
+	for _, args := range []map[string]any{
+		{"action": "close_line", "table": "Decisions", "text": "nothing like this"},
+		{"action": "close_line", "table": "Decisions", "text": "ship on friday"},
+		{"action": "add_line", "table": "Nope", "text": "x"},
+		{"action": "add_line", "table": "Decisions", "text": " x"},
+		{"action": "add_line", "table": "Decisions", "text": "a\nb"},
+		{"action": "new_project"},
+		{"action": "new_project", "file": "projects/Shop_1.md"},
+		{"action": "new_project", "file": "projects/a/b.md"},
+		{"action": "new_project", "file": "other.md"},
+	} {
+		if _, ok := args["file"]; !ok {
+			args["file"] = "projects/shop.md"
+		}
+		args["kind"], args["subject"], args["words"], args["source"], args["decision_by"] = "decision", "s", "w", "terminal", "owner"
+		if _, err := edit(t, env, args); err == nil {
+			t.Errorf("%v accepted", args)
+		}
+	}
+	checkNothing(t, dir, head, "projects/shop.md", before)
+	for _, f := range []string{"projects/Shop_1.md", "projects/a/b.md", "other.md"} {
+		if _, err := os.Stat(filepath.Join(dir, f)); !errors.Is(err, os.ErrNotExist) {
+			t.Errorf("%s was made: %v", f, err)
+		}
+	}
+}
+
+// regexpDecisions matches the "Decisions" section of a project file up to the next heading.
+var regexpDecisions = regexp.MustCompile(`(?s)## Decisions\n.*?## Sessions`)
+
+// Task 51 (R-19): commit commits the listed changed files of init and of the learn step (a change,
+// a new file, and a deleted file), and nothing else.
+func TestLedgerEditCommit(t *testing.T) {
+	env, dir := ledgerFixture(t, map[string]string{"owed.md": owedFixture, "learn/tree.json": "{}\n", "projects/old.md": "# old\n", "other.md": "x\n"})
+	writeFile(t, filepath.Join(dir, "learn", "tree.json"), "{\"projects\":[]}\n")
+	writeFile(t, filepath.Join(dir, "learn", "projects", "shop.json"), "{}\n")
+	writeFile(t, filepath.Join(dir, "other.md"), "y\n")
+	if err := os.Remove(filepath.Join(dir, "projects", "old.md")); err != nil {
+		t.Fatal(err)
+	}
+	head := strings.TrimSpace(gitT(t, dir, "rev-parse", "HEAD"))
+	for _, paths := range [][]string{nil, {"owed.md"}, {"../x.json"}, {".git/config"}, {filepath.Join(t.TempDir(), "x")}, {"learn/tree.json", "owed.md"}} {
+		if _, err := edit(t, env, map[string]any{"action": "commit", "paths": paths, "kind": "learn", "subject": "s"}); err == nil {
+			t.Errorf("commit of %q accepted", paths)
+		}
+	}
+	checkNothing(t, dir, head, "other.md", "y\n")
+	if got := gitT(t, dir, "diff", "--cached", "--name-only"); got != "" {
+		t.Errorf("a refused commit left staged files: %q", got)
+	}
+	out, err := edit(t, env, map[string]any{"action": "commit", "kind": "learn", "subject": "learn_refresh",
+		"paths": []string{filepath.Join(dir, "learn", "tree.json"), "learn/projects/shop.json", "projects/old.md"},
+		"text":  "gone_docs: shop api/README.md"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	checkCommit(t, env, dir, out, "commit learn: learn_refresh", "learn/projects/shop.json\nlearn/tree.json\nprojects/old.md")
+	want := "commit learn: learn_refresh\n\nPaths:\n- learn/tree.json\n- learn/projects/shop.json\n- projects/old.md\nNotes:\ngone_docs: shop api/README.md\nRecorded (UTC): 2026-10-04T12:00:00Z\n\n"
+	if got := gitT(t, dir, "log", "-1", "--format=%B"); got != want {
+		t.Errorf("body = %q, want %q", got, want)
+	}
+	if got := gitT(t, dir, "status", "--porcelain"); got != " M other.md\n" {
+		t.Errorf("status = %q, want only other.md dirty", got)
 	}
 }
 
