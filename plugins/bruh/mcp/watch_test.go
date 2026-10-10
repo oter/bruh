@@ -272,18 +272,37 @@ func TestWatchSkipsEntryWithoutProject(t *testing.T) {
 	}
 }
 
-func TestWatchReportsErrorOnce(t *testing.T) {
-	_, w, out, cfg, hosts := watchSetup(t, "github")
-	cfg.Repos[0].Repo = "owner/missing"
-	hosts[0], _ = newHost(cfg.Repos[0])
-	for range 2 {
-		if err := w.pollAll(context.Background(), cfg, hosts); err != nil {
+// A failed poll of a source is an error event only on the 3rd failure in a row, once for each
+// outage, and the first good poll after it is one recovered event (task 52).
+func TestWatchErrorAfterThreeFailures(t *testing.T) {
+	f, w, out, cfg, hosts := watchSetup(t, "github")
+	step := func(name string, fail bool, want ...string) {
+		t.Helper()
+		f.mu.Lock()
+		f.failPath = map[bool]string{true: "/branches"}[fail]
+		f.mu.Unlock()
+		if err := w.pollAll(t.Context(), cfg, hosts); err != nil {
 			t.Fatal(err)
 		}
+		var got []string
+		for _, ev := range events(t, out) {
+			got = append(got, ev.Type)
+		}
+		if !slices.Equal(got, want) {
+			t.Fatalf("%s: events = %v, want %v", name, got, want)
+		}
 	}
-	if evs := events(t, out); len(evs) != 1 || evs[0].Type != "error" {
-		t.Fatalf("events = %+v", evs)
-	}
+	step("baseline", false)
+	step("fail 1", true)
+	step("fail 2", true)
+	step("fail 3", true, "error")
+	step("fail 4", true)
+	step("success", false, "recovered")
+	step("short streak 1", true)
+	step("short streak 2", true)
+	step("success after a short streak", false)
+	step("fail 1 after reset", true)
+	step("fail 2 after reset", true)
 }
 
 // TestRunWatchOnce runs bruh watch --once with a repos.json, which stores the state, and without

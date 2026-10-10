@@ -20,6 +20,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 - A refusal P0 is no longer silent while its asker is held (#42): `question_open` with `hold` posts the P0 itself to the mailbox of the parent of the asker and of bigm, and their waiters wake them, so it needs no `SendMessage` nudge. The question file keeps the hold ID in the new field `hold`. On a post error, the output has `relay_error` and the asker sends the nudge itself.
 - `answer_wait` returns the answer that any role wrote for the question ID with `answer_write` (bigm, the clanker, or the asker), not only the copy of the caller, so a workflow agent no longer stays pending until its clerk writes its own copy.
+- The watcher sends an `error` event for a source only on its 3rd failed poll in a row, once for each outage, and one `recovered` event when the source works again. A single failed poll (a reset connection, a DNS miss) no longer wakes the role (task 52).
 
 ## [0.12.2] - 2026-10-09
 

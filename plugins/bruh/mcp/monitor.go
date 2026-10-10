@@ -87,10 +87,10 @@ func (m monitor) expired(now time.Time) bool {
 }
 
 // wants reports whether the event goes to this monitor: a codehost monitor with ref or number
-// gets only the events of that ref or number, and each error and expired event.
+// gets only the events of that ref or number, and each error, recovered, and expired event.
 func (m monitor) wants(ev watchEvent) bool {
 	s := m.Source
-	if s.Kind != "codehost" || (s.Ref == "" && s.Number == 0) || ev.Type == "error" || ev.Type == "expired" {
+	if s.Kind != "codehost" || (s.Ref == "" && s.Number == 0) || ev.Type == "error" || ev.Type == "recovered" || ev.Type == "expired" {
 		return true
 	}
 	return (s.Ref != "" && ev.Ref == s.Ref) || (s.Number != 0 && ev.Number == s.Number)
