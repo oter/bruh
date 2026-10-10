@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.12.3] - 2026-10-10
+
 ### Added
 
 - The review step of `/bruh:deliver` has a simplicity reviewer next to the adversarial reviewer and the invariant checker. It finds unrequested abstractions, code for a speculative need, a re-implemented standard library function or existing helper, an unneeded dependency, scaffolding for later, and a diff that is longer than the problem needs. Each finding names a concrete simpler replacement and goes through the same refuter and fix loop. What the task or a deliberate choice asks for is never a finding (task 45).
@@ -194,7 +196,8 @@ This is the first release of bruh. It contains all parts of the [specification](
 - `init_plan` does not write the plugin options (`pluginConfigs`).
 - The report file `reports/watcher.jsonl` and the role key `watcher` of `report_read`.
 
-[Unreleased]: https://github.com/oter/bruh/compare/v0.12.2...HEAD
+[Unreleased]: https://github.com/oter/bruh/compare/v0.12.3...HEAD
+[0.12.3]: https://github.com/oter/bruh/compare/v0.12.2...v0.12.3
 [0.12.2]: https://github.com/oter/bruh/compare/v0.12.1...v0.12.2
 [0.12.1]: https://github.com/oter/bruh/compare/v0.12.0...v0.12.1
 [0.12.0]: https://github.com/oter/bruh/compare/v0.11.1...v0.12.0
