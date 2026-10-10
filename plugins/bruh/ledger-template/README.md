@@ -4,7 +4,7 @@ This repository is the ledger of bruh. It describes all other repositories. Keep
 
 ## Who writes it
 
-- bigm writes the Markdown files. It commits after each change. A table row or a `key: value` line changes through `ledger_edit`, which commits only that file.
+- bigm changes the Markdown files only through `ledger_edit`, which commits only the changed files: a table row, a `key: value` line, a bullet line, a rule section, a new project file, and the commit of the files of `learn/` and `.claude/settings.json`. bigm writes no file by hand (owner rule R-19); a hook of `.claude/settings.json` blocks it.
 - Plugin code writes the files of `learn/`: `init_apply` at init, and `learn_refresh` at each sweep of bigm.
 - The init skill writes `.claude/settings.json`.
 - bigm is the only role that commits. It also commits the files of `learn/` and `.claude/settings.json`.
@@ -27,7 +27,7 @@ This repository is the ledger of bruh. It describes all other repositories. Keep
 | `projects/<key>.md` | One file for each selected project, made from `projects/_template.md` |
 | `learn/tree.json` | The hierarchy of the projects and the scan settings. Plugin code writes it. |
 | `learn/projects/<key>.json` | The index of a project: the purpose, the repositories, the links to other projects, and the doc pointers. Plugin code writes it. |
-| `.claude/settings.json` | The start settings of bigm: the agent `bruh:bigm`, the role key, the env values, and the deny rules. The init skill writes it. |
+| `.claude/settings.json` | The start settings of bigm: the agent `bruh:bigm`, the role key, the env values, the deny rules, and the hooks. The init skill writes it. |
 
 ## Rules for each row
 
