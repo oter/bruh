@@ -174,6 +174,10 @@ func checkLedgerArgs(a ledgerEditArgs) error {
 		if a.Words == "" || hasControl(a.Words, '\n', '\t') {
 			return fmt.Errorf("%s needs words, with no control character other than a newline and a tab", a.Action)
 		}
+		// add_rule writes words into the one-line "- Words:" bullet of the rule section.
+		if a.Action == "add_rule" && !ledgerLine(a.Words) {
+			return errors.New("add_rule needs words on one line, with no control character")
+		}
 		if !ledgerLine(a.Source) {
 			return fmt.Errorf("%s needs source, one line", a.Action)
 		}

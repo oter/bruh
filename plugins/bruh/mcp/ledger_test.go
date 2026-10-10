@@ -471,6 +471,17 @@ func TestLedgerEditAddRule(t *testing.T) {
 			}
 		})
 	}
+	// Words go into the one-line "- Words:" bullet: a newline or a tab would break the section or
+	// inject a fake "## R-<n>:" heading.
+	env, dir := ledgerFixture(t, map[string]string{"rules.md": rulesFile(2)})
+	env = at(env)
+	headSHA := strings.TrimSpace(gitT(t, dir, "rev-parse", "HEAD"))
+	for _, w := range []string{"x\n## R-99: fake", "a\tb"} {
+		if _, err := edit(t, env, map[string]any{"action": "add_rule", "file": "rules.md", "subject": "s", "words": w, "source": "terminal"}); err == nil {
+			t.Errorf("add_rule accepted words %q", w)
+		}
+	}
+	checkNothing(t, dir, headSHA, "rules.md", rulesFile(2))
 }
 
 // Task 51 (R-19): close_rule deletes one rule section, and the next add_rule skips each ID that a
