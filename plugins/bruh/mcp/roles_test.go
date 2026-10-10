@@ -299,7 +299,9 @@ func TestRoleSettingsWriteScout(t *testing.T) {
 		"Bash(git -C * branch *)", "Bash(git -C * remote *)", "Bash(git -C * config *)",
 		"Bash(git -C * update-ref *)", "Bash(git gc:*)", "Bash(git -C * reflog expire *)",
 		// A monitor outlives the scout, so a scout starts, stops, and reports none (spec 9.5).
-		"mcp__plugin_bruh_bruh__monitor_start", "mcp__plugin_bruh_bruh__monitor_stop", "mcp__plugin_bruh_bruh__monitor_report"} {
+		"mcp__plugin_bruh_bruh__monitor_start", "mcp__plugin_bruh_bruh__monitor_stop", "mcp__plugin_bruh_bruh__monitor_report",
+		// Each writer of the learn index is denied, also learn_add (task 50).
+		"mcp__plugin_bruh_bruh__init_apply", "mcp__plugin_bruh_bruh__learn_refresh", "mcp__plugin_bruh_bruh__learn_add"} {
 		if !slices.Contains(scoutDeny, d) {
 			t.Errorf("scoutDeny has no %q", d)
 		}

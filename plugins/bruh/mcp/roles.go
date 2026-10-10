@@ -104,6 +104,7 @@ var scoutDeny = append(append(scoutGitDeny(), scoutGuardDeny()...), []string{
 	bruhTool + "lease_define", bruhTool + "lease_request", bruhTool + "lease_grant", bruhTool + "lease_release",
 	bruhTool + "answer_write", bruhTool + "question_open", bruhTool + "repos_set", bruhTool + "result_save",
 	bruhTool + "init_plan", bruhTool + "init_apply", bruhTool + "learn_refresh", bruhTool + "learn_scan",
+	bruhTool + "learn_add",
 	bruhTool + "monitor_start", bruhTool + "monitor_stop", bruhTool + "monitor_report",
 	"Bash(rm:*)", "Bash(mv:*)", "Bash(cp:*)", "Bash(mkdir:*)", "Bash(touch:*)", "Bash(tee:*)", "Bash(chmod:*)", "Bash(ln:*)",
 	"Bash(claude:*)", "Bash(go run:*)", "Bash(sh:*)", "Bash(bash:*)",
