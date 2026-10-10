@@ -273,15 +273,30 @@ func TestHooksJSON(t *testing.T) {
 		Hooks map[string][]struct {
 			Matcher string `json:"matcher"`
 			Hooks   []struct {
-				Type        string   `json:"type"`
-				Command     string   `json:"command"`
-				Args        []string `json:"args"`
-				AsyncRewake bool     `json:"asyncRewake"`
-				Timeout     int      `json:"timeout"`
+				Type          string   `json:"type"`
+				Command       string   `json:"command"`
+				Args          []string `json:"args"`
+				AsyncRewake   bool     `json:"asyncRewake"`
+				Timeout       int      `json:"timeout"`
+				StatusMessage string   `json:"statusMessage"`
 			} `json:"hooks"`
 		} `json:"hooks"`
 	}
 	readJSON(t, "../hooks/hooks.json", &h)
+	// The bro loader is the last SessionStart group and the only hook that is not `sh <script>`.
+	ss := h.Hooks["SessionStart"]
+	if len(ss) == 0 {
+		t.Fatal("no SessionStart groups")
+	}
+	bro := ss[len(ss)-1]
+	h.Hooks["SessionStart"] = ss[:len(ss)-1]
+	if bro.Matcher != "startup|resume|clear|compact" || len(bro.Hooks) != 1 {
+		t.Fatalf("bro group = %+v", bro)
+	}
+	if hk := bro.Hooks[0]; hk.Type != "command" || hk.Command != broHookCommand || len(hk.Args) != 0 ||
+		hk.AsyncRewake || hk.Timeout != 5 || hk.StatusMessage != "Loading bro mode..." {
+		t.Fatalf("bro hook = %+v", hk)
+	}
 	// Each group: the matcher, the script, and whether it is the waiter of spec 9.5 (M1), which
 	// runs with asyncRewake and a timeout above its own limit of 604500 seconds.
 	type group struct {
@@ -318,6 +333,29 @@ func TestHooksJSON(t *testing.T) {
 				t.Fatal(err)
 			}
 		}
+	}
+}
+
+const broHookCommand = `echo "BRO MODE ACTIVE — level: full"; cat "${CLAUDE_PLUGIN_ROOT}/skills/bro/SKILL.md"`
+
+// TestBroHookOutput: the bro loader prints the banner line and then the bro skill file.
+func TestBroHookOutput(t *testing.T) {
+	root, err := filepath.Abs("..")
+	if err != nil {
+		t.Fatal(err)
+	}
+	skill, err := os.ReadFile("../skills/bro/SKILL.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	cmd := exec.Command("sh", "-c", broHookCommand)
+	cmd.Env = []string{"PATH=" + os.Getenv("PATH"), "CLAUDE_PLUGIN_ROOT=" + root}
+	out, err := cmd.Output()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := "BRO MODE ACTIVE — level: full\n" + string(skill); string(out) != want {
+		t.Fatalf("bro hook output = %q", out)
 	}
 }
 

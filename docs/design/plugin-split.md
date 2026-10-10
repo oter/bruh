@@ -18,7 +18,7 @@ The owner said on 2026-10-09 at 16:46Z: "bruh pllugin must be break down into tw
 
 - a. Without the coordinator, the result file is `.bruh/results/<name>.json`, and git ignores it. Agent-derived, needs owner decision.
 - b. The house rules ship with bruh, and deliver uses them by default. The coordinator stops pasting them into each START. Agent-derived, needs owner decision.
-- c. bro moves into bruh, and a bruh SessionStart hook loads it. The bro line in the global `CLAUDE.md` of the owner then points to the plugin skill. The owner edits that file; no agent does. Agent-derived, needs owner decision.
+- c. bro moves into bruh, and a bruh SessionStart hook loads it. The bro line in the global `CLAUDE.md` of the owner then points to the plugin skill. The owner edits that file; no agent does. Owner decision 2026-10-10 (Q-295).
 
 ## Changes to the spec
 
