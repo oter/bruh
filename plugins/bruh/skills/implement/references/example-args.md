@@ -82,4 +82,4 @@ The other keys of `/bruh:review-and-fix`:
 
 For `/bruh:review-only`, `root` is a detached worktree at the head of the pull request, `base` is its base SHA, and `head` is its head SHA. It has no `gates` and no `round_cap`.
 
-Without `head`, the workflow takes HEAD of `root` and checks that the tree is clean. Add `answers` only on a relaunch after `status: question`.
+Without `head`, the workflow takes HEAD of `root` and checks that the tree is clean. Add `answers` only on a relaunch after `status: question`. Set `decided` (the same object as `answers`) only for a new run after a `CONFLICT:` stop. A resume keeps the `decided` of its run unchanged.

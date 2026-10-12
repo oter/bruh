@@ -19,6 +19,7 @@ const isPath = (p) => typeof p === 'string' && p.startsWith('/') && !/['\n]/.tes
 const cap = Number.isInteger(A.round_cap) && A.round_cap >= 1 ? A.round_cap : 5
 const deadline = typeof A.deadline_seconds === 'number' && A.deadline_seconds > 0 ? A.deadline_seconds : 3600
 const answers = A.answers && typeof A.answers === 'object' && !Array.isArray(A.answers) ? A.answers : {}
+const decided = A.decided && typeof A.decided === 'object' && !Array.isArray(A.decided) ? A.decided : {}
 const deviations = []
 let draft = { tickets: [], notes: '' }
 let issues = []
@@ -43,6 +44,7 @@ if (A.ground !== undefined && !(Array.isArray(A.ground) && A.ground.every(isPath
 if (A.round_cap !== undefined && !(Number.isInteger(A.round_cap) && A.round_cap >= 1)) problems.push('args.round_cap is not a positive integer')
 if (A.deadline_seconds !== undefined && !(typeof A.deadline_seconds === 'number' && A.deadline_seconds > 0)) problems.push('args.deadline_seconds is not a positive number')
 if (A.answers !== undefined && answers !== A.answers) problems.push('args.answers is not an object')
+if (A.decided !== undefined && decided !== A.decided) problems.push('args.decided is not an object')
 if (problems.length) return stop(problems.join('; '))
 
 const ground = A.ground || []
@@ -107,11 +109,16 @@ const REVIEW = {
 
 // The answers of the session for one question ID: a string, or a list of
 // strings when the session answered the same question more than one time.
-function answerList(id) {
-  const a = answers[id]
+function answerList(id, from = answers) {
+  const a = from[id]
   if (typeof a === 'string') return [a]
   return Array.isArray(a) ? a.filter((x) => typeof x === 'string') : []
 }
+
+// The answers of args.decided, for each askable prompt. A clerk sets it only
+// in a new run, which has no earlier questions; a resume keeps its prompts.
+const decidedLines = Object.keys(decided).flatMap((id) => answerList(id, decided).map((t) => `- ${id}: ${t}`))
+const DECIDED = decidedLines.length ? `\n\nDecisions already made:\n${decidedLines.join('\n')}` : ''
 
 // Runs a step that can ask a question (deliver.js). The first attempt has the
 // plain prompt. Each later attempt adds the earlier questions of this step and
@@ -124,7 +131,7 @@ async function askable(label, prompt, opts) {
     const earlier = given.length
       ? `\n\nEarlier questions of this step and their answers. Check ${A.issues}/ first: work of an earlier attempt can be in it already.\n${given.map((g) => `- ${g.q.id} (${g.q.header}): ${g.text}`).join('\n')}`
       : ''
-    const r = await agent(`${prompt}${earlier}\n\n${ASK}`, { ...opts, label: given.length ? `${label} attempt ${given.length + 1}` : label })
+    const r = await agent(`${prompt}${DECIDED}${earlier}\n\n${ASK}`, { ...opts, label: given.length ? `${label} attempt ${given.length + 1}` : label })
     if (!r) return { failed: `the ${label} agent did not return a result` }
     if (!r.question) return { value: r }
     const q = { id: r.question.id, header: r.question.header, body: r.question.body }
