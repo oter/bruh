@@ -127,7 +127,7 @@ The clanker gives this text to each clerk, and the clerk passes it to \`/bruh:de
 3. A refuted finding stays refuted in later rounds.
 `
 
-const CONTEXT =`You are an agent of the bruh deliver workflow for one task.
+const CONTEXT = `You are an agent of the bruh deliver workflow for one task.
 Branch: ${branch}
 Pinned base SHA: ${base}
 
