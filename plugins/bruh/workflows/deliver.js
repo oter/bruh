@@ -25,6 +25,7 @@ const testGates = list(A.test_gates)
 const cap = Number.isInteger(A.round_cap) && A.round_cap >= 1 ? A.round_cap : 2
 const deadline = typeof A.deadline_seconds === 'number' && A.deadline_seconds > 0 ? A.deadline_seconds : 3600
 const answers = A.answers && typeof A.answers === 'object' ? A.answers : {}
+const decided = A.decided && typeof A.decided === 'object' ? A.decided : {}
 const isPath = (p) => typeof p === 'string' && p.startsWith('/') && !/['\n]/.test(p)
 // The guides folder of the task (an absolute path with INDEX.md), or '' for none.
 const guides = typeof A.guides === 'string' ? A.guides.trim().replace(/\/+$/, '') : ''
@@ -216,11 +217,16 @@ const VERDICT = {
 
 // The answers of the clerk for one question ID: a string, or a list of
 // strings when the clerk answered the same question more than one time.
-function answerList(id) {
-  const a = answers[id]
+function answerList(id, from = answers) {
+  const a = from[id]
   if (typeof a === 'string') return [a]
   return Array.isArray(a) ? a.filter((x) => typeof x === 'string') : []
 }
+
+// The answers of args.decided, for each askable prompt. A clerk sets it only
+// in a new run, which has no earlier questions; a resume keeps its prompts.
+const decidedLines = Object.keys(decided).flatMap((id) => answerList(id, decided).map((t) => `- ${id}: ${t}`))
+const DECIDED = decidedLines.length ? `\n\nDecisions already made:\n${decidedLines.join('\n')}` : ''
 
 // Runs a step that can ask a question. The first attempt has the plain prompt.
 // Each later attempt adds the earlier questions of this step and their answers
@@ -232,7 +238,7 @@ async function askable(label, prompt, schema) {
     const earlier = given.length
       ? `\n\nEarlier questions of this step and their answers. Check the working tree first: work of an earlier attempt can be in it already.\n${given.map((g) => `- ${g.q.id} (${g.q.header}): ${g.text}`).join('\n')}`
       : ''
-    const r = await agent(`${CONTEXT}\n\n${prompt}${earlier}\n\n${ASK}`, {
+    const r = await agent(`${CONTEXT}\n\n${prompt}${DECIDED}${earlier}\n\n${ASK}`, {
       label: given.length ? `${label} attempt ${given.length + 1}` : label,
       effort: 'high',
       schema,

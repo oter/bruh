@@ -10,6 +10,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 - The bruh plugin includes the bro skill `skills/bro/SKILL.md`. This file is a word-for-word copy of the bro skill of the owner. A new `SessionStart` hook prints the skill at each start, resume, clear, and compact, in every session. The user hook of the owner in `~/.claude/settings.json` and the bro line of the global `CLAUDE.md` also load bro, so bro loads two times. The owner removes the user hook and changes the bro line of `CLAUDE.md` to point to the plugin skill. No agent edits these files (task 57).
 
+### Fixed
+
+- The workflows `/bruh:deliver`, `/bruh:tickets`, `/bruh:implement-tickets`, `/bruh:review-and-fix`, and `/bruh:review-only` take the new optional argument `args.decided`. It has the same shape as `args.answers`. Its answers go into each agent prompt that can ask a question, as a "Decisions already made" block. A clerk sets `args.decided` for a new run after a `CONFLICT:` stop, or after a `FAILED:` stop of `/bruh:implement-tickets`, and stores it with the other arguments. Thus the plan agent does not ask an answered question again. A resume keeps the `args.decided` of its run unchanged, so it keeps its prompts and its cache.
+
 ## [0.12.3] - 2026-10-10
 
 ### Added

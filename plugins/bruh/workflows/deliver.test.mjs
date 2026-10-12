@@ -519,6 +519,18 @@ test('a question pending again after its answer goes back to the clerk with a co
   assert.match(three.result.deviations.at(-1), /^STOP: Q-app-host-5 is pending again after 3 answers/)
 })
 
+test('args.decided reaches the plan prompt in a new run', async () => {
+  const decided = { 'Q-t-h-1': 'Use the existing table.', 'Q-t-h-2': ['first answer', 'second answer'] }
+  const p = (await run({}, baseArgs({ decided }))).byWord('plan')[0].prompt
+  for (const s of ['Decisions already made:', '- Q-t-h-1: Use the existing table.', '- Q-t-h-2: first answer', '- Q-t-h-2: second answer']) {
+    assert.ok(p.includes(s), `the plan prompt does not have ${s}`)
+  }
+  assert.ok(!(await run()).byWord('plan')[0].prompt.includes('Decisions already made:'), 'a block without args.decided')
+  // A resume passes args.answers alone: its prompts stay the same, so the cache holds.
+  const resumed = (await run({}, baseArgs({ answers: decided }))).byWord('plan')[0].prompt
+  assert.ok(!resumed.includes('Decisions already made:'), 'a block from args.answers')
+})
+
 test('a fixer question returns status question with the findings so far', async () => {
   const { result } = await run({
     adversarial: () => ({ findings: [finding('src/a.go', 1)] }),
