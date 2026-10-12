@@ -1,0 +1,4 @@
+{
+  // skills/bro/SKILL.md is a word-for-word copy of the bro skill of the owner; its text does not change.
+  "ignores": ["plugins/bruh/skills/bro/SKILL.md"]
+}

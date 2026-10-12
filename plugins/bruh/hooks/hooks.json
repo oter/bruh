@@ -1,5 +1,5 @@
 {
-  "description": "bruh hooks: the handoff message, the handoff pickup, the waiter that wakes a role on new mail, the refusal stop (also after a worktree guard refusal of a git command), and the owner ask guard of bigm (each AskUserQuestion question names an open question of the board, R-15), and the git chain deny of a clerk (a Bash command that chains git: split it and go on, no hold). Each does nothing when BRUH_ROLE_KEY is not set.",
+  "description": "bruh hooks: the handoff message, the handoff pickup, the waiter that wakes a role on new mail, the refusal stop (also after a worktree guard refusal of a git command), and the owner ask guard of bigm (each AskUserQuestion question names an open question of the board, R-15), and the git chain deny of a clerk (a Bash command that chains git: split it and go on, no hold), and the bro loader (prints skills/bro/SKILL.md at session start). Each does nothing when BRUH_ROLE_KEY is not set, except the bro loader, which runs in every session.",
   "modules": ["./register.js"],
   "hooks": {
     "PostToolUse": [
@@ -20,6 +20,12 @@
         "matcher": "startup|resume|compact",
         "hooks": [
           { "type": "command", "command": "sh", "args": ["${CLAUDE_PLUGIN_ROOT}/scripts/wake.sh"], "asyncRewake": true, "timeout": 604800 }
+        ]
+      },
+      {
+        "matcher": "startup|resume|clear|compact",
+        "hooks": [
+          { "type": "command", "command": "echo \"BRO MODE ACTIVE — level: full\"; cat \"${CLAUDE_PLUGIN_ROOT}/skills/bro/SKILL.md\"", "timeout": 5, "statusMessage": "Loading bro mode..." }
         ]
       }
     ],
