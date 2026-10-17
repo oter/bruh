@@ -2,6 +2,8 @@
 
 Status: design confirmed by the owner (Q-251, 2026-10-09). This doc has no code. Later steps make the change.
 
+Status update 2026-10-17: step 5 (the bruh side) is done in this change. The plugin `bruh` 0.13.0 keeps only the files of decision 4, without bro, which comes in its own pull request. The roles, the MCP server, the hooks, the other scripts, the Slack channel, the ledger template, the init skill, and their docs are in `oter/coordinator`. All tests, evals, smoke and load runs, and probes are removed. Owner decision 2026-10-17. The owner said in the terminal, in Ukrainian: "ми будемо все переписувати, тому немає сенсу у флякі тестах" ("we will rewrite everything, so there is no point in flaky tests"). The owner also said: "уже є готовий координатор в2, я його запушу. твоя задача оновити bruh" ("coordinator v2 is ready, I will push it. your task is to update bruh").
+
 The owner said on 2026-10-09 at 16:46Z: "bruh pllugin must be break down into two parts - bruh skills - my own skills for code review, for building, for breaking down the tickets, for communication - this is a bruh part. AND coordinator - jsut behavioural thing - the concept of coordinator (bigm), clanker, clerk. and the clerks may run tickets breakdown, building, making code review workflows."
 
 ## Decisions
@@ -19,6 +21,11 @@ The owner said on 2026-10-09 at 16:46Z: "bruh pllugin must be break down into tw
 - a. Without the coordinator, the result file is `.bruh/results/<name>.json`, and git ignores it. Agent-derived, needs owner decision.
 - b. The house rules ship with bruh, and deliver uses them by default. The coordinator stops pasting them into each START. Agent-derived, needs owner decision.
 - c. bro moves into bruh, and a bruh SessionStart hook loads it. The bro line in the global `CLAUDE.md` of the owner then points to the plugin skill. The owner edits that file; no agent does. Agent-derived, needs owner decision.
+- d. `plugin.json` of bruh 0.13.0 has no `userConfig` and no `channels`, because only the removed parts used them. Agent decision 2026-10-17; the owner delegated the call: "порезолв сам" ("resolve it yourself").
+- e. The house rules name `git-chain.sh` as a hook of the coordinator, and say that the caller passes them: a clerk of the coordinator, or the owner. Without a caller text, the workflows use the bundled text. The three copies in the workflows stay equal to the file byte for byte. Agent decision 2026-10-17; the owner delegated the call: "порезолв сам" ("resolve it yourself").
+- f. The implement skill says "role key of the coordinator", not `BRUH_ROLE_KEY`, so that a rename in coordinator v2 does not make the text wrong. Agent decision 2026-10-17; the owner delegated the call: "порезолв сам" ("resolve it yourself").
+- g. The README has no banner, and `docs/assets/banner.svg` is removed, because the banner showed the roles. Agent decision 2026-10-17; the owner delegated the call: "порезолв сам" ("resolve it yourself").
+- h. SECURITY.md, the bug form, and the README describe the skills plugin only. Agent decision 2026-10-17; the owner delegated the call: "порезолв сам" ("resolve it yourself").
 
 ## Changes to the spec
 

@@ -1,7 +1,7 @@
 export const meta = {
   name: 'deliver',
   description: 'Deliver one bruh task: plan, implement, review, refute, fix, and review again.',
-  whenToUse: 'A bruh clerk runs it with the args of its start message.',
+  whenToUse: 'A clerk of the coordinator plugin runs it with the args of its start message.',
   phases: [
     { title: 'Plan', detail: 'pin the base SHA, write a plan with STOP conditions' },
     { title: 'Implement', detail: 'implement the plan, record deviations, stop at a conflict' },
@@ -77,6 +77,56 @@ if (problems.length) return stop(problems.join('; '))
 
 const bullets = (xs) => (xs.length ? xs.map((x) => `- ${x}`).join('\n') : '(none)')
 
+// The house rules when args.house_rules is missing or empty (task 55): the text of
+// defaults/house-rules.md, copied because the Workflow runtime has no imports and no
+// filesystem. Keep it equal to the file byte for byte.
+const HOUSE_RULES = `# House rules for review
+
+The caller passes this text to \`/bruh:deliver\` as \`args.house_rules\`: a clerk of the coordinator plugin, or the owner in a manual session. When \`args.house_rules\` is missing or empty, the workflows use this text. Every review agent, the gate check, every refuter, and every fixer gets it in its prompt. These rules come from the principles of the specification (section 2), the \`deliver\` workflow (section 6.3), and the field lessons of a multi-agent run.
+
+## Scope of a review
+
+1. Diff against the pinned base SHA: \`git diff <base SHA> HEAD\`. Never diff against \`origin/main\` or another moving ref. A moving ref shows changes of other work as findings of this task.
+2. Review only the change of the task. A problem in code that the change did not touch is not a finding, unless the change makes it worse.
+3. Do not flag a deliberate choice. The list of deliberate choices is in the prompt.
+4. A finding has a file, a line, and a summary. Findings are deduplicated by \`file:line\`, so give the line where the problem is, not the start of the file.
+
+## What counts as a finding
+
+1. A test that fails.
+2. A skipped test in a required suite. Each gate command of the task is a required suite. Report how many tests ran, passed, failed, and were skipped. An unexpected skip is a failure, not a pass.
+3. A claim of the change that the code does not support: a status (merged, deployed, live, down, out of quota) without a source read, a comment or a document that says something the code does not do, a test that does not test what its name says.
+4. An invariant of the code that the change breaks.
+5. A rule that must never break and that exists only as a sentence in a prompt, a comment, or a note. It needs a mechanical stop: a deny rule, a hook, a sandbox rule, or a check in code.
+6. A time that the model wrote. Timestamps come from code (\`date -u\` or a clock call), never from the model.
+7. A handoff or a report that holds only file pointers instead of the items themselves.
+8. A message body on a command line. Bodies go through files or the mailbox.
+9. A shared resource (a test database, a staging environment, a paid API, a runner) that the change uses without a queue, a gate, or a lease.
+10. An edit of a file that is not on the file list of the task, or an edit of lines of a shared instruction file that another task owns.
+11. A step that costs money or cannot be undone and that the code retries automatically.
+12. A write with a credential whose identity the change does not check before the first write.
+
+## How to work
+
+1. Write a STOP condition for each risky step: the observation that makes you stop instead of continuing. Stop at a conflict. Do not guess.
+2. Record each deviation from the plan with its reason.
+3. Give risky steps narrow tools. Never retry a failed paid step blindly.
+4. Never move, copy, or print a credential. Never switch an account.
+5. Do not post outside the project: no comments on pull requests or issues, no chat messages, no emails. Posting is clerk work.
+6. Do not push. The clerk pushes.
+7. Do not delete anything that is not a temporary file of this run.
+8. A refusal (a permission prompt, a classifier refusal, a worktree guard refusal, or a deny rule) is escalated as a question, never worked around with another form of the same command. The two worktree guard cases of rule 10 are the only exceptions. When a hold denies your next call, open a P0 with \`question_open\` and the \`hold\` field that the deny reason names, then wait. A deny of the coordinator hook \`git-chain.sh\` (git chained with \`;\`, \`&&\`, \`||\`, \`|\`, or \`cd\`) is not a refusal: split the command, run each part alone, and go on; open no question.
+9. Tag a recommendation as a recommendation. Only the owner, or a role that the owner delegated, makes a ruling.
+10. Read files with the Read tool; write files with the Write or Edit tool. For a search, one plain \`grep -rn\` or \`find\` command in Bash is allowed, with no pipe, no git word, and no compound. Never read or write files with sed, cat, head, rg, or a heredoc in Bash. A worktree guard refusal of a plain in-worktree file read or write, or of a no-git wait loop or compound construct, is a deviation, not a question; go on with the built-in tool or single plain commands, and never run the refused construct in any form.
+11. Run settings go straight into the tool call (the \`args\` of the Workflow tool), with no shell script.
+
+## Refuters
+
+1. Try to refute the finding against the code. Read the lines, run the test, or run the gate command again.
+2. Confirm the finding only when you can show it. When you are not sure, the finding is refuted.
+3. A refuted finding stays refuted in later rounds.
+`
+
 const CONTEXT = `You are an agent of the bruh deliver workflow for one task.
 Branch: ${branch}
 Pinned base SHA: ${base}
@@ -91,7 +141,7 @@ Guides index of the project:
 ${typeof A.guides === 'string' && A.guides.trim() ? A.guides : '(none)'}
 
 House rules:
-${typeof A.house_rules === 'string' ? A.house_rules : ''}
+${typeof A.house_rules === 'string' && A.house_rules.trim() ? A.house_rules : HOUSE_RULES}
 
 Deliberate choices (do not flag them, do not undo them):
 ${bullets(list(A.deliberate))}
@@ -113,16 +163,20 @@ const REFUTE_GUIDES = guides
   ? `${GUIDES}\nRead the cited guide rule under ${guides}/. Refute a finding that cites no guide rule, no house rule, and no concrete failing scenario.`
   : ''
 
+// Task 55: the coordinator tools are found by short name with ToolSearch, so any plugin prefix
+// works. Without question_open the question goes to the session, which asks it in chat (askable).
 const ASK = `Questions: when you need a decision that the task, the plan, the house rules, and the code do not answer, do not guess.
-1. Call the bruh MCP tool question_open (mcp__plugin_bruh_bruh__question_open; load it with ToolSearch) with priority (P0, P1, or P2: your estimate), subject (one line), body (the question, the options ranked, and your recommendation), and blocks (the work that waits for the answer), and options (2 to 4, each a label and a description) when the question has fixed answers.
+Find the tool question_open with ToolSearch (any plugin prefix). If it is there:
+1. Call question_open with priority (P0, P1, or P2: your estimate), subject (one line), body (the question, the options ranked, and your recommendation), and blocks (the work that waits for the answer), and options (2 to 4, each a label and a description) when the question has fixed answers.
 2. Send the returned header, and only the header, to main with SendMessage.
-3. Call answer_wait (mcp__plugin_bruh_bruh__answer_wait) with question_id set to the returned id and deadline_seconds ${deadline}.
+3. Call answer_wait (also found with ToolSearch) with question_id set to the returned id and deadline_seconds ${deadline}.
 4. If it returns answered, use the answer text and continue.
-5. If it returns pending, stop at once and do no more work. Return your result with question set to the id and the header of the question, and the body that question_open returned (with its OPTION lines).`
+5. If it returns pending, stop at once and do no more work. Return your result with question set to the id and the header of the question, and the body that question_open returned (with its OPTION lines).
+If question_open is not there: do not wait and send nothing. Stop at once and do no more work. Return your result with question set to an empty id, the header "<P0, P1, or P2> <subject in one line>", and a body with the question, the options ranked, and your recommendation. The session asks it in chat.`
 
 // Task 30: an agent at the start of a step writes the phase of the task to the report of the
-// clerk, so the board shows the step. Kind event: no notice to bigm.
-const PHASE = (p) => `First call the bruh MCP tool report_write (mcp__plugin_bruh_bruh__report_write; load it with ToolSearch) with kind event, text "phase ${p}", and phase "${p}". If the call fails, go on. Then do this step.`
+// clerk, so the board shows the step. Kind event: no notice to bigm. Without the tool: no report.
+const PHASE = (p) => `First find the tool report_write with ToolSearch. If it is there, call it with kind event, text "phase ${p}", and phase "${p}". If the tool is not there or the call fails, go on. Then do this step.`
 
 const QUESTION = {
   type: 'object',
@@ -232,7 +286,9 @@ const DECIDED = decidedLines.length ? `\n\nDecisions already made:\n${decidedLin
 // Each later attempt adds the earlier questions of this step and their answers
 // from args.answers, in order, so the prompts of the earlier attempts never
 // change. Returns {value}, {question, repeat}, {stop}, or {failed}.
-async function askable(label, prompt, schema) {
+// A question with an empty id came from an agent without question_open: it gets the id
+// chat:<chat key or label>, and the session answers it in chat under that id (task 55).
+async function askable(label, prompt, schema, chat) {
   const given = [] // {q, text}, in the order of the attempts
   for (;;) {
     const earlier = given.length
@@ -245,7 +301,7 @@ async function askable(label, prompt, schema) {
     })
     if (!r) return { failed: `the ${label} agent did not return a result` }
     if (!r.question) return { value: r }
-    const q = { id: r.question.id, header: r.question.header, body: r.question.body }
+    const q = { id: r.question.id || `chat:${chat || label}`, header: r.question.header, body: r.question.body }
     const used = given.filter((g) => g.q.id === q.id).length
     const list = answerList(q.id)
     if (used >= MAX_ANSWERS) return { stop: `${q.id} is pending again after ${used} answers` }
@@ -382,7 +438,7 @@ for (let round = 1; ; round++) {
   const [adv, simp, inv, gates] = await parallel([
     () => agent(`${CONTEXT}\n\nStep: adversarial review, round ${round}. Do not edit files.\n${PHASE('review')}\n${DIFF}${GUIDES}\nTry to refute the change: find where it is wrong, where it is incomplete, and where it does not meet the acceptance criteria. Report each finding with the file, the line of the problem, and a summary. Report nothing that you cannot show in the code.`, { label: `adversarial ${round}`, effort: 'low', schema: FINDINGS }),
     // Task 45 (owner Q-219): the simplicity reviewer. The simpler replacement goes in the summary.
-    // The two lists come from skills/implement/references/simplicity.md; deliver.test.mjs checks that they agree.
+    // The two lists come from skills/implement/references/simplicity.md; keep them in agreement.
     () => agent(`${CONTEXT}\n\nStep: simplicity review, round ${round}. Do not edit files.\n${DIFF}${GUIDES}\nFind where the change is more complex than the task needs. Finding kinds: an abstraction that the task did not ask for (for example, an interface that only one type implements, a factory that makes only one kind of object, or an option for a constant); code for a speculative need; a re-implemented standard library function, or a helper that the codebase has already; a new dependency that a few lines can replace; scaffolding for later; a diff that is longer than the problem needs. Report each finding with the file, the line, and a summary that ends with a concrete simpler replacement. A simplicity finding never overrides the acceptance criteria or a deliberate choice. Do not report: something that the task or the acceptance criteria ask for; a deliberate choice of the task; input validation at a trust boundary; error handling that prevents data loss; a security check; accessibility basics; the test that the task needs. Report nothing that you cannot show in the code.`, { label: `simplicity ${round}`, effort: 'low', schema: FINDINGS }),
     () => agent(`${CONTEXT}\n\nStep: invariant check, round ${round}. Do not edit files.\n${DIFF}${GUIDES}\nDo not trust the claims of the author. List the invariants that the code must keep, from the code, the tests, and the docs. Verify each invariant against the changed code. Report each broken invariant as a finding with the file, the line, and a summary.`, { label: `invariants ${round}`, effort: 'low', schema: FINDINGS }),
     // Task 41 part 2 (Q-207): the gate agent runs no git; head comes from the step that made the last commit.
@@ -417,7 +473,7 @@ for (let round = 1; ; round++) {
   )))
 
   // A refuter that returned nothing gave no verdict: the finding stays open
-  // and the run stops, so the clerk relaunches it (spec 15).
+  // and the run stops, so the clerk relaunches it (coordinator spec 15).
   let dead = 0
   candidates.forEach((f, i) => {
     const k = key(f)
@@ -467,6 +523,7 @@ ${batch.map((f) => `- [${f.id}] ${f.file}:${f.line}: ${f.summary}`).join('\n')}
 2. Commit your work on the branch ${branch}.
 3. Return fixed with the ID (the [F<n>] before the finding) of each finding that you fixed, and its file and line now, deviations with each deviation and its reason, and head_sha, read after your last commit with a plain single \`git rev-parse HEAD\` Bash call, never chained with another command.`,
       FIX,
+      `fix ${name} round ${round}`,
     )
     if (fix.failed) return fail(fix.failed)
     if (fix.stop) return stop(fix.stop)

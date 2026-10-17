@@ -20,13 +20,6 @@ body:
       description: The release tag, or the commit SHA for a development install.
     validations:
       required: true
-  - type: input
-    id: go-version
-    attributes:
-      label: Go version
-      description: The output of `go version`.
-    validations:
-      required: true
   - type: dropdown
     id: os
     attributes:
@@ -40,16 +33,16 @@ body:
   - type: dropdown
     id: role
     attributes:
-      label: Role
-      description: The role where the problem occurs.
+      label: Part
+      description: The part where the problem occurs. For a role (bigm, clanker, clerk), report it at oter/coordinator.
       options:
-        - bigm
-        - clanker
-        - clerk
+        - implement skill
         - workflow (deliver)
-        - init skill
-        - hook or status line tap
-        - MCP server
+        - workflow (tickets)
+        - workflow (implement-tickets)
+        - workflow (review-and-fix)
+        - workflow (review-only)
+        - lane.sh
         - other
     validations:
       required: true
@@ -58,7 +51,7 @@ body:
     attributes:
       label: Steps to reproduce
       placeholder: |
-        1. Start bigm with ...
+        1. Run /bruh:deliver with ...
         2. ...
     validations:
       required: true
@@ -79,5 +72,5 @@ body:
     id: evidence
     attributes:
       label: Evidence
-      description: The output of `claude agents --json --all`, the relevant lines of `claude logs <id>`, and the MCP tool result. Remove private data first.
+      description: The result of the workflow and the relevant lines of `claude logs <id>`. Remove private data first.
       render: text
