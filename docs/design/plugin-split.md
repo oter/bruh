@@ -2,6 +2,8 @@
 
 Status: design confirmed by the owner (Q-251, 2026-10-09). This doc has no code. Later steps make the change.
 
+Status update 2026-10-17: step 5 (the bruh side) is done in this change. The plugin `bruh` 0.13.0 keeps only the files of decision 4, without bro, which comes in its own pull request. The roles, the MCP server, the hooks, the other scripts, the Slack channel, the ledger template, the init skill, and their docs are in `oter/coordinator`. All tests, evals, smoke and load runs, and probes are removed. Owner decision 2026-10-17. The owner said in the terminal, in Ukrainian: "ми будемо все переписувати, тому немає сенсу у флякі тестах" ("we will rewrite everything, so there is no point in flaky tests"). The owner also said: "уже є готовий координатор в2, я його запушу. твоя задача оновити bruh" ("coordinator v2 is ready, I will push it. your task is to update bruh").
+
 The owner said on 2026-10-09 at 16:46Z: "bruh pllugin must be break down into two parts - bruh skills - my own skills for code review, for building, for breaking down the tickets, for communication - this is a bruh part. AND coordinator - jsut behavioural thing - the concept of coordinator (bigm), clanker, clerk. and the clerks may run tickets breakdown, building, making code review workflows."
 
 ## Decisions

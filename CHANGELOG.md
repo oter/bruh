@@ -16,6 +16,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - The workflow agents find `question_open`, `answer_wait`, and `report_write` with ToolSearch by short name, not by the full name `mcp__plugin_bruh_bruh__<tool>`, so the tools work under any plugin prefix (task 55).
 - `/bruh:deliver`, `/bruh:review-and-fix`, and `/bruh:review-only` use the text of `defaults/house-rules.md`, bundled in each script, when `args.house_rules` is missing or empty. A passed text still wins. Before, `deliver` gave an empty text and the two reviews gave `(none)` (task 55).
 
+### Removed
+
+- bruh is now the skills plugin only: the skill `/bruh:implement`, the workflows `/bruh:deliver`, `/bruh:tickets`, `/bruh:implement-tickets`, `/bruh:review-and-fix`, and `/bruh:review-only`, the house rules, and `scripts/lane.sh` (plugin split, step 5). The roles bigm, clanker, clerk, and learner, the MCP server, the hooks, the monitors, the scripts except `lane.sh`, the Slack channel, the plugin options, the ledger template, the init skill, the defaults `priorities.md`, `role-settings.json`, and `bug-reports.md`, and their docs moved to `oter/coordinator`. Install `coordinator@oter` for them. Do not run bruh 0.12.x and the coordinator at the same time.
+- All tests, evals, smoke and load runs, and probes are removed, with the Go and test steps of CI. Owner decision 2026-10-17: "we will rewrite everything, so there is no point in flaky tests".
+
 ### Fixed
 
 - The workflows `/bruh:deliver`, `/bruh:tickets`, `/bruh:implement-tickets`, `/bruh:review-and-fix`, and `/bruh:review-only` take the new optional argument `args.decided`. It has the same shape as `args.answers`. Its answers go into each agent prompt that can ask a question, as a "Decisions already made" block. A clerk sets `args.decided` for a new run after a `CONFLICT:` stop, or after a `FAILED:` stop of `/bruh:implement-tickets`, and stores it with the other arguments. Thus the plan agent does not ask an answered question again. A resume keeps the `args.decided` of its run unchanged, so it keeps its prompts and its cache.

@@ -1,2 +1,0 @@
-LINK auth: shop/go.mod:5
-DOC: shop/README.md

@@ -180,7 +180,7 @@ Each step is outward-facing. Nobody runs a step before the owner says go for tha
    gh api -X PUT repos/oter/bruh/private-vulnerability-reporting
    ```
 
-2. **Smoke test** after the merge. Run `tests/smoke/run.sh` on the release candidate (see [tests/smoke/README.md](../../../tests/smoke/README.md)). Save the output as `smoke-result.txt`. A `FAIL` line stops the release. A `SKIP remote` line needs the go of the owner to continue, because the remote signal of spec 20 is then not proven.
+2. **Smoke test** after the merge. Run `tests/smoke/run.sh` on the release candidate (see [tests/smoke/README.md](https://github.com/oter/bruh/blob/6a39c0c26bdb1e0ff351ac929891c48ecb959c26/tests/smoke/README.md)). Save the output as `smoke-result.txt`. A `FAIL` line stops the release. A `SKIP remote` line needs the go of the owner to continue, because the remote signal of spec 20 is then not proven.
 
 3. **Repository topics:**
 

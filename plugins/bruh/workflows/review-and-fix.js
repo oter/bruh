@@ -110,7 +110,7 @@ const RULES = `Rules of this run:
 
 // The house rules when args.house_rules is missing or empty (task 55): the text of
 // defaults/house-rules.md, copied because the Workflow runtime has no imports and no
-// filesystem. implement.test.mjs checks it byte for byte.
+// filesystem. Keep it equal to the file byte for byte.
 const HOUSE_RULES = `# House rules for review
 
 The clanker gives this text to each clerk, and the clerk passes it to \`/bruh:deliver\` as \`args.house_rules\`. Every review agent, the gate check, every refuter, and every fixer gets it in its prompt. These rules come from the principles of the specification (section 2), the \`deliver\` workflow (section 6.3), and the field lessons of a multi-agent run.

@@ -1,7 +1,7 @@
 export const meta = {
   name: 'deliver',
   description: 'Deliver one bruh task: plan, implement, review, refute, fix, and review again.',
-  whenToUse: 'A bruh clerk runs it with the args of its start message.',
+  whenToUse: 'A clerk of the coordinator plugin runs it with the args of its start message.',
   phases: [
     { title: 'Plan', detail: 'pin the base SHA, write a plan with STOP conditions' },
     { title: 'Implement', detail: 'implement the plan, record deviations, stop at a conflict' },
@@ -79,7 +79,7 @@ const bullets = (xs) => (xs.length ? xs.map((x) => `- ${x}`).join('\n') : '(none
 
 // The house rules when args.house_rules is missing or empty (task 55): the text of
 // defaults/house-rules.md, copied because the Workflow runtime has no imports and no
-// filesystem. deliver.test.mjs and implement.test.mjs check it byte for byte.
+// filesystem. Keep it equal to the file byte for byte.
 const HOUSE_RULES = `# House rules for review
 
 The clanker gives this text to each clerk, and the clerk passes it to \`/bruh:deliver\` as \`args.house_rules\`. Every review agent, the gate check, every refuter, and every fixer gets it in its prompt. These rules come from the principles of the specification (section 2), the \`deliver\` workflow (section 6.3), and the field lessons of a multi-agent run.
@@ -438,7 +438,7 @@ for (let round = 1; ; round++) {
   const [adv, simp, inv, gates] = await parallel([
     () => agent(`${CONTEXT}\n\nStep: adversarial review, round ${round}. Do not edit files.\n${PHASE('review')}\n${DIFF}${GUIDES}\nTry to refute the change: find where it is wrong, where it is incomplete, and where it does not meet the acceptance criteria. Report each finding with the file, the line of the problem, and a summary. Report nothing that you cannot show in the code.`, { label: `adversarial ${round}`, effort: 'low', schema: FINDINGS }),
     // Task 45 (owner Q-219): the simplicity reviewer. The simpler replacement goes in the summary.
-    // The two lists come from skills/implement/references/simplicity.md; deliver.test.mjs checks that they agree.
+    // The two lists come from skills/implement/references/simplicity.md; keep them in agreement.
     () => agent(`${CONTEXT}\n\nStep: simplicity review, round ${round}. Do not edit files.\n${DIFF}${GUIDES}\nFind where the change is more complex than the task needs. Finding kinds: an abstraction that the task did not ask for (for example, an interface that only one type implements, a factory that makes only one kind of object, or an option for a constant); code for a speculative need; a re-implemented standard library function, or a helper that the codebase has already; a new dependency that a few lines can replace; scaffolding for later; a diff that is longer than the problem needs. Report each finding with the file, the line, and a summary that ends with a concrete simpler replacement. A simplicity finding never overrides the acceptance criteria or a deliberate choice. Do not report: something that the task or the acceptance criteria ask for; a deliberate choice of the task; input validation at a trust boundary; error handling that prevents data loss; a security check; accessibility basics; the test that the task needs. Report nothing that you cannot show in the code.`, { label: `simplicity ${round}`, effort: 'low', schema: FINDINGS }),
     () => agent(`${CONTEXT}\n\nStep: invariant check, round ${round}. Do not edit files.\n${DIFF}${GUIDES}\nDo not trust the claims of the author. List the invariants that the code must keep, from the code, the tests, and the docs. Verify each invariant against the changed code. Report each broken invariant as a finding with the file, the line, and a summary.`, { label: `invariants ${round}`, effort: 'low', schema: FINDINGS }),
     // Task 41 part 2 (Q-207): the gate agent runs no git; head comes from the step that made the last commit.
@@ -473,7 +473,7 @@ for (let round = 1; ; round++) {
   )))
 
   // A refuter that returned nothing gave no verdict: the finding stays open
-  // and the run stops, so the clerk relaunches it (spec 15).
+  // and the run stops, so the clerk relaunches it (coordinator spec 15).
   let dead = 0
   candidates.forEach((f, i) => {
     const k = key(f)

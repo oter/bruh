@@ -29,9 +29,9 @@ The script is `${CLAUDE_PLUGIN_ROOT}/scripts/lane.sh`. Example `args` are in `re
 
 ## Who is the orchestrator
 
-- In a bruh role session, a clerk runs this skill. The clerk is the orchestrator. It sends each question to its clanker, and it posts only as "Post a review" says.
+- In a role session of the coordinator plugin (`coordinator@oter`), a clerk runs this skill. The clerk is the orchestrator. It sends each question to its clanker, and it posts only as "Post a review" says.
 - In a manual session of the owner, the session is the orchestrator, and the owner answers each question in the terminal.
-- The Workflow tool asks for an opt-in before a workflow runs. The init skill adds the allow rule `Workflow(bruh:<name>)` for each workflow of this skill. In a role session, a refusal of the Workflow tool is a P0 to the clanker. Do not try another form.
+- The Workflow tool asks for an opt-in before a workflow runs. The init skill of the coordinator adds the allow rule `Workflow(bruh:<name>)` for each workflow of this skill. Without the coordinator, the owner gives the opt-in. In a role session, a refusal of the Workflow tool is a P0 to the clanker. Do not try another form.
 - Each workflow can ask a question while it runs (spec 6.2): an agent finds `question_open` with ToolSearch, opens the question, sends its header to the session, and waits with `answer_wait` up to `args.deadline_seconds` (default 3600). When the deadline passes, the run returns `status: question`. Answer it, add the answer to `args.answers` (`{"Q-<id>": "<answer>"}`), and relaunch with `resumeFromRunId`: the agents before the question return their cached results. For a new run (no `resumeFromRunId`), also pass the answers as `args.decided`: each agent prompt then has them as "Decisions already made". A resume keeps the `decided` of its run unchanged, so that the cached prompts stay the same.
 - Without the coordinator plugin (no `question_open`), the agent stops at once and returns the question, its options ranked, and its recommendation. The run returns `status: question` with the id `chat:<step>` (for example `chat:plan`, or `chat:fix src round 2` for a fix step). Ask it in chat, add the answer to `args.answers` under that id (`{"chat:plan": "<answer>"}`), and relaunch with `resumeFromRunId`. The agents also skip `report_write` when it is not there.
 
@@ -107,9 +107,9 @@ For a change of another author, run `/bruh:review-only` with `args = {root, base
 A workflow never posts (spec 6.1). A post goes out under an account of the owner, so it is on the list "Never without the owner". Each post needs a cover:
 
 - In a manual session of the owner (no `BRUH_ROLE_KEY`): the owner said yes to this post in the terminal.
-- In a role session: the message of bigm `ANSWER Q-<id>: post <owner/repo>#<number> at <head SHA> approved` in the mailbox of the caller, for the `head_sha` of the result, or a row of the section "Post grants" of `grants.md` for the role key, the host, and the repository. A clerk follows "Posts" of its agent file.
+- In a role session: the message of bigm `ANSWER Q-<id>: post <owner/repo>#<number> at <head SHA> approved` in the mailbox of the caller, for the `head_sha` of the result, or a row of the section "Post grants" of `grants.md` in the ledger of the coordinator for the role key, the host, and the repository. A clerk follows "Posts" of its agent file.
 
-1. Save the result of the workflow. When the MCP tool `result_save` is there (find it with ToolSearch), use it (`name`, for example `review-only-42`, and the result object); it returns the path. It works in a manual session too: without `BRUH_ROLE_KEY`, it saves under `<data>/results/owner/`. With `result_save` there, never write a result file yourself (principle 3). Without the coordinator plugin, write the result object as JSON with the Write tool to `<root>/.bruh/results/<name>.json` (`root` of the args). A project without the coordinator ignores `.bruh/` in its `.gitignore`.
+1. Save the result of the workflow. When the MCP tool `result_save` of the coordinator is there (find it with ToolSearch), use it (`name`, for example `review-only-42`, and the result object); it returns the path. It works in a manual session too: without `BRUH_ROLE_KEY`, it saves under `<data>/results/owner/`. With `result_save` there, never write a result file yourself (principle 3). Without the coordinator plugin, write the result object as JSON with the Write tool to `<root>/.bruh/results/<name>.json` (`root` of the args). A project without the coordinator ignores `.bruh/` in its `.gitignore`.
 2. Write the body with the Write tool to a temporary file: the summary (the lenses, the confirmed and the refuted counts), then each confirmed finding with its `file:line`. For `/bruh:review-and-fix`, add what is fixed and what is open. End the file with the marker line `<!-- bruh:<role key> -->` (`<!-- bruh:owner -->` in a manual session). The watcher uses the marker to tell agent posts from human posts. Show the body to the owner (in a role session, put it in the question to the clanker).
 3. With the cover in place, post it with the plain CLI of the code host:
 
@@ -124,7 +124,7 @@ Do not post a result with `status` `stopped` or `question`: that review is not c
 
 Each status message to the owner is a table: item, state, link. Each pull request, pipeline, and job has its full URL. A manual deploy job is the click of the owner.
 
-When the run found a defect of bruh itself, a clerk sends the notice of rule 10 of its agent text. A manual session of the owner follows `${CLAUDE_PLUGIN_ROOT}/defaults/bug-reports.md`.
+When the run found a defect of bruh itself, a clerk sends the notice of rule 10 of its agent text. A manual session of the owner offers the owner a bug report for the `repository` of `${CLAUDE_PLUGIN_ROOT}/.claude-plugin/plugin.json`: it shows the final text, and it files the issue only after a yes of the owner. A vulnerability goes to the private report of `SECURITY.md`, never to a public issue.
 
 ## Lessons of this skill
 
