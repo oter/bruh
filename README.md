@@ -1,8 +1,4 @@
 <p align="center">
-  <img src="docs/assets/banner.svg" alt="bruh: coordinate Claude Code sessions across projects and machines" width="100%">
-</p>
-
-<p align="center">
   <a href="https://github.com/oter/bruh/actions/workflows/ci.yml"><img src="https://github.com/oter/bruh/actions/workflows/ci.yml/badge.svg?branch=main" alt="CI"></a>
   <a href="https://github.com/oter/bruh/releases/latest"><img src="https://img.shields.io/github/v/release/oter/bruh" alt="Latest release"></a>
   <a href="LICENSE"><img src="https://img.shields.io/github/license/oter/bruh" alt="License"></a>
